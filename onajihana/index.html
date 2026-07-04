@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>おなじはな、だめ｜ブラウザで対戦できる開発中プロトタイプ</title>
+<meta property="og:title" content="おなじはな、だめ｜部屋コードで友だちと対戦">
+<meta property="og:description" content="全員同時に花を選んで、かぶったらだめ！ ゆるるかなアイキュ〜の開発中ボードゲームをブラウザですぐ対戦。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  オンライン対戦版 v0.1（ルールはローカル版プロトタイプと同一）
+  仕組み: PeerJS（無料のP2P仲介。アカウント・課金不要）でホストの部屋に接続。
+  ホスト＝進行役（このタブを閉じると部屋が終わる）。ゲストは部屋コードで参加。
+  遊び方: ①誰かが「部屋を作る」→ 出てきたコードをLINE等で共有 ②他の人が「部屋に入る」
+  注意: 会社ネットワーク等ではP2P接続に失敗することがある（その場合は別回線/スマホ回線を試す）
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  .txt{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .err{color:var(--bad);font-size:13px;font-weight:700}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;background:#fdf3e2;border:1px dashed var(--accent);
+        border-radius:10px;padding:6px 18px;display:inline-block}
+  .fieldrow{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:6px 0}
+  .fcard{width:78px;height:104px;border-radius:12px;background:#fff;border:2px solid var(--line);
+         display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;
+         box-shadow:var(--shadow);transition:transform .1s}
+  .fcard .em{font-size:30px}
+  .fcard .pt{font-size:20px;font-weight:800}
+  .fcard.pick{cursor:pointer}
+  .fcard.pick:hover{transform:translateY(-4px)}
+  .fcard.sel{outline:3px solid var(--accent)}
+  .fcard.wilt{background:#efe9e2;filter:grayscale(.7);opacity:.75}
+  .wilttag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-size:10px;
+           background:var(--bad);color:#fff;padding:1px 8px;border-radius:20px;white-space:nowrap}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+  .pl.me{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:22px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .ok{background:#eaf3ec;color:#3f7a4e;font-weight:700}
+  .log{height:150px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .step{display:inline-block;font-size:11px;background:var(--accent2);color:#fff;padding:1px 8px;border-radius:20px;margin-right:6px}
+  .step.bad{background:var(--bad)}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f4fbf5);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌼 おなじはな、だめ</h1>
+  <span class="tag">オンライン対戦 v0.1</span>
+  <span class="tag">部屋コードで友だちと</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ===== HOME ===== -->
+  <div id="home" class="card-panel">
+    <h2>はじめる</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>なまえ <input id="nameInput" class="txt" type="text" maxlength="8" value=""></label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="createBtn">🏠 部屋を作る（ホスト）</button>
+    </div>
+    <div class="row">
+      <input id="roomInput" class="txt" type="text" placeholder="部屋コード（例: hana-xxxxx）">
+      <button class="ghost" id="joinBtn">🚪 部屋に入る</button>
+    </div>
+    <div id="homeErr" class="err"></div>
+    <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
+    <div class="foot" style="margin-top:6px">🌼 このゲームはサークル「ゆるるかなアイキュ〜」の開発中プロトタイプ（v0.1）です。感想は <a href="https://x.com/yrr_iq" target="_blank" rel="noopener">X: @yrr_iq</a> まで。／ <a href="solo.html">ひとりでCPUと試す</a> ／ <a href="../">ほかのプロトタイプ一覧</a></div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>1. ならべる</td><td>場に花が並ぶ</td></tr>
+      <tr><td>2. えらぶ</td><td>全員同時に、場の花1つを秘密指名（「みつ休み」＝確実に1点、も選べる）</td></tr>
+      <tr><td>3. オープン</td><td>1人だけ→花束へ。かぶり→その花はしおれて消滅（だめ！）</td></tr>
+      <tr><td>得点</td><td>花の値の合計 ＋ 同色3枚そろうごとにボーナス ＋ みつ休みの点</td></tr>
+    </table>
+  </div>
+
+  <!-- ===== LOBBY ===== -->
+  <div id="lobby" class="card-panel hidden">
+    <h2>ロビー <span class="hint" id="roleTag"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <span>部屋コード: <span class="code" id="roomCodeView">...</span></span>
+      <span class="hint">← これを共有して入ってもらう</span>
+    </div>
+    <h3>参加者</h3>
+    <div id="lobbyPlayers" class="players"></div>
+    <div id="hostCfg">
+      <h3>調整レバー（ホストのみ）</h3>
+      <div class="grid">
+        <label>CPUの数 <input id="nCpu" class="num" type="number" min="0" max="4" value="0"></label>
+        <label>場の枚数 = 人数 + <input id="fieldOffset" class="num" type="number" min="-2" max="3" value="1"></label>
+        <label>セットボーナス <input id="setBonus" class="num" type="number" value="4"></label>
+        <label>みつ休みの点 <input id="mitsuVal" class="num" type="number" value="1"></label>
+        <label>ラウンド数 <input id="rounds" class="num" type="number" value="8"></label>
+        <label>各色×各値の枚数 <input id="copies" class="num" type="number" min="1" max="4" value="2"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label><input id="carryOver" type="checkbox"> 🧪 しおれ持ち越し（かぶった花は1回だけ場に残る）</label>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="startBtn">▶ ゲーム開始（合計3〜5人）</button>
+      </div>
+    </div>
+    <div id="lobbyErr" class="err"></div>
+    <div class="foot" id="lobbyHint"></div>
+  </div>
+
+  <!-- ===== GAME ===== -->
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>花畑（場）<span class="hint" id="drawInfo"></span></h2>
+      <div class="fieldrow" id="field"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== RESULT ===== -->
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const COLORS=[{e:'🌷',n:'あか'},{e:'🌻',n:'きいろ'},{e:'🌸',n:'ぴんく'},{e:'💠',n:'あお'},{e:'🌺',n:'むらさき'}];
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ================= Engine（ローカル版プロトタイプと同一のv0.1ロジック） ================= */
+const Engine = {
+  buildDeck(cfg){
+    const deck=[];
+    for(let c=0;c<COLORS.length;c++)
+      for(let v=1;v<=4;v++)
+        for(let k=0;k<cfg.copies;k++) deck.push({color:c,pt:v,wilted:false});
+    return shuffle(deck);
+  },
+  newGame(cfg,specs){
+    const players=specs.map((s,i)=>({id:i,name:s.name,isCPU:s.isCPU,policy:s.policy||'smart',
+      cards:[],mitsu:0,collisions:0}));
+    return {cfg,players,deck:Engine.buildDeck(cfg),field:[],round:0,wilts:0,mitsuTotal:0};
+  },
+  fieldSize(S){ return Math.max(2, S.players.length + S.cfg.fieldOffset); },
+  startRound(S){
+    S.round++;
+    while(S.field.length<Engine.fieldSize(S) && S.deck.length) S.field.push(S.deck.pop());
+  },
+  colorCount(p){
+    const c={}; p.cards.forEach(g=>{c[g.color]=(c[g.color]||0)+1;}); return c;
+  },
+  scoreOf(p,cfg){
+    let sum=0; p.cards.forEach(g=>sum+=g.pt);
+    const cc=Engine.colorCount(p);
+    let sets=0; Object.values(cc).forEach(n=>sets+=Math.floor(n/3));
+    const mitsuPts=p.mitsu*cfg.mitsuVal;
+    return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,
+            total:sum+sets*cfg.setBonus+mitsuPts};
+  },
+  gainOf(S,p,card){
+    const cc=Engine.colorCount(p);
+    const have=(cc[card.color]||0)%3;
+    let g=card.pt;
+    if(have===2) g+=S.cfg.setBonus;
+    else if(have===1) g+=S.cfg.setBonus*0.35;
+    return g;
+  },
+  cpuPick(S,idx){
+    const p=S.players[idx];
+    if(S.field.length===0) return -1;
+    if(p.policy==='random'){
+      const opts=S.field.map((_,i)=>i); opts.push(-1);
+      return opts[rnd(opts.length)];
+    }
+    const opps=S.players.filter((_,i)=>i!==idx);
+    const oppProb=opps.map(o=>{
+      const gs=S.field.map(c=>Math.exp(Engine.gainOf(S,o,c)/2));
+      const gm=Math.exp(S.cfg.mitsuVal/2);
+      const z=gs.reduce((a,b)=>a+b,0)+gm;
+      return gs.map(g=>g/z);
+    });
+    const opts=[{opt:-1,ev:S.cfg.mitsuVal}];
+    S.field.forEach((c,i)=>{
+      let pu=1; oppProb.forEach(pr=>pu*=(1-pr[i]));
+      opts.push({opt:i,ev:Engine.gainOf(S,p,c)*pu});
+    });
+    const T=0.7, ws=opts.map(o=>Math.exp(o.ev/T));
+    let z=ws.reduce((a,b)=>a+b,0), r=Math.random()*z;
+    for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0) return opts[i].opt; }
+    return opts[opts.length-1].opt;
+  },
+  resolve(S,picks){
+    const ev=[];
+    const byCard={};
+    picks.forEach((pk,i)=>{ if(pk>=0){ (byCard[pk]=byCard[pk]||[]).push(i); } });
+    const removeIdx=[];
+    Object.keys(byCard).map(Number).forEach(k=>{
+      const card=S.field[k], who=byCard[k];
+      if(who.length===1){
+        const p=S.players[who[0]];
+        p.cards.push(card); removeIdx.push(k);
+        ev.push({t:'take',pi:who[0],card});
+      } else {
+        S.wilts++;
+        who.forEach(i=>S.players[i].collisions++);
+        if(S.cfg.carryOver && !card.wilted){ card.wilted=true; }
+        else { removeIdx.push(k); }
+        ev.push({t:'wilt',pis:who,card,gone:removeIdx.includes(k)});
+      }
+    });
+    picks.forEach((pk,i)=>{
+      if(pk===-1){
+        const p=S.players[i]; p.mitsu++; S.mitsuTotal++;
+        if(S.deck.length) S.deck.pop();
+        ev.push({t:'mitsu',pi:i});
+      }
+    });
+    removeIdx.sort((a,b)=>b-a).forEach(k=>S.field.splice(k,1));
+    return ev;
+  },
+  isOver(S){
+    return S.round>=S.cfg.rounds || (S.deck.length===0 && S.field.length===0);
+  }
+};
+
+/* ================= 通信・進行 ================= */
+// 役割: host＝Engineを持ち進行を管理 / guest＝スナップショットを描画するだけ
+let role=null;            // 'host' | 'guest'
+let myName='';
+let roomId='';
+let peer=null;            // 自分のPeer
+let hostConns=[];         // host: [{conn, seat, name, alive}]
+let guestConn=null;       // guest: ホストへの接続
+let S=null;               // host: Engineの状態
+let pickState=null;       // host: {round, got:{seat:pk}}
+let mySeat=-1;            // 共通: 自分の席
+let curSnap=null;         // 共通: 直近スナップショット
+let myPicked=false;
+
+function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
+function fmtCard(c){ return `${COLORS[c.color].e}${c.pt}`; }
+function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
+function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'hana-'+r; }
+
+/* ---------- ホスト ---------- */
+function createRoom(){
+  myName=($('nameInput').value||'ホスト').trim()||'ホスト';
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='host'; roomId=randCode();
+  $('homeErr').textContent='';
+  peer=new window.Peer(roomId);
+  peer.on('open',()=>{
+    show('lobby');
+    $('roleTag').textContent='あなたがホスト（進行役）です';
+    $('roomCodeView').textContent=roomId;
+    $('hostCfg').classList.remove('hidden');
+    $('lobbyHint').textContent='全員が入ったら「ゲーム開始」。CPUを足して人数を埋めることもできます。';
+    renderLobby();
+  });
+  peer.on('connection',conn=>{
+    conn.on('data',d=>onHostData(conn,d));
+    conn.on('close',()=>onGuestLeave(conn));
+  });
+  peer.on('error',e=>{
+    if(String(e&&e.type)==='unavailable-id'){ roomId=randCode(); peer=null; createRoom(); return; }
+    $('homeErr').textContent='接続エラー: '+(e&&e.type?e.type:e);
+  });
+}
+function lobbyNames(){
+  const names=[{name:myName+'（ホスト）',isCPU:false,connected:true}];
+  hostConns.filter(c=>c.alive).forEach(c=>names.push({name:c.name,isCPU:false,connected:true}));
+  const ncpu=+$('nCpu').value;
+  for(let i=0;i<ncpu;i++) names.push({name:'CPU'+(i+1),isCPU:true,connected:true});
+  return names;
+}
+function onHostData(conn,d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='hello'){
+    if(S){ conn.send({t:'busy'}); return; } // ゲーム中の途中参加は不可
+    let nm=String(d.name||'ゲスト').slice(0,8);
+    const exist=lobbyNames().map(x=>x.name);
+    if(exist.includes(nm)) nm=nm+'2';
+    hostConns.push({conn,seat:-1,name:nm,alive:true});
+    broadcastLobby();
+  }
+  if(d.t==='pick') onPickMsg(conn,d);
+}
+function onGuestLeave(conn){
+  const rec=hostConns.find(c=>c.conn===conn);
+  if(!rec||!rec.alive) return;
+  rec.alive=false;
+  if(S && rec.seat>=0){
+    S.players[rec.seat].isCPU=true; // 切断者はCPUが代打ち
+    hostBroadcast({t:'note',msg:`⚠️ ${rec.name} が切断 → CPUが代わりに打ちます`});
+    log(`⚠️ ${rec.name} が切断 → CPUが代打ち`);
+    if(pickState && !(rec.seat in pickState.got)){
+      pickState.got[rec.seat]=Engine.cpuPick(S,rec.seat);
+      maybeResolve();
+    }
+  } else {
+    broadcastLobby();
+  }
+}
+function hostBroadcast(msg){
+  hostConns.filter(c=>c.alive).forEach(c=>{ try{ c.conn.send(msg); }catch(e){} });
+}
+function broadcastLobby(){
+  hostBroadcast({t:'lobby',names:lobbyNames()});
+  renderLobby();
+}
+function renderLobby(){
+  const box=$('lobbyPlayers'); box.innerHTML='';
+  const names=(role==='host')?lobbyNames():(curSnap&&curSnap.lobbyNames)||[];
+  names.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='pl';
+    d.innerHTML=`<div class="name"><span>${n.name} ${n.isCPU?'<span class="badge bot">BOT</span>':''}</span><span class="badge ok">参加中</span></div>`;
+    box.appendChild(d);
+  });
+}
+function hostStart(){
+  const humans=lobbyNames().filter(n=>!n.isCPU).length;
+  const ncpu=+$('nCpu').value;
+  const total=humans+ncpu;
+  if(total<3||total>5){ $('lobbyErr').textContent=`合計3〜5人にしてください（今: 人間${humans}+CPU${ncpu}）`; return; }
+  $('lobbyErr').textContent='';
+  const cfg={ fieldOffset:+$('fieldOffset').value, setBonus:+$('setBonus').value,
+    mitsuVal:+$('mitsuVal').value, rounds:+$('rounds').value, copies:+$('copies').value,
+    carryOver:$('carryOver').checked };
+  const specs=[{name:myName+'（ホスト）',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach(c=>specs.push({name:c.name,isCPU:false}));
+  for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true});
+  S=Engine.newGame(cfg,specs);
+  mySeat=0;
+  hostConns.filter(c=>c.alive).forEach((c,i)=>{ c.seat=i+1; });
+  hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+  $('log').innerHTML='';
+  log(`ゲーム開始（${total}人 / ${cfg.rounds}ラウンド）`);
+  show('game');
+  hostNextRound();
+}
+function buildSnap(phase){
+  return {
+    phase, round:S.round, rounds:S.cfg.rounds, deckLeft:S.deck.length, wilts:S.wilts,
+    mitsuVal:S.cfg.mitsuVal,
+    field:S.field.map(c=>({color:c.color,pt:c.pt,wilted:!!c.wilted})),
+    players:S.players.map((p,i)=>{
+      const s=Engine.scoreOf(p,S.cfg);
+      return { name:p.name,isCPU:p.isCPU,score:s,colorCount:Engine.colorCount(p),
+               collisions:p.collisions,picked:pickState?(i in pickState.got):false };
+    })
+  };
+}
+function hostNextRound(){
+  Engine.startRound(S);
+  if(S.field.length===0){ hostFinish(); return; }
+  pickState={round:S.round,got:{}};
+  // CPUは即決（内容は公開しない）
+  S.players.forEach((p,i)=>{ if(p.isCPU) pickState.got[i]=Engine.cpuPick(S,i); });
+  const snap=buildSnap('pick');
+  curSnap=snap; myPicked=false;
+  hostBroadcast({t:'round',snap});
+  renderGame(snap);
+}
+function onPickMsg(conn,d){
+  if(!S||!pickState) return;
+  const rec=hostConns.find(c=>c.conn===conn&&c.alive);
+  if(!rec||rec.seat<0) return;
+  if(d.round!==pickState.round) return;        // 古いラウンドの票は無視
+  if(rec.seat in pickState.got) return;         // 二重送信は無視
+  const pk=(d.pk===-1)?-1:(+d.pk);
+  if(pk!==-1 && !(pk>=0 && pk<S.field.length)) return; // 範囲外は無視
+  pickState.got[rec.seat]=pk;
+  const snap=buildSnap('pick'); curSnap=snap;
+  hostBroadcast({t:'round',snap});
+  renderGame(snap);
+  maybeResolve();
+}
+function hostSelfPick(pk){
+  if(!pickState||(mySeat in pickState.got)) return;
+  pickState.got[mySeat]=pk;
+  myPicked=true;
+  const snap=buildSnap('pick'); curSnap=snap;
+  hostBroadcast({t:'round',snap});
+  renderGame(snap);
+  maybeResolve();
+}
+function maybeResolve(){
+  if(!S||!pickState) return;
+  const need=S.players.length;
+  if(Object.keys(pickState.got).length<need) return;
+  const picks=S.players.map((_,i)=>(i in pickState.got)?pickState.got[i]:-1);
+  const events=Engine.resolve(S,picks);
+  pickState=null;
+  const over=Engine.isOver(S);
+  const snap=buildSnap(over?'over':'reveal');
+  curSnap=snap;
+  hostBroadcast({t:'reveal',events,snap,over});
+  renderReveal(events,snap,over);
+  if(over){
+    const d={ranking:rankingOf(),wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal};
+    hostBroadcast(Object.assign({t:'result'},d));
+    renderResult(d); // ホスト自身の画面にも結果を出す
+  }
+}
+function rankingOf(){
+  return S.players.map(p=>({name:p.name,isCPU:p.isCPU,collisions:p.collisions,s:Engine.scoreOf(p,S.cfg)}))
+    .sort((a,b)=> b.s.total-a.s.total || b.s.sets-a.s.sets || a.collisions-b.collisions);
+}
+function hostFinish(){
+  const ranking=rankingOf();
+  hostBroadcast({t:'result',ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal});
+  renderResult({ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal});
+}
+
+/* ---------- ゲスト ---------- */
+function joinRoom(){
+  myName=($('nameInput').value||'ゲスト').trim()||'ゲスト';
+  const code=($('roomInput').value||'').trim();
+  if(!code){ $('homeErr').textContent='部屋コードを入れてください。'; return; }
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='guest';
+  $('homeErr').textContent='接続中…';
+  peer=new window.Peer();
+  peer.on('open',()=>{
+    guestConn=peer.connect(code,{reliable:true});
+    guestConn.on('open',()=>{ guestConn.send({t:'hello',name:myName}); });
+    guestConn.on('data',onGuestData);
+    guestConn.on('close',()=>{
+      $('banner')&&($('banner').textContent='⚠️ ホストとの接続が切れました（部屋終了）');
+      $('homeErr').textContent='ホストとの接続が切れました。';
+    });
+  });
+  peer.on('error',e=>{
+    const t=e&&e.type?String(e.type):'';
+    $('homeErr').textContent=(t==='peer-unavailable')?'その部屋コードが見つかりません。':('接続エラー: '+(t||e));
+  });
+}
+function onGuestData(d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='busy'){ $('homeErr').textContent='この部屋はすでにゲーム中です。'; return; }
+  if(d.t==='lobby'){
+    curSnap={lobbyNames:d.names};
+    show('lobby');
+    $('roleTag').textContent='ホストの開始待ち';
+    $('roomCodeView').textContent=($('roomInput').value||'').trim();
+    $('hostCfg').classList.add('hidden');
+    $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
+    renderLobby();
+  }
+  if(d.t==='start'){ mySeat=d.seat; $('log').innerHTML=''; log('ゲーム開始！'); show('game'); }
+  if(d.t==='note'){ log(d.msg); }
+  if(d.t==='round'){ curSnap=d.snap; if(!(d.snap.players[mySeat]&&d.snap.players[mySeat].picked)) myPicked=false; renderGame(d.snap); }
+  if(d.t==='reveal'){ curSnap=d.snap; renderReveal(d.events,d.snap,d.over); }
+  if(d.t==='result'){ renderResult(d); }
+}
+function guestSelfPick(pk){
+  if(myPicked) return;
+  myPicked=true;
+  guestConn.send({t:'pick',round:curSnap.round,pk});
+  renderGame(curSnap); // 送信済み表示に切替
+}
+
+/* ---------- 共通描画 ---------- */
+function renderBoard(snap){
+  const f=$('field'); f.innerHTML='';
+  snap.field.forEach(c=>{
+    const el=document.createElement('div');
+    el.className='fcard'+(c.wilted?' wilt':'');
+    el.innerHTML=(c.wilted?'<span class="wilttag">しおれかけ</span>':'')+
+      `<div class="em">${COLORS[c.color].e}</div><div class="pt">${c.pt}</div><div class="hint">${COLORS[c.color].n}</div>`;
+    f.appendChild(el);
+  });
+  $('drawInfo').textContent=` ― 山札残${snap.deckLeft}枚 / しおれ${snap.wilts}回`;
+  const box=$('players'); box.innerHTML='';
+  snap.players.forEach((p,i)=>{
+    const d=document.createElement('div');
+    d.className='pl'+(i===mySeat?' me':'');
+    const colorView=COLORS.map((c,k)=>p.colorCount[k]?`<span class="badge">${c.e}×${p.colorCount[k]}</span>`:'').join('');
+    const pickedTag=(snap.phase==='pick')?(p.picked?'<span class="badge ok">えらんだ</span>':'<span class="badge">考え中…</span>'):'';
+    d.innerHTML=`<div class="name"><span>${p.name} ${p.isCPU?'<span class="badge bot">BOT</span>':''} ${pickedTag}</span><span class="score">${p.score.total}</span></div>
+      <div class="mini"><span>素点 ${p.score.sum}</span><span>セット ${p.score.sets}(+${p.score.bonus})</span><span>🍯×${p.score.mitsu}</span><span>だめ ${p.collisions}回</span></div>
+      <div class="mini">${colorView||'<span class="hint">まだ無し</span>'}</div>`;
+    box.appendChild(d);
+  });
+}
+function renderGame(snap){
+  renderBoard(snap);
+  $('banner').textContent=`ラウンド ${snap.round} / ${snap.rounds} ― 全員同時に、場の花をひとつ選びます`;
+  const iPicked=snap.players[mySeat]?snap.players[mySeat].picked:false;
+  if(snap.phase!=='pick'){ return; }
+  if(iPicked||myPicked){
+    $('turnTitle').textContent='選択ずみ';
+    $('actionBody').innerHTML='<div class="mask">🤫 ほかの人を待っています…</div>';
+    return;
+  }
+  $('turnTitle').textContent=`${myName} ― 花をひとつ選ぶ（他の人には見えません）`;
+  let sel=null;
+  const body=$('actionBody');
+  body.innerHTML=`<div class="hint">場の花をクリックで選択。「決めた」を押すまで確定しません。</div>
+    <div class="fieldrow" id="pickRow"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="mitsuBtn">🍯 みつ休み（確実に${snap.mitsuVal}点）</button>
+      <button id="decideBtn" disabled>この花に決めた</button>
+    </div>`;
+  const pr=$('pickRow');
+  snap.field.forEach((c,i)=>{
+    const el=document.createElement('div');
+    el.id='pick'+i;
+    el.className='fcard pick'+(c.wilted?' wilt':'');
+    el.innerHTML=(c.wilted?'<span class="wilttag">しおれかけ</span>':'')+
+      `<div class="em">${COLORS[c.color].e}</div><div class="pt">${c.pt}</div><div class="hint">${COLORS[c.color].n}</div>`;
+    el.onclick=()=>{ sel=i;
+      [...pr.children].forEach((x,k)=>x.classList.toggle('sel',k===i));
+      $('decideBtn').disabled=false;
+      $('decideBtn').textContent=`${fmtCard(c)} に決めた`;
+    };
+    pr.appendChild(el);
+  });
+  $('mitsuBtn').onclick=()=>{ (role==='host')?hostSelfPick(-1):guestSelfPick(-1); };
+  $('decideBtn').onclick=()=>{ if(sel!==null){ (role==='host')?hostSelfPick(sel):guestSelfPick(sel); } };
+}
+function renderReveal(events,snap,over){
+  renderBoard(snap);
+  events.forEach(e=>{
+    if(e.t==='take') log(`<span class="step">とった</span>${snap.players[e.pi]?snap.players[e.pi].name:'?'} が ${fmtCard(e.card)} を花束へ`);
+    if(e.t==='wilt') log(`<span class="step bad">だめ！</span>${e.pis.map(i=>snap.players[i]?snap.players[i].name:'?').join(' と ')} がかぶり → ${fmtCard(e.card)} は${e.gone?'しおれて消滅':'しおれかけ（場に残る）'}`);
+    if(e.t==='mitsu') log(`<span class="step">みつ休み</span>${snap.players[e.pi]?snap.players[e.pi].name:'?'} は確実に${snap.mitsuVal}点`);
+  });
+  $('turnTitle').textContent=`ラウンド ${snap.round} の結果`;
+  if(over){
+    $('actionBody').innerHTML='<div class="mask">おしまい！ 集計します…</div>';
+    return;
+  }
+  if(role==='host'){
+    $('actionBody').innerHTML=`<div class="mask"><button id="nextRoundBtn">次のラウンドへ ▶</button></div>`;
+    $('nextRoundBtn').onclick=hostNextRound;
+  } else {
+    $('actionBody').innerHTML='<div class="mask">ホストが次のラウンドへ進めるのを待っています…</div>';
+  }
+}
+function renderResult(d){
+  show('result');
+  let html=`<h2>🏆 結果</h2><table class="rules"><tr><td>順位</td><td>プレイヤー</td><td>合計</td><td>素点</td><td>セット</td><td>🍯</td><td>だめ回数</td></tr>`;
+  d.ranking.forEach((r,i)=>{html+=`<tr><td>${i+1}</td><td>${r.name}${r.isCPU?' 🤖':''}</td><td><b>${r.s.total}</b></td><td>${r.s.sum}</td><td>${r.s.sets}(+${r.s.bonus})</td><td>${r.s.mitsu}</td><td>${r.collisions}</td></tr>`;});
+  html+='</table>';
+  const diff=d.ranking.length>1?(d.ranking[0].s.total-d.ranking[1].s.total):0;
+  html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度）／ かぶり総数：<b>${d.wilts}</b>回（${d.rounds}R → ${(d.wilts/Math.max(1,d.rounds)).toFixed(2)}件/R）／ みつ休み：${d.mitsuTotal}回</div>`;
+  if(role==='host'){
+    html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>`;
+  } else {
+    html+=`<div class="foot" style="margin-top:14px">ホストが「もう1戦」を押すと再開します。</div>`;
+  }
+  $('result').innerHTML=html;
+  if(role==='host'){
+    $('againBtn').onclick=()=>{
+      const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU}));
+      S=Engine.newGame(S.cfg,specs);
+      hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+      $('log').innerHTML=''; log('もう1戦！');
+      show('game');
+      hostNextRound();
+    };
+  }
+}
+
+/* ---------- ボタン配線 ---------- */
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('startBtn').onclick=hostStart;
+
+// テスト用に公開（UIからは使わない）
+window.__engine=Engine;
+window.__state=()=>({role,roomId,mySeat,S,curSnap});
+</script>
+</body>
+</html>

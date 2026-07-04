@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ゆるるかなアイキュ〜 プロト試遊場｜ブラウザで遊べる開発中ボードゲーム</title>
+<meta property="og:title" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:description" content="ゆるいのに、かしこい。開発中のボードゲームプロトタイプをブラウザですぐ遊べます。感想大歓迎。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#2A1C0E; --sub:#8a8272;
+    --line:#e6dfcf; --amber:#E5962D; --teal:#5f8f8a; --spark:#f2d43d;
+    --shadow:0 2px 8px rgba(120,100,60,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.7}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+  .logo{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+  .qmark{width:52px;height:52px;flex:none}
+  h1{font-size:24px;margin:0}
+  .tagline{color:var(--sub);font-size:14px;margin:2px 0 30px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+        padding:22px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .card h2{font-size:19px;margin:0 0 4px}
+  .meta{font-size:12px;color:var(--sub);margin-bottom:8px}
+  .meta .new{background:var(--amber);color:#fff;border-radius:20px;padding:1px 9px;font-weight:700;margin-right:6px}
+  .desc{font-size:14px;margin:0 0 14px}
+  .btns{display:flex;gap:10px;flex-wrap:wrap}
+  a.btn{display:inline-block;text-decoration:none;border-radius:10px;padding:10px 18px;
+        font-size:14px;font-weight:700;background:var(--amber);color:#fff;box-shadow:var(--shadow)}
+  a.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  .soon{color:var(--sub);font-size:13px;border:1px dashed var(--line);border-radius:16px;
+        padding:18px 22px;text-align:center}
+  footer{margin-top:34px;font-size:12px;color:var(--sub);text-align:center}
+  footer a{color:var(--teal)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo">
+    <svg class="qmark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="38" fill="none" stroke="#2A1C0E" stroke-width="10"/>
+      <line x1="58" y1="62" x2="84" y2="92" stroke="#E5962D" stroke-width="10" stroke-linecap="round"/>
+    </svg>
+    <h1>ゆるるかなアイキュ〜 プロト試遊場</h1>
+  </div>
+  <div class="tagline">ゆるいのに、かしこい。― 開発中のボードゲームを、ブラウザでそのまま試遊できます。</div>
+
+  <div class="card">
+    <h2>🌼 おなじはな、だめ</h2>
+    <div class="meta"><span class="new">NEW</span>3〜5人 ／ 約10分 ／ バッティング（開発中 v0.1）</div>
+    <p class="desc">全員同時に、場の花をひとつ秘密指名。ひとりだけなら花束へ、かぶったら花はしおれて「だめ！」。
+       同色3枚のボーナスで“誰がどの花を欲しいか”が透けるので、読んで外すか、わざとかぶせるか。</p>
+    <div class="btns">
+      <a class="btn" href="onajihana/">🚪 友だちと対戦（部屋コード式）</a>
+      <a class="btn ghost" href="onajihana/solo.html">🤖 ひとりでCPUと試す（調整レバー付き開発版）</a>
+    </div>
+  </div>
+
+  <div class="soon">プロトタイプは今後も追加予定。感想・テストプレイ報告は大歓迎です → <a href="https://x.com/yrr_iq" target="_blank" rel="noopener">X: @yrr_iq</a></div>
+
+  <footer>
+    © ゆるるかなアイキュ〜 ／ ここにあるのはすべて開発中のプロトタイプです。ルール・数値は予告なく変わります。<br>
+    <a href="https://x.com/yrr_iq" target="_blank" rel="noopener">X (@yrr_iq)</a>
+  </footer>
+
+</div>
+</body>
+</html>
