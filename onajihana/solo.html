@@ -74,8 +74,8 @@
 <body>
 <header>
   <h1>🌼 おなじはな、だめ</h1>
-  <span class="tag">開発プロトタイプ v0.1</span>
-  <span class="tag">かぶり率・読みの効き 検証用</span>
+  <span class="tag">開発プロトタイプ v0.2</span>
+  <span class="tag">かぶり率・読みの効き・本命色 検証用</span>
 </header>
 
 <div class="wrap">
@@ -97,18 +97,23 @@
       <label>ラウンド数 <input id="rounds" class="num" type="number" value="8"></label>
       <label>各色×各値の枚数 <input id="copies" class="num" type="number" min="1" max="4" value="2"></label>
       <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="1000"></label>
+      <label>本命ボーナス <input id="honmeiBonus" class="num" type="number" value="3"></label>
     </div>
     <div class="row" style="margin-top:10px">
       <label><input id="carryOver" type="checkbox"> 🧪 しおれ持ち越し ― かぶった花は消えず「しおれかけ」で場に残る（もう一度かぶったら消滅）</label>
     </div>
-    <div class="foot">既定値＝v0.1。花カードは5色×値1〜4×各2枚＝40枚。検証したい問い: ①かぶりは1ラウンド0.5件以上起きるか ②色の読みは勝率に効くか ③みつ休みは選ばれるか。</div>
+    <div class="row" style="margin-top:6px">
+      <label><input id="honmeiOn" type="checkbox" checked> 🎯 本命色を使う（v0.2）― 開始時に各自1色ずつ秘密の目標色を持ち、3枚そろえると追加ボーナス。終了時に一斉オープン</label>
+    </div>
+    <div class="foot">既定値＝v0.2。花カードは5色×値1〜4×各2枚＝40枚。検証したい問い: ①かぶりは1ラウンド0.5件以上起きるか ②色の読みは勝率に効くか ③みつ休みは選ばれるか ④本命色オンで意外性は生まれるか・運ゲー化しないか。</div>
 
     <h3>ルール要約</h3>
     <table class="rules">
+      <tr><td>0. 本命色</td><td>開始時に各自1色ずつ秘密の目標色を持つ（本命色オン時）</td></tr>
       <tr><td>1. ならべる</td><td>場に（人数+1）枚の花を表向きに</td></tr>
       <tr><td>2. えらぶ</td><td>全員同時に、場の花1つを秘密指名（「みつ休み」＝確実に1点、も選べる）</td></tr>
       <tr><td>3. オープン</td><td>1人だけ→花束へ。かぶり→その花はしおれて消滅（だめ！）</td></tr>
-      <tr><td>得点</td><td>花の値の合計 ＋ 同色3枚そろうごとに+4 ＋ みつ休み1点/枚</td></tr>
+      <tr><td>得点</td><td>花の値の合計 ＋ 同色3枚そろうごとに+4 ＋ 本命色を3枚そろえたら+本命ボーナス ＋ みつ休み1点/枚</td></tr>
     </table>
 
     <div class="row" style="margin-top:16px">
@@ -171,7 +176,12 @@ const Engine = {
   },
   newGame(cfg,specs){ // specs: [{name,isCPU,policy}]
     const players=specs.map((s,i)=>({id:i,name:s.name,isCPU:s.isCPU,policy:s.policy||'smart',
-      cards:[],mitsu:0,collisions:0}));
+      cards:[],mitsu:0,collisions:0,honmei:null}));
+    if(cfg.honmeiOn){
+      const order=shuffle(COLORS.map((_,i)=>i));
+      players.forEach((p,i)=>{ p.honmei=order[i % order.length]; });
+      // 人数<=色数なら重複なし。人数>色数は起きない仕様（最大5人・5色）だが念のためmodで循環。
+    }
     return {cfg,players,deck:Engine.buildDeck(cfg),field:[],round:0,wilts:0,mitsuTotal:0};
   },
   fieldSize(S){ return Math.max(2, S.players.length + S.cfg.fieldOffset); },
@@ -187,8 +197,10 @@ const Engine = {
     const cc=Engine.colorCount(p);
     let sets=0; Object.values(cc).forEach(n=>sets+=Math.floor(n/3));
     const mitsuPts=p.mitsu*cfg.mitsuVal;
-    return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,
-            total:sum+sets*cfg.setBonus+mitsuPts};
+    const honmeiHit = cfg.honmeiOn && p.honmei!=null && ((cc[p.honmei]||0)>=3);
+    const honmeiPts = honmeiHit ? cfg.honmeiBonus : 0;
+    return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,honmeiHit,honmeiPts,
+            total:sum+sets*cfg.setBonus+mitsuPts+honmeiPts};
   },
   gainOf(S,p,card){ // その花がそのプレイヤーにとって持つ価値（セット進行込み）
     const cc=Engine.colorCount(p);
@@ -196,6 +208,12 @@ const Engine = {
     let g=card.pt;
     if(have===2) g+=S.cfg.setBonus;        // 3枚目＝即ボーナス
     else if(have===1) g+=S.cfg.setBonus*0.35; // 2枚目＝布石
+    if(S.cfg.honmeiOn && p.honmei===card.color){
+      // 本命色は「集める理由」を1枚重ねる。3枚目の踏み込みが強くなり、序盤からも薄く惹かれる。
+      if(have===2) g+=S.cfg.honmeiBonus;
+      else if(have===1) g+=S.cfg.honmeiBonus*0.35;
+      else g+=S.cfg.honmeiBonus*0.15;
+    }
     return g;
   },
   cpuPick(S,idx){ // 戻り値: 場のindex、みつ休みは -1
@@ -274,8 +292,9 @@ let S=null, picks=[], humanQueue=[];
 
 function readCfg(){
   const c={};
-  ['nHuman','nCpu','fieldOffset','setBonus','mitsuVal','rounds','copies','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  ['nHuman','nCpu','fieldOffset','setBonus','mitsuVal','rounds','copies','cpuThink','honmeiBonus'].forEach(i=>c[i]=+$(i).value);
   c.carryOver=$('carryOver').checked;
+  c.honmeiOn=$('honmeiOn').checked;
   return c;
 }
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
@@ -326,7 +345,9 @@ function renderPickUI(idx){
   $('turnTitle').textContent=`${p.name} ― 花をひとつ選ぶ（他の人には見せない）`;
   let sel=null;
   const body=$('actionBody');
-  body.innerHTML=`<div class="hint">場の花をクリックで選択。決定するまで確定しません。</div>
+  const honmeiLine = S.cfg.honmeiOn
+    ? `<div class="hint">🤫 あなたの本命色: <b>${COLORS[p.honmei].e}${COLORS[p.honmei].n}</b>（他の人には言わない）</div>` : '';
+  body.innerHTML=`${honmeiLine}<div class="hint">場の花をクリックで選択。決定するまで確定しません。</div>
     <div class="fieldrow" id="pickRow"></div>
     <div class="row" style="margin-top:10px">
       <button class="ghost" id="mitsuBtn">🍯 みつ休み（確実に${S.cfg.mitsuVal}点）</button>
@@ -417,8 +438,15 @@ function finish(){
   $('game').classList.add('hidden');
   const ranked=S.players.map(p=>({p,s:Engine.scoreOf(p,S.cfg)}))
     .sort((a,b)=> b.s.total-a.s.total || b.s.sets-a.s.sets || a.p.collisions-b.p.collisions);
-  let html=`<h2>🏆 結果</h2><table class="rules"><tr><td>順位</td><td>プレイヤー</td><td>合計</td><td>素点</td><td>セット</td><td>🍯</td><td>だめ回数</td></tr>`;
-  ranked.forEach((r,i)=>{html+=`<tr><td>${i+1}</td><td>${r.p.name}${r.p.isCPU?' 🤖':''}</td><td><b>${r.s.total}</b></td><td>${r.s.sum}</td><td>${r.s.sets}(+${r.s.bonus})</td><td>${r.s.mitsu}</td><td>${r.p.collisions}</td></tr>`;});
+  const honmeiCol = S.cfg.honmeiOn ? '<td>🎯本命</td>' : '';
+  let html=`<h2>🏆 結果</h2>`;
+  if(S.cfg.honmeiOn) html+=`<div class="banner" style="margin-bottom:12px">🎯 本命色を一斉オープン！</div>`;
+  html+=`<table class="rules"><tr><td>順位</td><td>プレイヤー</td><td>合計</td><td>素点</td><td>セット</td>${honmeiCol}<td>🍯</td><td>だめ回数</td></tr>`;
+  ranked.forEach((r,i)=>{
+    const honmeiCell = S.cfg.honmeiOn
+      ? `<td>${COLORS[r.p.honmei].e}${COLORS[r.p.honmei].n} ${r.s.honmeiHit?`<b>達成+${r.s.honmeiPts}</b>`:'未達成'}</td>` : '';
+    html+=`<tr><td>${i+1}</td><td>${r.p.name}${r.p.isCPU?' 🤖':''}</td><td><b>${r.s.total}</b></td><td>${r.s.sum}</td><td>${r.s.sets}(+${r.s.bonus})</td>${honmeiCell}<td>${r.s.mitsu}</td><td>${r.p.collisions}</td></tr>`;
+  });
   html+='</table>';
   const diff=ranked.length>1?(ranked[0].s.total-ranked[1].s.total):0;
   html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度） ／ かぶり総数：<b>${S.wilts}</b>回（${S.round}ラウンド → ${(S.wilts/Math.max(1,S.round)).toFixed(2)}件/R）／ みつ休み総数：${S.mitsuTotal}回</div>`;
@@ -432,8 +460,8 @@ function finish(){
 $('startBtn').onclick=startGame;
 $('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
 $('restartSame').onclick=startGame;
-const DEF={nHuman:1,nCpu:3,fieldOffset:1,setBonus:4,mitsuVal:1,rounds:8,copies:2,cpuThink:1000};
-$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('carryOver').checked=false;};
+const DEF={nHuman:1,nCpu:3,fieldOffset:1,setBonus:4,mitsuVal:1,rounds:8,copies:2,cpuThink:1000,honmeiBonus:3};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('carryOver').checked=false;$('honmeiOn').checked=true;};
 
 // テスト・シミュレーション用に公開（UIからは使わない）
 window.__engine=Engine;
