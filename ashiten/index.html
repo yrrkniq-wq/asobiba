@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>あした天気にな〜れっ！ ― オンライン対戦</title>
+<meta property="og:title" content="あした天気にな〜れっ！ オンライン対戦">
+<meta property="og:description" content="夏休みの思い出づくりカードゲームをブラウザで。部屋コードを送るだけで友だちとリモート対戦できます(2〜5人)。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yrrkniq-wq.github.io/asobiba/ashiten/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  オンライン対戦版（ルールはローカル版 あし天_プロトタイプ.html と同一）
+  仕組み: PeerJS（無料のP2P仲介。アカウント・課金不要）でホストの部屋に接続。
+  ホスト＝進行役（Engineを持つ。このタブを閉じると部屋が終わる）。ゲストは部屋コードで参加。
+  逐次手番ゲームなので、手番のプレイヤーにだけ秘密情報（手札・山札・天気よほう）つきの
+  手番メッセージを送り、ホストが検証して適用する。切断者はCPUが代打ち。
+  注意: 会社ネットワーク等ではP2P接続に失敗することがある（その場合は別回線/スマホ回線を試す）
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+    --sky:#7ec3e0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  .txt{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .err{color:var(--bad);font-size:13px;font-weight:700}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;background:#fdf3e2;border:1px dashed var(--accent);
+        border-radius:10px;padding:6px 18px;display:inline-block}
+  .mcard{display:flex;flex-direction:column;width:126px;height:158px;border-radius:12px;background:#fff;
+         border:2px solid var(--line);padding:6px 8px;font-size:12px;position:relative;
+         box-shadow:var(--shadow);vertical-align:top;overflow:hidden}
+  .mcard .nm{font-weight:700;font-size:12px;line-height:1.3}
+  .mcard .pts{display:flex;justify-content:space-between;font-weight:800}
+  .mcard .pts .w{color:var(--good)} .mcard .pts .l{color:var(--bad)}
+  .mcard .wx{font-size:13px;letter-spacing:2px}
+  .mcard .fx{font-size:10px;color:var(--sub);line-height:1.35;margin-top:auto}
+  .mcard.pick{cursor:pointer}
+  .mcard.pick:hover{transform:translateY(-3px)}
+  .rcard{display:inline-block;width:150px;border-radius:12px;background:#fff;border:2px solid #cfe3ee;
+         padding:6px 8px;font-size:11px;box-shadow:var(--shadow);vertical-align:top}
+  .rcard .nm{font-weight:700;font-size:12px}
+  .rcard .kind{font-size:10px;color:#fff;background:var(--sky);border-radius:8px;padding:0 6px;display:inline-block}
+  .rcard .kind.q{background:var(--chip)} .rcard .kind.e{background:#9a8fc7}
+  .rcard.pick{cursor:pointer} .rcard.pick:hover{transform:translateY(-3px)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;font-size:12px}
+  .pl.me{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl.turn{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(111,174,122,.3)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:20px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .oya{background:#fdeecd;color:#a4711b}
+  .ok{background:#eaf3ec;color:#3f7a4e;font-weight:700}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#e8f6fb);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌞 あした天気にな〜れっ！</h1>
+  <span class="tag">オンライン対戦</span>
+  <span class="tag">部屋コードで友だちと（2〜5人）</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ===== HOME ===== -->
+  <div id="home" class="card-panel">
+    <h2>はじめる</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>なまえ <input id="nameInput" class="txt" type="text" maxlength="8" value=""></label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="createBtn">🏠 部屋を作る（ホスト）</button>
+    </div>
+    <div class="row">
+      <input id="roomInput" class="txt" type="text" placeholder="部屋コード（例: ashi-xxxxx）">
+      <button class="ghost" id="joinBtn">🚪 部屋に入る</button>
+    </div>
+    <div id="homeErr" class="err"></div>
+    <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>流れ</td><td>ごほうびフェイズ → 予定フェイズ → お天気フェイズ をお天気カードが尽きるまで繰り返す</td></tr>
+      <tr><td>ごほうび</td><td>各自1枚まで通常/クイックのごほうびカードを使える（親から時計回り）</td></tr>
+      <tr><td>予定</td><td>親が思い出カードを人数+1枚ひき、順に「1枚えらび予定にする」か「しゅくだい消化」。しゅくだいが3枚以上残っている状態で消化するとごほうび1枚</td></tr>
+      <tr><td>お天気</td><td>予定を公開→親が天気をめくる→天気マーク一致で「せいこう!」不一致は「しっぱい…」。たいふうは全員しっぱい</td></tr>
+      <tr><td>終了</td><td>得点合計−残りしゅくだい＋なつのおわり全適用。「虹のむこうに」せいこう＋思い出7種以上は無条件勝利</td></tr>
+    </table>
+  </div>
+
+  <!-- ===== LOBBY ===== -->
+  <div id="lobby" class="card-panel hidden">
+    <h2>ロビー <span class="hint" id="roleTag"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <span>部屋コード: <span class="code" id="roomCodeView">...</span></span>
+      <span class="hint">← これを共有して入ってもらう</span>
+    </div>
+    <h3>参加者</h3>
+    <div id="lobbyPlayers" class="players"></div>
+    <div id="hostCfg">
+      <h3>調整レバー（ホストのみ）</h3>
+      <div class="grid">
+        <label>CPUの数 <input id="nCpu" class="num" type="number" min="0" max="4" value="0"></label>
+        <label>お天気の抜き枚数 <input id="removeN" class="num" type="number" min="-1" max="9" value="-1"> <span class="hint">-1=自動</span></label>
+        <label>CPUの間(ms) <input id="cpuThink" class="num" type="number" value="700"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label><input id="rewRecycle" type="checkbox" checked> ごほうび山切れ時に捨て札再利用</label>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="startBtn">▶ ゲーム開始（合計2〜5人）</button>
+      </div>
+    </div>
+    <div id="lobbyErr" class="err"></div>
+    <div class="foot" id="lobbyHint"></div>
+  </div>
+
+  <!-- ===== GAME ===== -->
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>盤面 <span class="hint" id="drawInfo"></span></h2>
+      <div id="board"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== RESULT ===== -->
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function softmaxPick(opts,temp){
+  if(!opts.length)return null;
+  const t=temp||1;
+  const mx=Math.max(...opts.map(o=>o.score));
+  const ws=opts.map(o=>Math.exp((o.score-mx)/t));
+  let r=Math.random()*ws.reduce((a,b)=>a+b,0);
+  for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0)return opts[i]; }
+  return opts[opts.length-1];
+}
+
+/* ===== カードデータ（ローカル版 あし天_プロトタイプ.html と同一） ===== */
+const MEM_DEF=[
+  {nm:'学校できもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'じんじゃできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'おばけやしきできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'トンネルできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'森できもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'家でゲーム', w:'hka', win:1, lose:-1, fx:'reward', n:2},
+  {nm:'虫とり', w:'hk', win:2, lose:-1, fx:'reward', n:3},
+  {nm:'図書館に行く', w:'ka', win:2, lose:0, fx:'library', n:3},
+  {nm:'えいが', w:'ka', win:2, lose:0, fx:'reward', n:3},
+  {nm:'星さがし', w:'h', win:3, lose:-1, fx:'reward', n:2},
+  {nm:'夏まつり', dp:'夏まつり(屋台)', w:'hk', win:3, lose:-1, n:3},
+  {nm:'夏まつり', dp:'夏まつり(水風船)', w:'hk', win:3, lose:0, n:1},
+  {nm:'キャンプ', dp:'キャンプ(川辺)', w:'hk', win:3, lose:-1, n:3},
+  {nm:'キャンプ', dp:'キャンプ(焚火)', w:'hk', win:3, lose:0, n:1},
+  {nm:'山のぼり', dp:'山のぼり(山道)', w:'h', win:4, lose:-2, n:2},
+  {nm:'山のぼり', dp:'山のぼり(おにぎり)', w:'h', win:4, lose:-1, n:1},
+  {nm:'花火', dp:'花火(打ち上げ)', w:'h', win:4, lose:-2, n:2},
+  {nm:'花火', dp:'花火(線香花火)', w:'h', win:4, lose:-1, n:1},
+  {nm:'ひみつきち作り', w:'h', win:4, lose:-3, fx:'hideout', n:3},
+  {nm:'海あそび', dp:'海あそび(青空)', w:'h', win:5, lose:-3, n:3},
+  {nm:'海あそび', dp:'海あそび(水面)', w:'h', win:5, lose:-2, n:1},
+  {nm:'虹のむこうに', w:'a', win:5, lose:-3, tag:'rainbow', n:1},
+];
+const REW_DEF=[
+  {nm:'白紙のえにっき', k:'n', fx:'hakushi', txt:'場の思い出を1枚えらびすてる', n:2},
+  {nm:'アイスのあたりくじ', k:'n', fx:'ice', txt:'場のもっとも低い点数のしっぱいの思い出を1枚ひっくり返す', n:1},
+  {nm:'ひぐらしの歌', k:'n', fx:'higurashi', txt:'場のもっとも高い点数のせいこうの思い出を1枚ひっくり返す', n:1},
+  {nm:'わすれられたしゅくだい', k:'n', fx:'wasure', txt:'消化されたしゅくだいを1枚えらんで戻しシャッフルする', n:2},
+  {nm:'べんきょうかい', k:'n', fx:'benkyo', txt:'このターンだれもしゅくだいできない。「図書館に行く」の効果も無効', n:2},
+  {nm:'天気よほう', k:'q', fx:'yoho', txt:'自分はこのターンの天気をみる', n:3},
+  {nm:'てるてる坊主', k:'q', fx:'teru', txt:'このターンの天気が「くもり」「あめ」のとき自分だけ「はれ」にする', n:1},
+  {nm:'夕立', k:'q', fx:'yudachi', txt:'このターンの天気が「はれ」「くもり」のとき「あめ」にする', n:1},
+  {nm:'かりパク', k:'q', fx:'karipaku', txt:'このターンの自分より前のともだちがえらんだ予定を自分の予定にする。その後自分は行動できない', n:2},
+  {nm:'書きこまれたえにっき', k:'e', fx:'kakikomi', txt:'せいこうの思い出がもっとも少ないとき+5点（全員に適用）', n:1},
+  {nm:'あさがおかんさつ', k:'e', fx:'sub_りか', txt:'「りか」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'かん字れんしゅうちょう', k:'e', fx:'sub_こくご', txt:'「こくご」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'さんすうドリル', k:'e', fx:'sub_さんすう', txt:'「さんすう」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'しんぶん作り', k:'e', fx:'sub_しゃかい', txt:'「しゃかい」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'さいきょうのカブトムシ', k:'e', fx:'combo_虫とり', txt:'ゲーム終了時+2点。せいこうの「虫とり」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'夏の大三角', k:'e', fx:'combo_星さがし', txt:'ゲーム終了時+2点。せいこうの「星さがし」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'やまもりポップコーン', k:'e', fx:'combo_えいが', txt:'ゲーム終了時+2点。せいこうの「えいが」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'おふだ', k:'e', fx:'ofuda', txt:'せいこうの「きもだめし」が2枚だけのとき+13点（全員に適用）', n:1},
+  {nm:'快晴', k:'e', fx:'kaisei', txt:'なつのおわりカードを1枚えらびその効果を無効にする', n:1},
+  {nm:'ながぐつ', k:'e', fx:'nagagutsu', txt:'あめでせいこうになる思い出が2枚以上せいこうしていれば+5点（全員に適用）', n:1},
+  {nm:'あおあらし', k:'e', fx:'pair_キャンプ_山のぼり', txt:'せいこうの「キャンプ」または「山のぼり」があれば+2点（全員に適用）', n:1},
+  {nm:'うちあげ花火', k:'e', fx:'pair_夏まつり_花火', txt:'せいこうの「夏まつり」または「花火」があれば+2点（全員に適用）', n:1},
+];
+const WEA_DEF={h:5,k:3,a:2,t:1};
+const WLB={h:'はれ☀', k:'くもり☁', a:'あめ☂', t:'たいふう🌀'};
+const WMARK={h:'☀',k:'☁',a:'☂'};
+const SUBJECTS=['こくご','さんすう','りか','しゃかい'];
+
+/* ===== Engine（ルールロジックはローカル版と同一。newGameだけspecs式） ===== */
+const Engine = {
+  autoRemove(np){ return {2:3,3:2,4:3,5:1}[np]; },
+  newGame(cfg,specs){
+    const np=specs.length;
+    const memDeck=[]; MEM_DEF.forEach(d=>{for(let i=0;i<d.n;i++)memDeck.push(d);});
+    const rewDeck=[]; REW_DEF.forEach(d=>{for(let i=0;i<d.n;i++)rewDeck.push(d);});
+    let weaDeck=[]; Object.keys(WEA_DEF).forEach(w=>{for(let i=0;i<WEA_DEF[w];i++)weaDeck.push(w);});
+    shuffle(memDeck); shuffle(rewDeck); shuffle(weaDeck);
+    const removeN = cfg.removeN>=0 ? Math.min(cfg.removeN,9) : Engine.autoRemove(np);
+    weaDeck=weaDeck.slice(removeN);
+    const S={cfg, np, memDeck, memDiscard:[], rewDeck, rewDiscard:[], weaDeck,
+             revealed:[], round:0, oyaIdx:rnd(np), over:false, log:[],
+             turnFlags:{yudachi:false,benkyokai:false}, pile:[], rewardUsed:0,
+             players:[]};
+    specs.forEach((sp,i)=>{
+      S.players.push({
+        idx:i, isCPU:!!sp.isCPU, name:sp.name,
+        hand:[Engine.drawRew(S)].filter(Boolean),
+        homework:shuffle(SUBJECTS.slice()), consumed:[],
+        tableau:{}, plan:null, planFrom:null, teru:false, peek:null
+      });
+    });
+    Engine.log(S,'ゲーム開始! お天気カード'+S.weaDeck.length+'枚（'+removeN+'枚を見ずに抜いた）。親は'+S.players[S.oyaIdx].name);
+    return S;
+  },
+  log(S,msg){ S.log.push(msg); },
+  order(S){ const o=[]; for(let i=0;i<S.np;i++)o.push((S.oyaIdx+i)%S.np); return o; },
+  drawMem(S){
+    if(!S.memDeck.length){ if(!S.memDiscard.length)return null;
+      S.memDeck=shuffle(S.memDiscard); S.memDiscard=[]; Engine.log(S,'（思い出の山札が尽きたので捨て札をシャッフルして戻した ※ルール※1）'); }
+    return S.memDeck.pop();
+  },
+  drawRew(S){
+    if(!S.rewDeck.length){
+      if(!S.cfg.rewRecycle || !S.rewDiscard.length) return null;
+      S.rewDeck=shuffle(S.rewDiscard); S.rewDiscard=[]; Engine.log(S,'（ごほうびの山札が尽きたので捨て札をシャッフルして戻した ※仮ルール）');
+    }
+    return S.rewDeck.pop();
+  },
+  startRound(S){
+    S.round++;
+    S.turnFlags={yudachi:false,benkyokai:false};
+    S.players.forEach(p=>{p.plan=null;p.planFrom=null;p.teru=false;p.peek=null;});
+    S.pile=[];
+    Engine.log(S,'―― ラウンド'+S.round+'（残りお天気'+S.weaDeck.length+'枚 / 親: '+S.players[S.oyaIdx].name+'）――');
+  },
+  allEntries(S){
+    const out=[];
+    S.players.forEach((p,pi)=>Object.keys(p.tableau).forEach(nm=>out.push({pi,nm,e:p.tableau[nm]})));
+    return out;
+  },
+  memPts(p){ let s=0; Object.keys(p.tableau).forEach(nm=>{const e=p.tableau[nm]; s+= e.win? e.card.win : e.card.lose;}); return s; },
+  winCount(p){ return Object.keys(p.tableau).filter(nm=>p.tableau[nm].win).length; },
+  canPlayReward(S,pi,card,phase){
+    if(card.k==='e')return false;
+    if(phase==='plan' && card.k!=='q')return false;
+    switch(card.fx){
+      case 'hakushi': return Engine.allEntries(S).length>0;
+      case 'ice': return Engine.allEntries(S).some(x=>!x.e.win);
+      case 'higurashi': return Engine.allEntries(S).some(x=>x.e.win);
+      case 'wasure': return S.players.some(p=>p.consumed.length>0);
+      case 'benkyo': return phase==='reward';
+      case 'karipaku': return phase==='plan' && S.players.some(p=>p.plan&&p.idx!==pi);
+      default: return true;
+    }
+  },
+  playReward(S,pi,handIdx,choice){
+    const p=S.players[pi]; const card=p.hand[handIdx];
+    p.hand.splice(handIdx,1); S.rewDiscard.push(card); S.rewardUsed++;
+    const who=p.name;
+    switch(card.fx){
+      case 'hakushi':{ const t=S.players[choice.tPi];
+        delete t.tableau[choice.tNm];
+        Engine.log(S,who+'が「白紙のえにっき」: '+t.name+'の思い出「'+choice.tNm+'」をすてた'); break; }
+      case 'ice':{ const fails=Engine.allEntries(S).filter(x=>!x.e.win);
+        if(fails.length){ fails.sort((a,b)=>a.e.card.lose-b.e.card.lose);
+          const t=fails[0]; t.e.win=true;
+          Engine.log(S,who+'が「アイスのあたりくじ」: '+S.players[t.pi].name+'の「'+t.nm+'」がせいこうにひっくり返った'); }
+        break; }
+      case 'higurashi':{ const wins=Engine.allEntries(S).filter(x=>x.e.win);
+        if(wins.length){ wins.sort((a,b)=>b.e.card.win-a.e.card.win);
+          const t=wins[0]; t.e.win=false;
+          Engine.log(S,who+'が「ひぐらしの歌」: '+S.players[t.pi].name+'の「'+t.nm+'」がしっぱいにひっくり返った'); }
+        break; }
+      case 'wasure':{ const t=S.players[choice.tPi];
+        if(t.consumed.length){ const sub=t.consumed.splice(rnd(t.consumed.length),1)[0];
+          t.homework.push(sub); shuffle(t.homework);
+          Engine.log(S,who+'が「わすれられたしゅくだい」: '+t.name+'の消化済み「'+sub+'」を山に戻した'); }
+        break; }
+      case 'benkyo': S.turnFlags.benkyokai=true;
+        Engine.log(S,who+'が「べんきょうかい」: このターンはだれもしゅくだいできない'); break;
+      case 'yoho': p.peek=S.weaDeck[S.weaDeck.length-1];
+        Engine.log(S,who+'が「天気よほう」: こっそり天気をみた'); break;
+      case 'teru': p.teru=true;
+        Engine.log(S,who+'が「てるてる坊主」: くもり/あめなら自分だけはれ'); break;
+      case 'yudachi': S.turnFlags.yudachi=true;
+        Engine.log(S,who+'が「夕立」: はれ/くもりならこのターンはあめになる'); break;
+      case 'karipaku':{ const t=S.players[choice.tPi];
+        p.plan=t.plan; p.planFrom='かりパク'; t.plan=null;
+        Engine.log(S,who+'が「かりパク」: '+t.name+'の予定をうばった!'); break; }
+    }
+  },
+  planTake(S,pi,pileIdx){
+    const p=S.players[pi]; p.plan=S.pile.splice(pileIdx,1)[0];
+    Engine.log(S,p.name+'は予定を立てた（うら向き）');
+  },
+  canHomework(S,pi){ return !S.turnFlags.benkyokai && S.players[pi].homework.length>0; },
+  planHomework(S,pi,viaLibrary){
+    const p=S.players[pi];
+    if(!p.homework.length)return;
+    const before=p.homework.length;
+    const sub=p.homework.shift(); p.consumed.push(sub);
+    Engine.log(S,p.name+'はしゅくだい「'+sub+'」を消化した'+(viaLibrary?'（図書館に行く）':''));
+    if(!viaLibrary && before>=3){
+      const r=Engine.drawRew(S);
+      if(r){ p.hand.push(r); Engine.log(S,p.name+'はごほうびカードを1枚ひいた（残り3枚以上で消化）'); }
+    }
+  },
+  effWeather(w,yudachi,teru){
+    if(w==='t')return null;
+    let g=(yudachi&&(w==='h'||w==='k'))?'a':w;
+    if(teru&&(g==='k'||g==='a'))g='h';
+    return g;
+  },
+  resolveWeather(S){
+    const w=S.weaDeck.pop(); S.revealed.push(w);
+    Engine.log(S,'親の掛け声「あした天気にな〜れ!」→ めくった天気は【'+WLB[w]+'】'+(S.turnFlags.yudachi&&w!=='t'?'（夕立であめ扱い）':''));
+    const events=[];
+    Engine.order(S).forEach(pi=>{
+      const p=S.players[pi];
+      if(!p.plan)return;
+      const eff=Engine.effWeather(w,S.turnFlags.yudachi,p.teru);
+      const ok= eff!==null && p.plan.w.indexOf(eff)>=0;
+      const nm=p.plan.nm;
+      const existed=!!p.tableau[nm];
+      p.tableau[nm]={win:ok, card:p.plan};
+      Engine.log(S,p.name+'の予定「'+(p.plan.dp||nm)+'」'+WMarks(p.plan.w)+' → '+(ok?'せいこう!':'しっぱい…')+(existed?'（同名に重ねた）':''));
+      if(ok&&p.plan.fx)events.push({pi,fx:p.plan.fx});
+      p.plan=null;
+    });
+    events.forEach(ev=>{
+      const p=S.players[ev.pi];
+      if(ev.fx==='reward'){ const r=Engine.drawRew(S);
+        if(r){p.hand.push(r); Engine.log(S,p.name+'はせいこう効果でごほうびカードを1枚ひいた');} }
+      else if(ev.fx==='library'){
+        if(S.turnFlags.benkyokai){ Engine.log(S,p.name+'の「図書館に行く」効果はべんきょうかいで無効'); }
+        else if(p.homework.length){ Engine.planHomework(S,ev.pi,true); } }
+      else if(ev.fx==='hideout'){
+        const pool=[]; S.players.forEach((q,qi)=>{ if(qi!==ev.pi) q.hand.forEach((c,ci)=>pool.push({qi,ci})); });
+        if(pool.length){ const t=pool[rnd(pool.length)]; const q=S.players[t.qi];
+          const c=q.hand.splice(t.ci,1)[0]; S.rewDiscard.push(c);
+          Engine.log(S,p.name+'の「ひみつきち作り」: '+q.name+'のごほうび「'+c.nm+'」をすてさせた'); } }
+    });
+    S.oyaIdx=(S.oyaIdx+1)%S.np;
+    if(!S.weaDeck.length)S.over=true;
+    return w;
+  },
+  computeScores(S,nullSet){
+    const res=S.players.map(p=>({mem:Engine.memPts(p), hw:-p.homework.length, end:0, notes:[], rainbowWin:false}));
+    S.players.forEach((p,pi)=>{
+      const kimoWins=Object.keys(p.tableau).filter(nm=>p.tableau[nm].card.tag==='kimo'&&p.tableau[nm].win).length;
+      if(kimoWins>=3){res[pi].end+=13; res[pi].notes.push('きもだめし3枚 +13');}
+      const rb=p.tableau['虹のむこうに'];
+      if(rb&&rb.win&&Object.keys(p.tableau).length>=7){res[pi].rainbowWin=true; res[pi].notes.push('🌈虹のむこうに達成（無条件勝利）');}
+    });
+    S.players.forEach((p,pi)=>{
+      p.hand.forEach((c,ci)=>{
+        if(c.k!=='e'||c.fx==='kaisei')return;
+        if(nullSet&&nullSet.has(pi+':'+ci))return;
+        const fx=c.fx;
+        if(fx==='kakikomi'){
+          const min=Math.min(...S.players.map(q=>Engine.winCount(q)));
+          S.players.forEach((q,qi)=>{ if(Engine.winCount(q)===min){res[qi].end+=5; res[qi].notes.push('書きこまれたえにっき +5');} });
+        }else if(fx.indexOf('sub_')===0){
+          const sub=fx.slice(4);
+          S.players.forEach((q,qi)=>{ if(q.homework.indexOf(sub)>=0){res[qi].end-=3; res[qi].notes.push(c.nm+'（'+sub+'残り）-3');} });
+        }else if(fx.indexOf('combo_')===0){
+          const need=fx.slice(6); let v=2;
+          if(p.tableau[need]&&p.tableau[need].win)v+=1;
+          res[pi].end+=v; res[pi].notes.push(c.nm+' +'+v);
+        }else if(fx==='ofuda'){
+          S.players.forEach((q,qi)=>{
+            const kw=Object.keys(q.tableau).filter(nm=>q.tableau[nm].card.tag==='kimo'&&q.tableau[nm].win).length;
+            if(kw===2){res[qi].end+=13; res[qi].notes.push('おふだ（きもだめし2枚）+13');} });
+        }else if(fx==='nagagutsu'){
+          S.players.forEach((q,qi)=>{
+            const rainWins=Object.keys(q.tableau).filter(nm=>q.tableau[nm].win&&q.tableau[nm].card.w.indexOf('a')>=0).length;
+            if(rainWins>=2){res[qi].end+=5; res[qi].notes.push('ながぐつ +5');} });
+        }else if(fx.indexOf('pair_')===0){
+          const parts=fx.slice(5).split('_');
+          S.players.forEach((q,qi)=>{
+            if(parts.some(nm=>q.tableau[nm]&&q.tableau[nm].win)){res[qi].end+=2; res[qi].notes.push(c.nm+' +2');} });
+        }
+      });
+    });
+    res.forEach(r=>r.total=r.mem+r.hw+r.end);
+    return res;
+  },
+  finalScore(S){
+    const nullSet=new Set();
+    S.players.forEach((p,pi)=>{
+      p.hand.forEach(c=>{
+        if(c.fx!=='kaisei')return;
+        const cands=[];
+        S.players.forEach((q,qi)=>q.hand.forEach((c2,ci)=>{ if(c2.k==='e'&&c2.fx!=='kaisei')cands.push(qi+':'+ci); }));
+        let best=null, bestGain=-1e9;
+        const evalSet=set=>{ const r=Engine.computeScores(S,set);
+          const others=r.map((x,i)=>i===pi?-1e9:x.total);
+          return r[pi].total - Math.max(...others); };
+        const base=evalSet(nullSet);
+        cands.forEach(key=>{ if(nullSet.has(key))return;
+          const s2=new Set(nullSet); s2.add(key);
+          const g=evalSet(s2)-base;
+          if(g>bestGain){bestGain=g;best=key;} });
+        if(best&&bestGain>0){ nullSet.add(best);
+          const t=best.split(':'); const tc=S.players[+t[0]].hand[+t[1]];
+          Engine.log(S,p.name+'の「快晴」: '+S.players[+t[0]].name+'の「'+tc.nm+'」を無効にした'); }
+        else Engine.log(S,p.name+'の「快晴」: 無効化しないことをえらんだ');
+      });
+    });
+    const res=Engine.computeScores(S,nullSet);
+    const rank=S.players.map((p,i)=>({i,total:res[i].total,rb:res[i].rainbowWin}))
+      .sort((a,b)=> (b.rb?1:0)-(a.rb?1:0) || b.total-a.total);
+    return {res,rank,nullSet};
+  },
+  beliefP(S,chars){
+    const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t};
+    S.revealed.forEach(w=>cnt[w]--);
+    const tot=cnt.h+cnt.k+cnt.a+cnt.t;
+    if(tot<=0)return 0;
+    let s=0; ['h','k','a'].forEach(w=>{ if(chars.indexOf(w)>=0)s+=cnt[w]; });
+    return s/tot;
+  },
+  successP(S,card,p){
+    if(p.peek){ const eff=Engine.effWeather(p.peek,S.turnFlags.yudachi,p.teru);
+      return (eff!==null&&card.w.indexOf(eff)>=0)?1:0; }
+    if(S.turnFlags.yudachi){
+      const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t}; S.revealed.forEach(w=>cnt[w]--);
+      const tot=cnt.h+cnt.k+cnt.a+cnt.t; const pTai=tot>0?cnt.t/tot:0;
+      const eff=p.teru?'h':'a';
+      return card.w.indexOf(eff)>=0 ? 1-pTai : 0;
+    }
+    if(p.teru){
+      const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t}; S.revealed.forEach(w=>cnt[w]--);
+      const tot=cnt.h+cnt.k+cnt.a+cnt.t; const pTai=tot>0?cnt.t/tot:0;
+      return card.w.indexOf('h')>=0 ? 1-pTai : 0;
+    }
+    return Engine.beliefP(S,card.w);
+  },
+  memEV(S,card,p){
+    const ps=Engine.successP(S,card,p);
+    let ev=ps*card.win+(1-ps)*card.lose;
+    if(card.fx==='reward')ev+=ps*1.2;
+    if(card.fx==='library')ev+=ps*(p.homework.length?1.5:0);
+    if(card.fx==='hideout')ev+=ps*0.8;
+    if(card.tag==='kimo'){
+      const kw=Object.keys(p.tableau).filter(nm=>p.tableau[nm].card.tag==='kimo'&&p.tableau[nm].win).length;
+      if(kw===2)ev+=ps*11; else if(kw===1)ev+=ps*2;
+    }
+    if(card.tag==='rainbow'){
+      const kinds=Object.keys(p.tableau).length;
+      if(kinds>=6)ev+=ps*8; else if(kinds>=5)ev+=ps*3;
+    }
+    return ev;
+  },
+  cpuReward(S,pi){
+    const p=S.players[pi];
+    const opts=[{type:'pass',score:1.0}];
+    p.hand.forEach((c,hi)=>{
+      if(!Engine.canPlayReward(S,pi,c,'reward'))return;
+      if(c.fx==='hakushi'){
+        const es=Engine.allEntries(S).filter(x=>x.pi!==pi&&x.e.win);
+        if(es.length){ es.sort((a,b)=>b.e.card.win-a.e.card.win);
+          if(es[0].e.card.win>=3)opts.push({type:'play',hi,choice:{tPi:es[0].pi,tNm:es[0].nm},score:es[0].e.card.win-1.5}); }
+        const own=Engine.allEntries(S).filter(x=>x.pi===pi&&!x.e.win&&x.e.card.lose<=-2);
+        if(own.length){ own.sort((a,b)=>a.e.card.lose-b.e.card.lose);
+          opts.push({type:'play',hi,choice:{tPi:pi,tNm:own[0].nm},score:-own[0].e.card.lose-0.5}); }
+      }else if(c.fx==='higurashi'){
+        const wins=Engine.allEntries(S).filter(x=>x.e.win).sort((a,b)=>b.e.card.win-a.e.card.win);
+        if(wins.length&&wins[0].pi!==pi)opts.push({type:'play',hi,score:wins[0].e.card.win-1.2});
+      }else if(c.fx==='ice'){
+        const fails=Engine.allEntries(S).filter(x=>!x.e.win).sort((a,b)=>a.e.card.lose-b.e.card.lose);
+        if(fails.length&&fails[0].pi===pi)opts.push({type:'play',hi,score:fails[0].e.card.win*0.8+1});
+      }else if(c.fx==='wasure'){
+        const ts=S.players.filter(q=>q.idx!==pi&&q.consumed.length>0);
+        if(ts.length){ ts.sort((a,b)=>Engine.memPts(b)-Engine.memPts(a));
+          opts.push({type:'play',hi,choice:{tPi:ts[0].idx},score:1.1}); }
+      }else if(c.fx==='benkyo'){
+        if(S.weaDeck.length<=3&&S.players.some(q=>q.idx!==pi&&q.homework.length>=3))
+          opts.push({type:'play',hi,score:1.0});
+      }
+    });
+    const pick=softmaxPick(opts,0.8);
+    return pick&&pick.type==='play'?pick:null;
+  },
+  cpuPlan(S,pi){
+    const p=S.players[pi];
+    let quickUsed=false;
+    const yi=p.hand.findIndex(c=>c.fx==='yoho');
+    if(yi>=0&&Math.random()<0.9){ Engine.playReward(S,pi,yi,{}); quickUsed=true; }
+    if(!quickUsed){
+      const yudI=p.hand.findIndex(c=>c.fx==='yudachi');
+      if(yudI>=0&&!S.turnFlags.yudachi){
+        const rainCard=S.pile.some(c=>c.w.indexOf('a')>=0&&c.win>=2);
+        if(rainCard&&Math.random()<0.6){ Engine.playReward(S,pi,yudI,{}); quickUsed=true; }
+      }
+    }
+    if(!quickUsed){
+      const teruI=p.hand.findIndex(c=>c.fx==='teru');
+      if(teruI>=0&&!p.teru&&!S.turnFlags.yudachi){
+        const sunCard=S.pile.some(c=>c.w==='h'&&c.win>=4);
+        const pHare=Engine.beliefP(S,'h');
+        if(sunCard&&pHare<0.55&&Math.random()<0.5){ Engine.playReward(S,pi,teruI,{}); quickUsed=true; }
+      }
+    }
+    const opts=[];
+    S.pile.forEach((c,i)=>opts.push({type:'take',idx:i,score:Engine.memEV(S,c,p)}));
+    if(Engine.canHomework(S,pi))
+      opts.push({type:'hw',score:(p.homework.length>=3?2.6:1.4)});
+    const kpI=p.hand.findIndex(c=>c.fx==='karipaku');
+    if(kpI>=0&&!quickUsed){
+      const victims=S.players.filter(q=>q.plan&&q.idx!==pi);
+      if(victims.length&&Math.random()<0.5){
+        const best=Math.max(...opts.map(o=>o.score),-99);
+        if(best<1.2){ victims.sort((a,b)=>Engine.memPts(b)-Engine.memPts(a));
+          opts.push({type:'kp',hi:kpI,tPi:victims[0].idx,score:1.6}); }
+      }
+    }
+    if(!opts.length)return {type:'none'};
+    return softmaxPick(opts,0.7);
+  }
+};
+function WMarks(w){ return '['+w.split('').map(ch=>WMARK[ch]||'').join('')+']'; }
+
+/* ================= 通信・進行 ================= */
+// host＝Engineを持ち進行を管理（席0） / guest＝スナップショットと手番メッセージを描画するだけ
+let role=null, myName='', roomId='';
+let peer=null, hostConns=[], guestConn=null;
+let S=null;             // hostのみ
+let Flow=null;          // hostのみ: {phase,queue,waiting,quickUsed,tmap}
+let sentLog=0;          // hostのみ: 送信済みログ行数
+let mySeat=-1, curSnap=null;
+let myTurn=null;        // 自分の未消化の手番UI状態 {phase:'reward'|'plan'|'weather'|'peek'|'next', data?, msg?}
+                        // snap再描画で手番UIが消えないよう、applySnapがこれを復元する
+
+function log(msg){ const el=$('log'); el.innerHTML+='<div>'+msg+'</div>'; el.scrollTop=el.scrollHeight; }
+function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
+function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('actionBody').innerHTML=html; }
+function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'ashi-'+r; }
+function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
+
+function memCardHTML(c,cls,id){
+  return '<div '+(id?'id="'+id+'" ':'')+'class="mcard '+(cls||'')+'">'
+    +'<div class="pts"><span class="w">+'+c.win+'</span><span class="wx">'+c.w.split('').map(x=>WMARK[x]).join('')+'</span><span class="l">'+c.lose+'</span></div>'
+    +'<div class="nm">'+(c.dp||c.nm)+'</div>'
+    +(c.fx==='reward'?'<div class="fx">せいこう時: ごほうび1枚</div>':'')
+    +(c.fx==='library'?'<div class="fx">せいこう時: しゅくだい1つ消化(ごほうび不可)</div>':'')
+    +(c.fx==='hideout'?'<div class="fx">せいこう時: 他の子のごほうび1枚ランダム捨て</div>':'')
+    +(c.tag==='kimo'?'<div class="fx">終了時: せいこうのきもだめし3枚で+13</div>':'')
+    +(c.tag==='rainbow'?'<div class="fx">終了時: せいこう+思い出7種で勝ち</div>':'')
+    +'</div>';
+}
+function rewCardHTML(c,id,cls){
+  const kd=c.k==='q'?'<span class="kind q">クイック</span>':c.k==='e'?'<span class="kind e">なつのおわり</span>':'<span class="kind">通常</span>';
+  return '<div '+(id?'id="'+id+'" ':'')+'class="rcard '+(cls||'')+'"><div class="nm">'+c.nm+'</div>'+kd+'<div>'+c.txt+'</div></div>';
+}
+
+/* ---------- 共通描画（snapから） ---------- */
+const PHASE_LB={reward:'ごほうびフェイズ',plan:'予定フェイズ',weather:'お天気フェイズ',afterWeather:'お天気フェイズ ― 結果'};
+function applySnap(snap,lines){
+  curSnap=snap;
+  (lines||[]).forEach(l=>log(l));
+  const flag=[];
+  if(snap.flags.yudachi)flag.push('夕立(→あめ)');
+  if(snap.flags.benkyokai)flag.push('べんきょうかい(しゅくだい禁止)');
+  $('drawInfo').textContent='お天気残り'+snap.weaLeft+'枚 / 思い出山'+snap.memLeft+'枚 / ごほうび山'+snap.rewLeft+'枚'+(flag.length?' / '+flag.join('・'):'');
+  let h='<div class="row"><span class="hint">めくられた天気:</span> '+(snap.revealed.map(w=>WLB[w]).join(' → ')||'（まだ）')+'</div>';
+  if(snap.showPlans){
+    h+='<h3>公開された予定</h3><div class="row">';
+    snap.players.forEach(p=>{ if(p.plan)h+='<div><div class="hint">'+p.name+'</div>'+memCardHTML(p.plan)+'</div>'; });
+    h+='</div>';
+  }
+  $('board').innerHTML=h;
+  let ph='';
+  snap.players.forEach((p,pi)=>{
+    const ent=p.entries.map(e=>'<span>'+(e.win?'✔':'✘')+e.nm+'('+(e.win?'+':'')+e.val+')</span>').join(' ');
+    ph+='<div class="pl'+(pi===mySeat?' me':'')+(pi===snap.actor?' turn':'')+'"><div class="name"><span>'+p.name
+      +(pi===snap.oyaIdx?' <span class="badge oya">親</span>':'')
+      +(p.isCPU?' <span class="badge bot">CPU</span>':'')
+      +'</span><span class="score">'+(p.memPts-p.hwLeft)+'</span></div>'
+      +'<div class="mini">思い出: '+(ent||'なし')+'</div>'
+      +'<div class="mini">しゅくだい残り'+p.hwLeft+'枚 / 消化: '+(p.consumed.join('・')||'なし')
+      +' / ごほうび手札'+p.handCount+'枚'+(p.hasPlan?' / 予定あり🂠':'')+'</div></div>';
+  });
+  $('players').innerHTML=ph;
+  $('banner').textContent='ラウンド'+snap.round+' ― '+(PHASE_LB[snap.phase]||'');
+  // 手番でない側の待機表示。自分の未消化手番UI(myTurn)があれば必ず復元する（切断通知等のsnapで消さない）
+  if(snap.phase==='afterWeather'){
+    $('turnTitle').textContent='お天気フェイズ ― 結果';
+    if(role==='host'&&myTurn&&myTurn.phase==='next'){ renderMyTurn(); }
+    else setAction(role==='host'?'':'<div class="mask">ホストが次のラウンドへ進めるのを待っています…</div>');
+  }else if(snap.actor>=0&&snap.actor!==mySeat){
+    myTurn=null;
+    $('turnTitle').textContent=snap.players[snap.actor].name+' の番…';
+    setAction('<span class="hint">待っています…</span><div id="targetArea"></div>');
+  }else if(snap.actor===mySeat){
+    $('turnTitle').textContent='あなたの番です';
+    if(myTurn)renderMyTurn();
+    else setAction('<span class="hint">…</span><div id="targetArea"></div>');
+  }
+}
+function sendAct(a){ if(role==='host')hostApplyAct(mySeat,a); else guestConn.send({t:'act',a}); }
+function renderMyTurn(){
+  if(!myTurn)return;
+  if(myTurn.phase==='peek'){
+    setAction('<div class="banner">'+myTurn.msg+'</div><div class="row"><button id="peekOk">OK（見た）</button></div><div id="targetArea"></div>');
+    $('peekOk').onclick=()=>{ myTurn=null; stepFlow(); };
+  }else if(myTurn.phase==='next'){
+    setAction('<div class="row"><button id="nextBtn">次のラウンドへ</button></div><div id="targetArea"></div>');
+    $('nextBtn').onclick=()=>{ myTurn=null; Engine.startRound(S); startRewardPhase(); };
+  }else{
+    renderTurn(myTurn.data,sendAct);
+  }
+}
+
+/* ---------- 手番UI（ホスト自席もゲストも同じ描画・sendだけ違う） ---------- */
+function renderTurn(data,send){
+  if(data.phase==='reward'){
+    $('turnTitle').textContent=data.myName+' のごほうびフェイズ（1枚使えます）';
+    let h='<div class="row">';
+    data.hand.forEach(c=>{ h+=rewCardHTML(c,'rw'+c.hi,c.playable?'pick':''); });
+    h+='</div><div class="row" style="margin-top:10px"><button id="passBtn" class="ghost">つかわずに次へ</button></div><div id="targetArea"></div>';
+    setAction(h);
+    data.hand.forEach(c=>{
+      if(!c.playable)return;
+      $('rw'+c.hi).onclick=()=>{
+        if(c.tgs){
+          let th='<h3>対象をえらぶ</h3><div class="row">';
+          c.tgs.forEach((t,i)=>{th+='<button class="ghost small" id="tg'+i+'">'+t.label+'</button>';});
+          $('targetArea').innerHTML=th+'</div>';
+          c.tgs.forEach((t,i)=>{ $('tg'+i).onclick=()=>send({type:'play',hi:c.hi,ti:i}); });
+        }else send({type:'play',hi:c.hi,ti:-1});
+      };
+    });
+    $('passBtn').onclick=()=>send({type:'pass'});
+  }else if(data.phase==='plan'){
+    $('turnTitle').textContent=data.myName+' の予定フェイズ（どれか1枚を予定にする / しゅくだいを消化する）';
+    let h='';
+    if(data.peek)h+='<div class="banner">天気よほう: このターンの天気は【'+WLB[data.peek]+'】</div>';
+    if(data.quicks.length){
+      h+='<h3>クイックごほうび（任意・1枚）</h3><div class="row">';
+      data.quicks.forEach(q=>{h+=rewCardHTML(q,'qk'+q.hi,'pick');});
+      h+='</div>';
+    }
+    h+='<h3>まわってきた思い出カード</h3><div class="row">';
+    data.pile.forEach((c,i)=>{h+=memCardHTML(c,'pick','pm'+i);});
+    h+='</div><div class="row" style="margin-top:10px">'
+      +'<button id="hwBtn" class="ghost"'+(data.canHw?'':' disabled')+'>しゅくだいの1番上を消化する（残り'+data.hwLeft+'枚）</button>'
+      +(!data.pile.length&&!data.canHw?'<button id="skipBtn" class="ghost">何もできない（次へ）</button>':'')
+      +'</div><div id="targetArea"></div>';
+    setAction(h);
+    if($('skipBtn'))$('skipBtn').onclick=()=>send({type:'skip'});
+    data.quicks.forEach(q=>{
+      $('qk'+q.hi).onclick=()=>{
+        if(q.tgs){ // かりパク
+          let th='<h3>だれの予定をうばう?</h3><div class="row">';
+          q.tgs.forEach((t,i)=>{th+='<button class="ghost small" id="kv'+i+'">'+t.label+'</button>';});
+          $('targetArea').innerHTML=th+'</div>';
+          q.tgs.forEach((t,i)=>{ $('kv'+i).onclick=()=>send({type:'quick',hi:q.hi,ti:i}); });
+        }else send({type:'quick',hi:q.hi,ti:-1});
+      };
+    });
+    data.pile.forEach((c,i)=>{ $('pm'+i).onclick=()=>send({type:'take',idx:i}); });
+    $('hwBtn').onclick=()=>send({type:'hw'});
+  }else if(data.phase==='weather'){
+    $('turnTitle').textContent='お天気フェイズ ― あなたが親です';
+    setAction('<div class="row"><button id="weatherBtn">🌞 あした天気にな〜れ!（天気をめくる）</button></div><div id="targetArea"></div>');
+    $('weatherBtn').onclick=()=>send({type:'weather'});
+  }
+}
+
+/* ---------- ホスト ---------- */
+function createRoom(){
+  myName=($('nameInput').value||'ホスト').trim()||'ホスト';
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='host'; roomId=randCode();
+  $('homeErr').textContent='';
+  peer=new window.Peer(roomId);
+  peer.on('open',()=>{
+    show('lobby');
+    $('roleTag').textContent='あなたがホスト（進行役）です';
+    $('roomCodeView').textContent=roomId;
+    $('hostCfg').classList.remove('hidden');
+    $('lobbyHint').textContent='全員が入ったら「ゲーム開始」。CPUを足して人数を埋めることもできます。';
+    renderLobby();
+  });
+  peer.on('connection',conn=>{
+    conn.on('data',d=>onHostData(conn,d));
+    conn.on('close',()=>onGuestLeave(conn));
+  });
+  peer.on('error',e=>{
+    if(String(e&&e.type)==='unavailable-id'){ roomId=randCode(); peer=null; createRoom(); return; }
+    $('homeErr').textContent='接続エラー: '+(e&&e.type?e.type:e);
+  });
+}
+function lobbyNames(){
+  const names=[{name:myName+'（ホスト）',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach(c=>names.push({name:c.name,isCPU:false}));
+  const ncpu=+$('nCpu').value;
+  for(let i=0;i<ncpu;i++) names.push({name:'CPU'+(i+1),isCPU:true});
+  return names;
+}
+function onHostData(conn,d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='hello'){
+    if(S){ conn.send({t:'busy'}); return; }
+    let nm=String(d.name||'ゲスト').slice(0,8);
+    const exist=lobbyNames().map(x=>x.name);
+    if(exist.includes(nm)) nm=nm+'2';
+    hostConns.push({conn,seat:-1,name:nm,alive:true});
+    broadcastLobby();
+  }
+  if(d.t==='act'){
+    const rec=hostConns.find(c=>c.conn===conn&&c.alive);
+    if(!rec||rec.seat<0) return;
+    if(!Flow||Flow.waiting!==rec.seat) return;
+    hostApplyAct(rec.seat,d.a||{});
+  }
+}
+function onGuestLeave(conn){
+  const rec=hostConns.find(c=>c.conn===conn);
+  if(!rec||!rec.alive) return;
+  rec.alive=false;
+  if(S&&rec.seat>=0){
+    S.players[rec.seat].isCPU=true;
+    Engine.log(S,'⚠️ '+rec.name+' が切断 → CPUが代わりに打ちます');
+    sync();
+    if(Flow&&Flow.waiting===rec.seat){ cpuAct(rec.seat); }
+  } else {
+    broadcastLobby();
+  }
+}
+function hostBroadcast(msg){ hostConns.filter(c=>c.alive).forEach(c=>{ try{ c.conn.send(msg); }catch(e){} }); }
+function sendTo(seat,msg){ const rec=hostConns.find(c=>c.alive&&c.seat===seat); if(rec){ try{ rec.conn.send(msg); }catch(e){} } }
+function broadcastLobby(){ hostBroadcast({t:'lobby',names:lobbyNames()}); renderLobby(); }
+function renderLobby(){
+  const box=$('lobbyPlayers'); box.innerHTML='';
+  const names=(role==='host')?lobbyNames():(curSnap&&curSnap.lobbyNames)||[];
+  names.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='pl';
+    d.innerHTML='<div class="name"><span>'+n.name+(n.isCPU?' <span class="badge bot">BOT</span>':'')+'</span><span class="badge ok">参加中</span></div>';
+    box.appendChild(d);
+  });
+}
+function buildSnap(){
+  return {
+    phase:Flow?Flow.phase:'', actor:(Flow&&Flow.waiting!=null)?Flow.waiting:-1,
+    round:S.round, weaLeft:S.weaDeck.length, memLeft:S.memDeck.length, rewLeft:S.rewDeck.length,
+    revealed:S.revealed.slice(), oyaIdx:S.oyaIdx,
+    flags:{yudachi:S.turnFlags.yudachi,benkyokai:S.turnFlags.benkyokai},
+    showPlans:!!(Flow&&Flow.phase==='weather'),
+    players:S.players.map(p=>({
+      name:p.name,isCPU:p.isCPU,handCount:p.hand.length,hwLeft:p.homework.length,
+      consumed:p.consumed.slice(),memPts:Engine.memPts(p),hasPlan:!!p.plan,
+      plan:(Flow&&Flow.phase==='weather'&&p.plan)?{nm:p.plan.nm,dp:p.plan.dp,w:p.plan.w,win:p.plan.win,lose:p.plan.lose,fx:p.plan.fx,tag:p.plan.tag}:null,
+      entries:Object.keys(p.tableau).map(nm=>({nm,win:p.tableau[nm].win,val:p.tableau[nm].win?p.tableau[nm].card.win:p.tableau[nm].card.lose}))
+    }))
+  };
+}
+function sync(){
+  const snap=buildSnap();
+  const lines=S.log.slice(sentLog); sentLog=S.log.length;
+  hostBroadcast({t:'snap',snap,log:lines});
+  applySnap(snap,lines);
+}
+function hostStart(){
+  const humans=1+hostConns.filter(c=>c.alive).length;
+  const ncpu=+$('nCpu').value;
+  const total=humans+ncpu;
+  if(total<2||total>5){ $('lobbyErr').textContent='合計2〜5人にしてください（今: 人間'+humans+'+CPU'+ncpu+'）'; return; }
+  $('lobbyErr').textContent='';
+  const cfg={removeN:+$('removeN').value, rewRecycle:$('rewRecycle').checked};
+  const specs=[{name:myName+'（ホスト）',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach((c,i)=>{ c.seat=i+1; specs.push({name:c.name,isCPU:false}); });
+  for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true});
+  S=Engine.newGame(cfg,specs);
+  mySeat=0; sentLog=0;
+  hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+  $('log').innerHTML='';
+  show('game');
+  Engine.startRound(S);
+  startRewardPhase();
+}
+
+/* --- ホストのフェイズ進行 --- */
+function startRewardPhase(){ Flow={phase:'reward',queue:Engine.order(S),waiting:null,quickUsed:false,tmap:null}; stepFlow(); }
+function startPlanPhase(){
+  Flow={phase:'plan',queue:Engine.order(S),waiting:null,quickUsed:false,tmap:null};
+  S.pile=[]; for(let i=0;i<S.np+1;i++){const m=Engine.drawMem(S); if(m)S.pile.push(m);}
+  Engine.log(S,'親が思い出カードを'+S.pile.length+'枚ひいた');
+  stepFlow();
+}
+function stepFlow(){
+  const F=Flow;
+  if(!F.queue.length){
+    if(F.phase==='reward'){ startPlanPhase(); }
+    else { S.pile.forEach(c=>S.memDiscard.push(c)); S.pile=[]; startWeatherPhase(); }
+    return;
+  }
+  const pi=F.queue.shift(); F.waiting=pi; F.quickUsed=false; F.tmap=null;
+  const p=S.players[pi];
+  if(F.phase==='plan'&&p.plan){ stepFlow(); return; }
+  if(!p.isCPU&&pi===mySeat){ myTurn={phase:F.phase,data:buildTurnData(pi)}; }
+  sync(); // applySnapがmyTurnを描画する
+  if(p.isCPU){ setTimeout(()=>cpuAct(pi),cpuMs()); }
+  else if(pi!==mySeat){ sendTo(pi,{t:'turn',data:buildTurnData(pi)}); }
+}
+function cpuAct(pi){
+  if(!Flow)return;
+  if(Flow.waiting!==pi)return;
+  const F=Flow;
+  if(F.phase==='reward'){
+    const a=Engine.cpuReward(S,pi);
+    if(a)Engine.playReward(S,pi,a.hi,a.choice||{});
+    sync(); stepFlow();
+  }else if(F.phase==='plan'){
+    const a=Engine.cpuPlan(S,pi);
+    if(a.type==='take')Engine.planTake(S,pi,a.idx);
+    else if(a.type==='hw')Engine.planHomework(S,pi,false);
+    else if(a.type==='kp')Engine.playReward(S,pi,a.hi,{tPi:a.tPi});
+    else if(S.pile.length)Engine.planTake(S,pi,0);
+    sync(); stepFlow();
+  }else if(F.phase==='weather'){
+    doWeather();
+  }
+}
+function buildTurnData(pi){
+  const p=S.players[pi];
+  const F=Flow;
+  if(F.phase==='reward'){
+    F.tmap={};
+    const hand=p.hand.map((c,hi)=>{
+      const playable=Engine.canPlayReward(S,pi,c,'reward');
+      let tgs=null;
+      if(playable&&c.fx==='hakushi'){
+        const es=Engine.allEntries(S);
+        F.tmap[hi]=es.map(x=>({tPi:x.pi,tNm:x.nm}));
+        tgs=es.map(x=>({label:S.players[x.pi].name+'の「'+x.nm+'」('+(x.e.win?'+'+x.e.card.win:x.e.card.lose)+')'}));
+      }else if(playable&&c.fx==='wasure'){
+        const ts=S.players.filter(q=>q.consumed.length>0);
+        F.tmap[hi]=ts.map(q=>({tPi:q.idx}));
+        tgs=ts.map(q=>({label:q.name+'（消化'+q.consumed.length+'枚）'}));
+      }
+      return {hi,nm:c.nm,k:c.k,txt:c.txt,fx:c.fx,playable,tgs};
+    });
+    return {phase:'reward',myName:p.name,hand};
+  }
+  if(F.phase==='plan'){
+    F.tmap={};
+    const quicks=[];
+    if(!F.quickUsed){
+      p.hand.forEach((c,hi)=>{
+        if(c.k!=='q'||!Engine.canPlayReward(S,pi,c,'plan'))return;
+        let tgs=null;
+        if(c.fx==='karipaku'){
+          const ts=S.players.filter(q=>q.plan&&q.idx!==pi);
+          F.tmap[hi]=ts.map(q=>({tPi:q.idx}));
+          tgs=ts.map(q=>({label:q.name}));
+        }
+        quicks.push({hi,nm:c.nm,k:c.k,txt:c.txt,fx:c.fx,tgs});
+      });
+    }
+    return {phase:'plan',myName:p.name,peek:p.peek||null,quickUsed:F.quickUsed,
+      pile:S.pile.map(c=>({nm:c.nm,dp:c.dp,w:c.w,win:c.win,lose:c.lose,fx:c.fx,tag:c.tag})),
+      canHw:Engine.canHomework(S,pi),hwLeft:p.homework.length,quicks};
+  }
+  return {phase:'weather',myName:p.name};
+}
+function hostApplyAct(pi,a){
+  if(!Flow||Flow.waiting!==pi)return;
+  const F=Flow; const p=S.players[pi];
+  if(F.phase==='reward'){
+    if(a.type==='pass'){ myTurn=null; sync(); stepFlow(); return; }
+    if(a.type==='play'){
+      const c=p.hand[a.hi];
+      if(!c||!Engine.canPlayReward(S,pi,c,'reward'))return;
+      let choice={};
+      if(F.tmap&&F.tmap[a.hi]){ const t=F.tmap[a.hi][a.ti]; if(!t)return; choice=t; }
+      const isYoho=c.fx==='yoho';
+      if(isYoho&&pi===mySeat){
+        Engine.playReward(S,pi,a.hi,choice);
+        myTurn={phase:'peek',msg:'天気よほう: このターンの天気は【'+WLB[p.peek]+'】'};
+        sync(); return; // OKを押したらstepFlow（renderMyTurn参照）
+      }
+      Engine.playReward(S,pi,a.hi,choice);
+      myTurn=null;
+      sync();
+      if(isYoho)sendTo(pi,{t:'pnote',msg:'🤫 天気よほう: このターンの天気は【'+WLB[p.peek]+'】'});
+      stepFlow(); return;
+    }
+    return;
+  }
+  if(F.phase==='plan'){
+    if(a.type==='skip'){
+      if(S.pile.length||Engine.canHomework(S,pi))return; // 何かできるならスキップ不可
+      Engine.log(S,p.name+'はこのターン何もできなかった');
+      myTurn=null; sync(); stepFlow(); return;
+    }
+    if(a.type==='take'){
+      if(!(a.idx>=0&&a.idx<S.pile.length))return;
+      Engine.planTake(S,pi,a.idx); myTurn=null; sync(); stepFlow(); return;
+    }
+    if(a.type==='hw'){
+      if(!Engine.canHomework(S,pi))return;
+      const before=p.hand.length;
+      Engine.planHomework(S,pi,false);
+      if(p.hand.length>before){
+        const drew=p.hand[p.hand.length-1];
+        if(pi===mySeat)log('🤫 ひいたごほうび: '+drew.nm);
+        else sendTo(pi,{t:'pnote',msg:'🤫 ひいたごほうび: '+drew.nm});
+      }
+      myTurn=null; sync(); stepFlow(); return;
+    }
+    if(a.type==='quick'){
+      if(F.quickUsed)return;
+      const c=p.hand[a.hi];
+      if(!c||c.k!=='q'||!Engine.canPlayReward(S,pi,c,'plan'))return;
+      if(c.fx==='karipaku'){
+        const t=F.tmap&&F.tmap[a.hi]?F.tmap[a.hi][a.ti]:null;
+        if(!t)return;
+        Engine.playReward(S,pi,a.hi,t);
+        myTurn=null; sync(); stepFlow(); return; // かりパク=行動終了
+      }
+      const isYoho=c.fx==='yoho';
+      Engine.playReward(S,pi,a.hi,{});
+      F.quickUsed=true;
+      // 同じプレイヤーに続きの手番を出し直す
+      if(pi===mySeat){ myTurn={phase:'plan',data:buildTurnData(pi)}; sync(); }
+      else{
+        sync();
+        if(isYoho)sendTo(pi,{t:'pnote',msg:'🤫 天気よほう: このターンの天気は【'+WLB[p.peek]+'】'});
+        sendTo(pi,{t:'turn',data:buildTurnData(pi)});
+      }
+      return;
+    }
+    return;
+  }
+  if(F.phase==='weather'){
+    if(a.type==='weather'){ myTurn=null; doWeather(); }
+  }
+}
+function startWeatherPhase(){
+  const oya=S.players[S.oyaIdx];
+  const clickerIsGuestOrHost = !oya.isCPU;
+  Flow={phase:'weather',queue:[],waiting:clickerIsGuestOrHost?S.oyaIdx:-1,quickUsed:false,tmap:null};
+  Engine.log(S,'お天気フェイズ ― 予定を公開!');
+  if(!oya.isCPU&&S.oyaIdx===mySeat){ myTurn={phase:'weather',data:{phase:'weather',myName:oya.name}}; }
+  sync();
+  if(oya.isCPU){ setTimeout(()=>doWeather(),cpuMs()); }
+  else if(S.oyaIdx!==mySeat){ sendTo(S.oyaIdx,{t:'turn',data:{phase:'weather',myName:oya.name}}); }
+}
+function doWeather(){
+  if(!Flow||Flow.phase!=='weather')return;
+  Engine.resolveWeather(S);
+  Flow={phase:'afterWeather',queue:[],waiting:null,quickUsed:false,tmap:null};
+  myTurn=S.over?null:{phase:'next'}; // ホストが次のラウンドへ（ペース管理）
+  sync();
+  if(S.over){ hostFinish(); return; }
+}
+function hostFinish(){
+  const f=Engine.finalScore(S);
+  sync(); // 快晴のログを配る
+  const rows=f.rank.map((rk,i)=>{
+    const p=S.players[rk.i]; const rs=f.res[rk.i];
+    return {pos:i+1,name:p.name,isCPU:p.isCPU,mem:rs.mem,hw:rs.hw,end:rs.end,total:rs.total,notes:rs.notes,rainbowWin:rs.rainbowWin};
+  });
+  const data={rows,gap:f.rank[0].total-f.rank[1].total,
+    rainbow:f.res.some(x=>x.rainbowWin),
+    hwLeft:S.players.reduce((a,p)=>a+p.homework.length,0), rewUsed:S.rewardUsed};
+  hostBroadcast({t:'result',data});
+  renderResult(data);
+}
+
+/* ---------- ゲスト ---------- */
+function joinRoom(){
+  myName=($('nameInput').value||'ゲスト').trim()||'ゲスト';
+  const code=($('roomInput').value||'').trim();
+  if(!code){ $('homeErr').textContent='部屋コードを入れてください。'; return; }
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='guest';
+  $('homeErr').textContent='接続中…';
+  peer=new window.Peer();
+  peer.on('open',()=>{
+    guestConn=peer.connect(code,{reliable:true});
+    guestConn.on('open',()=>{ guestConn.send({t:'hello',name:myName}); });
+    guestConn.on('data',onGuestData);
+    guestConn.on('close',()=>{
+      $('banner')&&($('banner').textContent='⚠️ ホストとの接続が切れました（部屋終了）');
+      $('homeErr').textContent='ホストとの接続が切れました。';
+    });
+  });
+  peer.on('error',e=>{
+    const t=e&&e.type?String(e.type):'';
+    $('homeErr').textContent=(t==='peer-unavailable')?'その部屋コードが見つかりません。':('接続エラー: '+(t||e));
+  });
+}
+function onGuestData(d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='busy'){ $('homeErr').textContent='この部屋はすでにゲーム中です。'; return; }
+  if(d.t==='lobby'){
+    curSnap={lobbyNames:d.names};
+    show('lobby');
+    $('roleTag').textContent='ホストの開始待ち';
+    $('roomCodeView').textContent=($('roomInput').value||'').trim();
+    $('hostCfg').classList.add('hidden');
+    $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
+    renderLobby();
+  }
+  if(d.t==='start'){ mySeat=d.seat; myTurn=null; $('log').innerHTML=''; log('ゲーム開始！'); show('game'); }
+  if(d.t==='snap'){ applySnap(d.snap,d.log); }
+  if(d.t==='pnote'){ log(d.msg); }
+  if(d.t==='turn'){ myTurn={phase:d.data.phase,data:d.data}; renderTurn(d.data,sendAct); }
+  if(d.t==='result'){ renderResult(d.data); }
+}
+
+/* ---------- 結果（共通） ---------- */
+function renderResult(d){
+  show('result');
+  let h='<h2>🌻 なつのおわり ― 結果はっぴょう</h2><table class="res"><tr><th>順位</th><th>プレイヤー</th><th>思い出</th><th>しゅくだい</th><th>なつのおわり等</th><th>合計</th><th>内訳メモ</th></tr>';
+  d.rows.forEach(r=>{
+    h+='<tr><td>'+r.pos+(r.rainbowWin?' 🌈':'')+'</td><td>'+r.name+(r.isCPU?' 🤖':'')+'</td><td>'+r.mem+'</td><td>'+r.hw+'</td><td>'+(r.end>=0?'+':'')+r.end+'</td><td><b>'+r.total+'</b></td><td class="hint">'+r.notes.join(' / ')+'</td></tr>';
+  });
+  h+='</table>';
+  h+='<div class="foot">接戦度(1位-2位)='+d.gap+' / 虹勝利='+(d.rainbow?'あり':'なし')
+    +' / 残りしゅくだい合計='+d.hwLeft+' / ごほうび使用枚数='+d.rewUsed+'</div>';
+  if(role==='host'){
+    h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>';
+  }else{
+    h+='<div class="foot" style="margin-top:14px">ホストが「もう1戦」を押すと再開します。</div>';
+  }
+  $('result').innerHTML=h;
+  if(role==='host'){
+    $('againBtn').onclick=()=>{
+      const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU}));
+      S=Engine.newGame(S.cfg,specs);
+      sentLog=0; myTurn=null;
+      hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+      $('log').innerHTML=''; log('もう1戦！');
+      show('game');
+      Engine.startRound(S);
+      startRewardPhase();
+    };
+  }
+}
+
+/* ---------- ボタン配線 ---------- */
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('startBtn').onclick=hostStart;
+
+// テスト用に公開（UIからは使わない）
+window.__engine=Engine;
+window.__state=()=>({role,roomId,mySeat,S,curSnap,Flow});
+</script>
+
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『あした天気にな〜れっ！』は2023年ゲームマーケット春で頒布した製品版のWeb再現です。<br><a href="../" style="color:#5f8f8a">← 試遊場トップ（ほかのゲーム一覧）</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>

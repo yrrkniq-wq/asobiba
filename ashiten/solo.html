@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>あした天気にな〜れっ！ ― 開発プロトタイプ</title>
+<meta property="og:title" content="あした天気にな〜れっ！ ひとり用CPU対戦">
+<meta property="og:description" content="夏休みの思い出づくりカードゲームをブラウザで。CPU相手にひとりで遊べます(2〜5人)。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yrrkniq-wq.github.io/asobiba/ashiten/solo.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  あし天_master（見本.pdf / ルールガイド / 内訳.xlsx）からのHTML再現。ゲームID: ashiten
+  スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
+  実装上の解釈メモ（kaiyo確認済み: ながぐつ=雨せいこう系2枚以上で+5 / 快晴=誰のでも無効化 / 抜き枚数=親番が平等になる枚数）
+  未確認の仮置き: ①ひみつきち=他プレイヤー全体からランダム1枚すてる ②山札切れは捨て札をシャッフルして補充（※1準拠をごほうびにも適用）
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+    --sky:#7ec3e0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .mcard{display:flex;flex-direction:column;width:126px;height:158px;border-radius:12px;background:#fff;
+         border:2px solid var(--line);padding:6px 8px;font-size:12px;position:relative;
+         box-shadow:var(--shadow);vertical-align:top;overflow:hidden}
+  .mcard .nm{font-weight:700;font-size:12px;line-height:1.3}
+  .mcard .pts{display:flex;justify-content:space-between;font-weight:800}
+  .mcard .pts .w{color:var(--good)} .mcard .pts .l{color:var(--bad)}
+  .mcard .wx{font-size:13px;letter-spacing:2px}
+  .mcard .fx{font-size:10px;color:var(--sub);line-height:1.35;margin-top:auto}
+  .mcard.pick{cursor:pointer}
+  .mcard.pick:hover{transform:translateY(-3px)}
+  .mcard.win{border-color:var(--good);background:#f2f9f3}
+  .mcard.lose{border-color:var(--bad);background:#fbf1f1;opacity:.9}
+  .rcard{display:inline-block;width:150px;border-radius:12px;background:#fff;border:2px solid #cfe3ee;
+         padding:6px 8px;font-size:11px;box-shadow:var(--shadow);vertical-align:top}
+  .rcard .nm{font-weight:700;font-size:12px}
+  .rcard .kind{font-size:10px;color:#fff;background:var(--sky);border-radius:8px;padding:0 6px;display:inline-block}
+  .rcard .kind.q{background:var(--chip)} .rcard .kind.e{background:#9a8fc7}
+  .rcard.pick{cursor:pointer} .rcard.pick:hover{transform:translateY(-3px)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;font-size:12px}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:20px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .oya{background:#fdeecd;color:#a4711b}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .step{display:inline-block;font-size:11px;background:var(--accent2);color:#fff;padding:1px 8px;border-radius:20px;margin-right:6px}
+  .step.bad{background:var(--bad)} .step.wx{background:var(--sky)}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#e8f6fb);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌞 あした天気にな〜れっ！</h1>
+  <span class="tag">開発プロトタイプ v1.0（製品版ルールのHTML再現）</span>
+  <span class="tag">ゲームID: ashiten</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <h2>セットアップ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="5" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="5" value="3"></label>
+      <span class="hint">合計2〜5人。人間2人以上はパス&プレイ（受け渡し画面あり）、人間0で観戦デモ</span>
+    </div>
+    <h3>調整レバー</h3>
+    <div class="grid">
+      <label>お天気の抜き枚数 <input id="removeN" class="num" type="number" min="-1" max="9" value="-1"> <span class="hint">-1=自動</span></label>
+      <label>ごほうび山切れ時に捨て札再利用 <input id="rewRecycle" type="checkbox" checked></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="900"></label>
+    </div>
+    <div class="foot">自動の抜き枚数: 2人=3枚 / 3人=2枚 / 4人=3枚 / 5人=1枚（親番が全員に平等に回る枚数。製品ルール表記は「3枚・3人時は2枚」）</div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>流れ</td><td>ごほうびフェイズ → 予定フェイズ → お天気フェイズ をお天気カードが尽きるまで繰り返す</td></tr>
+      <tr><td>ごほうび</td><td>各自1枚まで通常/クイックのごほうびカードを使える（親から時計回り）</td></tr>
+      <tr><td>予定</td><td>親が思い出カードを人数+1枚ひき、順に「1枚えらび予定にする」か「しゅくだい消化」。残りは左隣へ。しゅくだいが3枚以上残っている状態で消化するとごほうび1枚</td></tr>
+      <tr><td>お天気</td><td>予定を公開→親が天気をめくる→天気マーク一致で「せいこう!」不一致は「しっぱい…」。たいふうは全員しっぱい。同名の思い出は上に重ねて1枚扱い</td></tr>
+      <tr><td>終了</td><td>せいこう/しっぱいの得点合計 − 残りしゅくだい×1点 ＋ なつのおわりカードを全適用。最高得点の勝ち。「虹のむこうに」せいこう＋思い出7種以上は無条件勝利</td></tr>
+    </table>
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>盤面 <span class="hint" id="drawInfo"></span></h2>
+      <div id="board"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function softmaxPick(opts,temp){ // opts:[{score,...}] → 1つ選ぶ
+  if(!opts.length)return null;
+  const t=temp||1;
+  const mx=Math.max(...opts.map(o=>o.score));
+  const ws=opts.map(o=>Math.exp((o.score-mx)/t));
+  let r=Math.random()*ws.reduce((a,b)=>a+b,0);
+  for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0)return opts[i]; }
+  return opts[opts.length-1];
+}
+
+/* ===== カードデータ（見本.pdf・内訳.xlsxから転記） ===== */
+/* w: h=はれ k=くもり a=あめ（このマークの天気で せいこう!）。win/lose=せいこう/しっぱい点 */
+const MEM_DEF=[
+  {nm:'学校できもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'じんじゃできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'おばけやしきできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'トンネルできもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'森できもだめし', w:'hk', win:0, lose:0, tag:'kimo', n:1},
+  {nm:'家でゲーム', w:'hka', win:1, lose:-1, fx:'reward', n:2},
+  {nm:'虫とり', w:'hk', win:2, lose:-1, fx:'reward', n:3},
+  {nm:'図書館に行く', w:'ka', win:2, lose:0, fx:'library', n:3},
+  {nm:'えいが', w:'ka', win:2, lose:0, fx:'reward', n:3},
+  {nm:'星さがし', w:'h', win:3, lose:-1, fx:'reward', n:2},
+  {nm:'夏まつり', dp:'夏まつり(屋台)', w:'hk', win:3, lose:-1, n:3},
+  {nm:'夏まつり', dp:'夏まつり(水風船)', w:'hk', win:3, lose:0, n:1},
+  {nm:'キャンプ', dp:'キャンプ(川辺)', w:'hk', win:3, lose:-1, n:3},
+  {nm:'キャンプ', dp:'キャンプ(焚火)', w:'hk', win:3, lose:0, n:1},
+  {nm:'山のぼり', dp:'山のぼり(山道)', w:'h', win:4, lose:-2, n:2},
+  {nm:'山のぼり', dp:'山のぼり(おにぎり)', w:'h', win:4, lose:-1, n:1},
+  {nm:'花火', dp:'花火(打ち上げ)', w:'h', win:4, lose:-2, n:2},
+  {nm:'花火', dp:'花火(線香花火)', w:'h', win:4, lose:-1, n:1},
+  {nm:'ひみつきち作り', w:'h', win:4, lose:-3, fx:'hideout', n:3},
+  {nm:'海あそび', dp:'海あそび(青空)', w:'h', win:5, lose:-3, n:3},
+  {nm:'海あそび', dp:'海あそび(水面)', w:'h', win:5, lose:-2, n:1},
+  {nm:'虹のむこうに', w:'a', win:5, lose:-3, tag:'rainbow', n:1},
+];
+/* k: n=通常 q=クイック e=なつのおわり */
+const REW_DEF=[
+  {nm:'白紙のえにっき', k:'n', fx:'hakushi', txt:'場の思い出を1枚えらびすてる', n:2},
+  {nm:'アイスのあたりくじ', k:'n', fx:'ice', txt:'場のもっとも低い点数のしっぱいの思い出を1枚ひっくり返す', n:1},
+  {nm:'ひぐらしの歌', k:'n', fx:'higurashi', txt:'場のもっとも高い点数のせいこうの思い出を1枚ひっくり返す', n:1},
+  {nm:'わすれられたしゅくだい', k:'n', fx:'wasure', txt:'消化されたしゅくだいを1枚えらんで戻しシャッフルする', n:2},
+  {nm:'べんきょうかい', k:'n', fx:'benkyo', txt:'このターンだれもしゅくだいできない。「図書館に行く」の効果も無効', n:2},
+  {nm:'天気よほう', k:'q', fx:'yoho', txt:'自分はこのターンの天気をみる', n:3},
+  {nm:'てるてる坊主', k:'q', fx:'teru', txt:'このターンの天気が「くもり」「あめ」のとき自分だけ「はれ」にする', n:1},
+  {nm:'夕立', k:'q', fx:'yudachi', txt:'このターンの天気が「はれ」「くもり」のとき「あめ」にする', n:1},
+  {nm:'かりパク', k:'q', fx:'karipaku', txt:'このターンの自分より前のともだちがえらんだ予定を自分の予定にする。その後自分は行動できない', n:2},
+  {nm:'書きこまれたえにっき', k:'e', fx:'kakikomi', txt:'せいこうの思い出がもっとも少ないとき+5点（全員に適用）', n:1},
+  {nm:'あさがおかんさつ', k:'e', fx:'sub_りか', txt:'「りか」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'かん字れんしゅうちょう', k:'e', fx:'sub_こくご', txt:'「こくご」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'さんすうドリル', k:'e', fx:'sub_さんすう', txt:'「さんすう」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'しんぶん作り', k:'e', fx:'sub_しゃかい', txt:'「しゃかい」のしゅくだいが残っていればさらに-3点（全員に適用）', n:1},
+  {nm:'さいきょうのカブトムシ', k:'e', fx:'combo_虫とり', txt:'ゲーム終了時+2点。せいこうの「虫とり」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'夏の大三角', k:'e', fx:'combo_星さがし', txt:'ゲーム終了時+2点。せいこうの「星さがし」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'やまもりポップコーン', k:'e', fx:'combo_えいが', txt:'ゲーム終了時+2点。せいこうの「えいが」があればさらに+1点（持ち主だけ）', n:1},
+  {nm:'おふだ', k:'e', fx:'ofuda', txt:'せいこうの「きもだめし」が2枚だけのとき+13点（全員に適用）', n:1},
+  {nm:'快晴', k:'e', fx:'kaisei', txt:'なつのおわりカードを1枚えらびその効果を無効にする', n:1},
+  {nm:'ながぐつ', k:'e', fx:'nagagutsu', txt:'あめでせいこうになる思い出が2枚以上せいこうしていれば+5点（全員に適用）', n:1},
+  {nm:'あおあらし', k:'e', fx:'pair_キャンプ_山のぼり', txt:'せいこうの「キャンプ」または「山のぼり」があれば+2点（全員に適用）', n:1},
+  {nm:'うちあげ花火', k:'e', fx:'pair_夏まつり_花火', txt:'せいこうの「夏まつり」または「花火」があれば+2点（全員に適用）', n:1},
+];
+const WEA_DEF={h:5,k:3,a:2,t:1};
+const WLB={h:'はれ☀', k:'くもり☁', a:'あめ☂', t:'たいふう🌀'};
+const WMARK={h:'☀',k:'☁',a:'☂'};
+const SUBJECTS=['こくご','さんすう','りか','しゃかい'];
+const CPU_NAMES=['あかり','つばさ','ひなた','そら','かんな'];
+
+/* ===== Engine（純ロジック。DOMを触らない） ===== */
+const Engine = {
+  autoRemove(np){ return {2:3,3:2,4:3,5:1}[np]; },
+
+  newGame(cfg){
+    const np=cfg.nHuman+cfg.nCpu;
+    const memDeck=[]; MEM_DEF.forEach(d=>{for(let i=0;i<d.n;i++)memDeck.push(d);});
+    const rewDeck=[]; REW_DEF.forEach(d=>{for(let i=0;i<d.n;i++)rewDeck.push(d);});
+    let weaDeck=[]; Object.keys(WEA_DEF).forEach(w=>{for(let i=0;i<WEA_DEF[w];i++)weaDeck.push(w);});
+    shuffle(memDeck); shuffle(rewDeck); shuffle(weaDeck);
+    const removeN = cfg.removeN>=0 ? Math.min(cfg.removeN,9) : Engine.autoRemove(np);
+    weaDeck=weaDeck.slice(removeN); // 見ずに抜く
+    const S={cfg, np, memDeck, memDiscard:[], rewDeck, rewDiscard:[], weaDeck,
+             revealed:[], round:0, oyaIdx:rnd(np), over:false, log:[],
+             turnFlags:{yudachi:false,benkyokai:false}, pile:[], rewardUsed:0,
+             players:[]};
+    for(let i=0;i<np;i++){
+      S.players.push({
+        idx:i, human:i<cfg.nHuman,
+        name: i<cfg.nHuman ? 'プレイヤー'+(i+1) : CPU_NAMES[i-cfg.nHuman]+'(CPU)',
+        hand:[Engine.drawRew(S)].filter(Boolean),
+        homework:shuffle(SUBJECTS.slice()), consumed:[],
+        tableau:{}, plan:null, planFrom:null, teru:false, peek:null
+      });
+    }
+    Engine.log(S,'ゲーム開始! お天気カード'+S.weaDeck.length+'枚（'+removeN+'枚を見ずに抜いた）。親は'+S.players[S.oyaIdx].name);
+    return S;
+  },
+
+  log(S,msg){ S.log.push(msg); },
+  order(S){ const o=[]; for(let i=0;i<S.np;i++)o.push((S.oyaIdx+i)%S.np); return o; },
+
+  drawMem(S){
+    if(!S.memDeck.length){ if(!S.memDiscard.length)return null;
+      S.memDeck=shuffle(S.memDiscard); S.memDiscard=[]; Engine.log(S,'（思い出の山札が尽きたので捨て札をシャッフルして戻した ※ルール※1）'); }
+    return S.memDeck.pop();
+  },
+  drawRew(S){
+    if(!S.rewDeck.length){
+      if(!S.cfg.rewRecycle || !S.rewDiscard.length) return null;
+      S.rewDeck=shuffle(S.rewDiscard); S.rewDiscard=[]; Engine.log(S,'（ごほうびの山札が尽きたので捨て札をシャッフルして戻した ※仮ルール）');
+    }
+    return S.rewDeck.pop();
+  },
+
+  startRound(S){
+    S.round++;
+    S.turnFlags={yudachi:false,benkyokai:false};
+    S.players.forEach(p=>{p.plan=null;p.planFrom=null;p.teru=false;p.peek=null;});
+    S.pile=[];
+    Engine.log(S,'―― ラウンド'+S.round+'（残りお天気'+S.weaDeck.length+'枚 / 親: '+S.players[S.oyaIdx].name+'）――');
+  },
+
+  /* --- 場（全員の思い出）ヘルパー --- */
+  allEntries(S){ // [{pi,nm,e}]
+    const out=[];
+    S.players.forEach((p,pi)=>Object.keys(p.tableau).forEach(nm=>out.push({pi,nm,e:p.tableau[nm]})));
+    return out;
+  },
+  memPts(p){ let s=0; Object.keys(p.tableau).forEach(nm=>{const e=p.tableau[nm]; s+= e.win? e.card.win : e.card.lose;}); return s; },
+  winCount(p){ return Object.keys(p.tableau).filter(nm=>p.tableau[nm].win).length; },
+
+  /* --- ごほうびカードの使用 --- */
+  canPlayReward(S,pi,card,phase){ // phase:'reward'|'plan'
+    if(card.k==='e')return false;
+    if(phase==='plan' && card.k!=='q')return false;
+    switch(card.fx){
+      case 'hakushi': return Engine.allEntries(S).length>0;
+      case 'ice': return Engine.allEntries(S).some(x=>!x.e.win && x.e.card.lose<0)||Engine.allEntries(S).some(x=>!x.e.win);
+      case 'higurashi': return Engine.allEntries(S).some(x=>x.e.win);
+      case 'wasure': return S.players.some(p=>p.consumed.length>0);
+      case 'benkyo': return phase==='reward';
+      case 'karipaku': return phase==='plan' && S.players.some(p=>p.plan&&p.idx!==pi);
+      default: return true; // yoho, teru, yudachi
+    }
+  },
+  playReward(S,pi,handIdx,choice){ // choice: 効果ごとの対象 {tPi,tNm}
+    const p=S.players[pi]; const card=p.hand[handIdx];
+    p.hand.splice(handIdx,1); S.rewDiscard.push(card); S.rewardUsed++;
+    const who=p.name;
+    switch(card.fx){
+      case 'hakushi':{ const t=S.players[choice.tPi];
+        delete t.tableau[choice.tNm];
+        Engine.log(S,who+'が「白紙のえにっき」: '+t.name+'の思い出「'+choice.tNm+'」をすてた'); break; }
+      case 'ice':{ // 場のもっとも低い点数のしっぱいを自動対象
+        const fails=Engine.allEntries(S).filter(x=>!x.e.win);
+        if(fails.length){ fails.sort((a,b)=>a.e.card.lose-b.e.card.lose);
+          const t=fails[0]; t.e.win=true;
+          Engine.log(S,who+'が「アイスのあたりくじ」: '+S.players[t.pi].name+'の「'+t.nm+'」がせいこうにひっくり返った'); }
+        break; }
+      case 'higurashi':{ const wins=Engine.allEntries(S).filter(x=>x.e.win);
+        if(wins.length){ wins.sort((a,b)=>b.e.card.win-a.e.card.win);
+          const t=wins[0]; t.e.win=false;
+          Engine.log(S,who+'が「ひぐらしの歌」: '+S.players[t.pi].name+'の「'+t.nm+'」がしっぱいにひっくり返った'); }
+        break; }
+      case 'wasure':{ const t=S.players[choice.tPi];
+        if(t.consumed.length){ const sub=t.consumed.splice(rnd(t.consumed.length),1)[0];
+          t.homework.push(sub); shuffle(t.homework);
+          Engine.log(S,who+'が「わすれられたしゅくだい」: '+t.name+'の消化済み「'+sub+'」を山に戻した'); }
+        break; }
+      case 'benkyo': S.turnFlags.benkyokai=true;
+        Engine.log(S,who+'が「べんきょうかい」: このターンはだれもしゅくだいできない'); break;
+      case 'yoho': p.peek=S.weaDeck[S.weaDeck.length-1];
+        Engine.log(S,who+'が「天気よほう」: こっそり天気をみた'); break;
+      case 'teru': p.teru=true;
+        Engine.log(S,who+'が「てるてる坊主」: くもり/あめなら自分だけはれ'); break;
+      case 'yudachi': S.turnFlags.yudachi=true;
+        Engine.log(S,who+'が「夕立」: はれ/くもりならこのターンはあめになる'); break;
+      case 'karipaku':{ const t=S.players[choice.tPi];
+        p.plan=t.plan; p.planFrom='かりパク'; t.plan=null;
+        Engine.log(S,who+'が「かりパク」: '+t.name+'の予定をうばった!'); break; }
+    }
+  },
+
+  /* --- 予定フェイズのアクション --- */
+  planTake(S,pi,pileIdx){
+    const p=S.players[pi]; p.plan=S.pile.splice(pileIdx,1)[0];
+    Engine.log(S,p.name+'は予定を立てた（うら向き）');
+  },
+  canHomework(S,pi){ return !S.turnFlags.benkyokai && S.players[pi].homework.length>0; },
+  planHomework(S,pi,viaLibrary){
+    const p=S.players[pi];
+    if(!p.homework.length)return;
+    const before=p.homework.length;
+    const sub=p.homework.shift(); p.consumed.push(sub);
+    Engine.log(S,p.name+'はしゅくだい「'+sub+'」を消化した'+(viaLibrary?'（図書館に行く）':''));
+    if(!viaLibrary && before>=3){
+      const r=Engine.drawRew(S);
+      if(r){ p.hand.push(r); Engine.log(S,p.name+'はごほうびカードを1枚ひいた（残り3枚以上で消化）'); }
+    }
+  },
+
+  /* --- お天気フェイズ --- */
+  effWeather(w,yudachi,teru){
+    if(w==='t')return null; // たいふう: 全員しっぱい
+    let g=(yudachi&&(w==='h'||w==='k'))?'a':w;
+    if(teru&&(g==='k'||g==='a'))g='h';
+    return g;
+  },
+  resolveWeather(S){
+    const w=S.weaDeck.pop(); S.revealed.push(w);
+    Engine.log(S,'親の掛け声「あした天気にな〜れ!」→ めくった天気は【'+WLB[w]+'】'+(S.turnFlags.yudachi&&w!=='t'?'（夕立であめ扱い）':''));
+    const events=[];
+    Engine.order(S).forEach(pi=>{
+      const p=S.players[pi];
+      if(!p.plan)return;
+      const eff=Engine.effWeather(w,S.turnFlags.yudachi,p.teru);
+      const ok= eff!==null && p.plan.w.indexOf(eff)>=0;
+      const nm=p.plan.nm;
+      const existed=!!p.tableau[nm];
+      p.tableau[nm]={win:ok, card:p.plan}; // 同名は上に重ねて1枚扱い
+      Engine.log(S,p.name+'の予定「'+(p.plan.dp||nm)+'」'+WMarks(p.plan.w)+' → '+(ok?'せいこう!':'しっぱい…')+(existed?'（同名に重ねた）':''));
+      if(ok&&p.plan.fx)events.push({pi,fx:p.plan.fx});
+      p.plan=null;
+    });
+    // せいこう効果は親から時計回りに解決（ルール※2）
+    events.forEach(ev=>{
+      const p=S.players[ev.pi];
+      if(ev.fx==='reward'){ const r=Engine.drawRew(S);
+        if(r){p.hand.push(r); Engine.log(S,p.name+'はせいこう効果でごほうびカードを1枚ひいた');} }
+      else if(ev.fx==='library'){
+        if(S.turnFlags.benkyokai){ Engine.log(S,p.name+'の「図書館に行く」効果はべんきょうかいで無効'); }
+        else if(p.homework.length){ Engine.planHomework(S,ev.pi,true); } }
+      else if(ev.fx==='hideout'){
+        const pool=[]; S.players.forEach((q,qi)=>{ if(qi!==ev.pi) q.hand.forEach((c,ci)=>pool.push({qi,ci})); });
+        if(pool.length){ const t=pool[rnd(pool.length)]; const q=S.players[t.qi];
+          const c=q.hand.splice(t.ci,1)[0]; S.rewDiscard.push(c);
+          Engine.log(S,p.name+'の「ひみつきち作り」: '+q.name+'のごほうび「'+c.nm+'」をすてさせた'); } }
+    });
+    S.oyaIdx=(S.oyaIdx+1)%S.np; // ラジオ体操カードを左隣へ
+    if(!S.weaDeck.length)S.over=true;
+    return w;
+  },
+
+  /* --- 終了時の得点計算 --- */
+  computeScores(S,nullSet){ // nullSet: Set of "pi:handIdx" 無効化されたなつのおわり
+    const res=S.players.map(p=>({mem:Engine.memPts(p), hw:-p.homework.length, end:0, notes:[], rainbowWin:false}));
+    // 思い出自身の終了時効果
+    S.players.forEach((p,pi)=>{
+      const kimoWins=Object.keys(p.tableau).filter(nm=>p.tableau[nm].card.tag==='kimo'&&p.tableau[nm].win).length;
+      if(kimoWins>=3){res[pi].end+=13; res[pi].notes.push('きもだめし3枚 +13');}
+      const rb=p.tableau['虹のむこうに'];
+      if(rb&&rb.win&&Object.keys(p.tableau).length>=7){res[pi].rainbowWin=true; res[pi].notes.push('🌈虹のむこうに達成（無条件勝利）');}
+    });
+    // なつのおわり
+    S.players.forEach((p,pi)=>{
+      p.hand.forEach((c,ci)=>{
+        if(c.k!=='e'||c.fx==='kaisei')return;
+        if(nullSet&&nullSet.has(pi+':'+ci))return;
+        const fx=c.fx;
+        if(fx==='kakikomi'){
+          const min=Math.min(...S.players.map(q=>Engine.winCount(q)));
+          S.players.forEach((q,qi)=>{ if(Engine.winCount(q)===min){res[qi].end+=5; res[qi].notes.push('書きこまれたえにっき +5');} });
+        }else if(fx.indexOf('sub_')===0){
+          const sub=fx.slice(4);
+          S.players.forEach((q,qi)=>{ if(q.homework.indexOf(sub)>=0){res[qi].end-=3; res[qi].notes.push(c.nm+'（'+sub+'残り）-3');} });
+        }else if(fx.indexOf('combo_')===0){
+          const need=fx.slice(6); let v=2;
+          if(p.tableau[need]&&p.tableau[need].win)v+=1;
+          res[pi].end+=v; res[pi].notes.push(c.nm+' +'+v);
+        }else if(fx==='ofuda'){
+          S.players.forEach((q,qi)=>{
+            const kw=Object.keys(q.tableau).filter(nm=>q.tableau[nm].card.tag==='kimo'&&q.tableau[nm].win).length;
+            if(kw===2){res[qi].end+=13; res[qi].notes.push('おふだ（きもだめし2枚）+13');} });
+        }else if(fx==='nagagutsu'){
+          S.players.forEach((q,qi)=>{
+            const rainWins=Object.keys(q.tableau).filter(nm=>q.tableau[nm].win&&q.tableau[nm].card.w.indexOf('a')>=0).length;
+            if(rainWins>=2){res[qi].end+=5; res[qi].notes.push('ながぐつ +5');} });
+        }else if(fx.indexOf('pair_')===0){
+          const parts=fx.slice(5).split('_');
+          S.players.forEach((q,qi)=>{
+            if(parts.some(nm=>q.tableau[nm]&&q.tableau[nm].win)){res[qi].end+=2; res[qi].notes.push(c.nm+' +2');} });
+        }
+      });
+    });
+    res.forEach(r=>r.total=r.mem+r.hw+r.end);
+    return res;
+  },
+  finalScore(S){
+    // 快晴: 持ち主が最も得する無効化対象をえらぶ（無効化しない選択も可）
+    const nullSet=new Set();
+    S.players.forEach((p,pi)=>{
+      p.hand.forEach(c=>{
+        if(c.fx!=='kaisei')return;
+        const cands=[];
+        S.players.forEach((q,qi)=>q.hand.forEach((c2,ci)=>{ if(c2.k==='e'&&c2.fx!=='kaisei')cands.push(qi+':'+ci); }));
+        let best=null, bestGain=-1e9;
+        const evalSet=set=>{ const r=Engine.computeScores(S,set);
+          const others=r.map((x,i)=>i===pi?-1e9:x.total);
+          return r[pi].total - Math.max(...others); };
+        const base=evalSet(nullSet);
+        cands.forEach(key=>{ if(nullSet.has(key))return;
+          const s2=new Set(nullSet); s2.add(key);
+          const g=evalSet(s2)-base;
+          if(g>bestGain){bestGain=g;best=key;} });
+        if(best&&bestGain>0){ nullSet.add(best);
+          const t=best.split(':'); const tc=S.players[+t[0]].hand[+t[1]];
+          Engine.log(S,p.name+'の「快晴」: '+S.players[+t[0]].name+'の「'+tc.nm+'」を無効にした'); }
+        else Engine.log(S,p.name+'の「快晴」: 無効化しないことをえらんだ');
+      });
+    });
+    const res=Engine.computeScores(S,nullSet);
+    // 順位: 虹勝利 > 総得点
+    const rank=S.players.map((p,i)=>({i,total:res[i].total,rb:res[i].rainbowWin}))
+      .sort((a,b)=> (b.rb?1:0)-(a.rb?1:0) || b.total-a.total);
+    return {res,rank,nullSet};
+  },
+
+  /* --- CPU方策（argmax禁止: softmaxでノイズ） --- */
+  beliefP(S,chars,self){ // 残り天気からcharsのどれかが出る確率（selfのteru/夕立考慮済み前提で使う）
+    const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t};
+    S.revealed.forEach(w=>cnt[w]--);
+    const tot=cnt.h+cnt.k+cnt.a+cnt.t;
+    if(tot<=0)return 0;
+    let s=0; ['h','k','a'].forEach(w=>{ if(chars.indexOf(w)>=0)s+=cnt[w]; });
+    return s/tot;
+  },
+  successP(S,card,p){ // 現在のフラグ・peek込みの せいこう確率
+    if(p.peek){ const eff=Engine.effWeather(p.peek,S.turnFlags.yudachi,p.teru);
+      return (eff!==null&&card.w.indexOf(eff)>=0)?1:0; }
+    if(S.turnFlags.yudachi){ // 非たいふう→あめ
+      const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t}; S.revealed.forEach(w=>cnt[w]--);
+      const tot=cnt.h+cnt.k+cnt.a+cnt.t; const pTai=tot>0?cnt.t/tot:0;
+      const eff=p.teru?'h':'a';
+      return card.w.indexOf(eff)>=0 ? 1-pTai : 0;
+    }
+    if(p.teru){ // 非たいふう→(k,a)がhに化ける → hかkaどちらでもh
+      const cnt={h:WEA_DEF.h,k:WEA_DEF.k,a:WEA_DEF.a,t:WEA_DEF.t}; S.revealed.forEach(w=>cnt[w]--);
+      const tot=cnt.h+cnt.k+cnt.a+cnt.t; const pTai=tot>0?cnt.t/tot:0;
+      return card.w.indexOf('h')>=0 ? 1-pTai : 0;
+    }
+    return Engine.beliefP(S,card.w,p);
+  },
+  memEV(S,card,p){
+    const ps=Engine.successP(S,card,p);
+    let ev=ps*card.win+(1-ps)*card.lose;
+    if(card.fx==='reward')ev+=ps*1.2;
+    if(card.fx==='library')ev+=ps*(p.homework.length?1.5:0);
+    if(card.fx==='hideout')ev+=ps*0.8;
+    if(card.tag==='kimo'){
+      const kw=Object.keys(p.tableau).filter(nm=>p.tableau[nm].card.tag==='kimo'&&p.tableau[nm].win).length;
+      if(kw===2)ev+=ps*11; else if(kw===1)ev+=ps*2;
+    }
+    if(card.tag==='rainbow'){
+      const kinds=Object.keys(p.tableau).length;
+      if(kinds>=6)ev+=ps*8; else if(kinds>=5)ev+=ps*3;
+    }
+    return ev;
+  },
+  cpuReward(S,pi){ // ごほうびフェイズの1手（nullならパス）
+    const p=S.players[pi];
+    const opts=[{type:'pass',score:1.0}];
+    p.hand.forEach((c,hi)=>{
+      if(!Engine.canPlayReward(S,pi,c,'reward'))return;
+      if(c.fx==='hakushi'){
+        const es=Engine.allEntries(S).filter(x=>x.pi!==pi&&x.e.win);
+        if(es.length){ es.sort((a,b)=>b.e.card.win-a.e.card.win);
+          if(es[0].e.card.win>=3)opts.push({type:'play',hi,choice:{tPi:es[0].pi,tNm:es[0].nm},score:es[0].e.card.win-1.5}); }
+        const own=Engine.allEntries(S).filter(x=>x.pi===pi&&!x.e.win&&x.e.card.lose<=-2);
+        if(own.length){ own.sort((a,b)=>a.e.card.lose-b.e.card.lose);
+          opts.push({type:'play',hi,choice:{tPi:pi,tNm:own[0].nm},score:-own[0].e.card.lose-0.5}); }
+      }else if(c.fx==='higurashi'){
+        const wins=Engine.allEntries(S).filter(x=>x.e.win).sort((a,b)=>b.e.card.win-a.e.card.win);
+        if(wins.length&&wins[0].pi!==pi)opts.push({type:'play',hi,score:wins[0].e.card.win-1.2});
+      }else if(c.fx==='ice'){
+        const fails=Engine.allEntries(S).filter(x=>!x.e.win).sort((a,b)=>a.e.card.lose-b.e.card.lose);
+        if(fails.length&&fails[0].pi===pi)opts.push({type:'play',hi,score:fails[0].e.card.win*0.8+1});
+      }else if(c.fx==='wasure'){
+        const ts=S.players.filter(q=>q.idx!==pi&&q.consumed.length>0);
+        if(ts.length){ ts.sort((a,b)=>Engine.memPts(b)-Engine.memPts(a));
+          opts.push({type:'play',hi,choice:{tPi:ts[0].idx},score:1.1}); }
+      }else if(c.fx==='benkyo'){
+        if(S.weaDeck.length<=3&&S.players.some(q=>q.idx!==pi&&q.homework.length>=3))
+          opts.push({type:'play',hi,score:1.0});
+      }
+      // yoho/teru/yudachi/karipakuは予定フェイズで使う
+    });
+    const pick=softmaxPick(opts,0.8);
+    return pick&&pick.type==='play'?pick:null;
+  },
+  cpuPlan(S,pi){ // 予定フェイズ: クイックは1枚だけ使用（ルール: 予定フェイズのクイックは1枚）
+    const p=S.players[pi];
+    let quickUsed=false;
+    // 天気よほう: ほぼ必ず先に使う
+    const yi=p.hand.findIndex(c=>c.fx==='yoho');
+    if(yi>=0&&Math.random()<0.9){ Engine.playReward(S,pi,yi,{}); quickUsed=true; }
+    if(!quickUsed){
+      // 夕立: あめ系の思い出が場札にあり天気があめでないと踏んだら
+      const yudI=p.hand.findIndex(c=>c.fx==='yudachi');
+      if(yudI>=0&&!S.turnFlags.yudachi){
+        const rainCard=S.pile.some(c=>c.w.indexOf('a')>=0&&c.win>=2);
+        if(rainCard&&Math.random()<0.6){ Engine.playReward(S,pi,yudI,{}); quickUsed=true; }
+      }
+    }
+    if(!quickUsed){
+      // てるてる坊主: 前ラウンド等のpeek無しでも、はれ本命が高得点なら保険で
+      const teruI=p.hand.findIndex(c=>c.fx==='teru');
+      if(teruI>=0&&!p.teru&&!S.turnFlags.yudachi){
+        const sunCard=S.pile.some(c=>c.w==='h'&&c.win>=4);
+        const pHare=Engine.beliefP(S,'h',p);
+        if(sunCard&&pHare<0.55&&Math.random()<0.5){ Engine.playReward(S,pi,teruI,{}); quickUsed=true; }
+      }
+    }
+    // 選択肢のEV
+    const opts=[];
+    S.pile.forEach((c,i)=>opts.push({type:'take',idx:i,score:Engine.memEV(S,c,p)}));
+    if(Engine.canHomework(S,pi))
+      opts.push({type:'hw',score:(p.homework.length>=3?2.6:1.4)});
+    // かりパク: クイック未使用で、選択肢が貧しく、先行の予定がある
+    const kpI=p.hand.findIndex(c=>c.fx==='karipaku');
+    if(kpI>=0&&!quickUsed){
+      const victims=S.players.filter(q=>q.plan&&q.idx!==pi);
+      if(victims.length&&Math.random()<0.5){
+        const best=Math.max(...opts.map(o=>o.score),-99);
+        if(best<1.2){ victims.sort((a,b)=>Engine.memPts(b)-Engine.memPts(a));
+          opts.push({type:'kp',hi:kpI,tPi:victims[0].idx,score:1.6}); }
+      }
+    }
+    if(!opts.length)return {type:'none'};
+    return softmaxPick(opts,0.7);
+  },
+
+  /* --- 全自動1ゲーム（シミュ用） --- */
+  playAuto(cfg){
+    const c={}; Object.keys(cfg).forEach(k=>c[k]=cfg[k]); c.nHuman=0;
+    const S=Engine.newGame(c);
+    let guard=0;
+    while(!S.over&&guard++<200){
+      Engine.startRound(S);
+      Engine.order(S).forEach(pi=>{ const a=Engine.cpuReward(S,pi);
+        if(a)Engine.playReward(S,pi,a.hi,a.choice||{}); });
+      S.pile=[]; for(let i=0;i<S.np+1;i++){const m=Engine.drawMem(S); if(m)S.pile.push(m);}
+      Engine.order(S).forEach(pi=>{
+        const p=S.players[pi];
+        if(p.plan)return; // かりパクで既に予定を持っている場合はスキップ（通常は起きない）
+        const a=Engine.cpuPlan(S,pi);
+        if(a.type==='take')Engine.planTake(S,pi,a.idx);
+        else if(a.type==='hw')Engine.planHomework(S,pi,false);
+        else if(a.type==='kp')Engine.playReward(S,pi,a.hi,{tPi:a.tPi});
+        else if(S.pile.length)Engine.planTake(S,pi,0);
+      });
+      S.pile.forEach(c2=>S.memDiscard.push(c2)); S.pile=[];
+      Engine.resolveWeather(S);
+    }
+    S.final=Engine.finalScore(S);
+    return S;
+  }
+};
+function WMarks(w){ return '['+w.split('').map(ch=>WMARK[ch]||'').join('')+']'; }
+
+/* ===== UI（Engineを呼ぶだけ） ===== */
+let S=null;
+let UI={phase:null,queue:[],actor:-1,logPtr:0,pending:null};
+
+function readCfg(){
+  const c={};
+  ['nHuman','nCpu','removeN','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  c.rewRecycle=$('rewRecycle').checked;
+  return c;
+}
+function schedule(fn){ if(S.cfg.cpuThink>0)setTimeout(fn,S.cfg.cpuThink); else fn(); }
+function setAction(html){ // targetArea内の動的id(tg/kv/peekOk)を確実に失効させてから差し替える
+  const ta=$('targetArea'); if(ta)ta.innerHTML='';
+  $('actionBody').innerHTML=html;
+}
+function flushLog(){ const el=$('log'); let h='';
+  for(;UI.logPtr<S.log.length;UI.logPtr++)h+='<div>'+S.log[UI.logPtr]+'</div>';
+  if(h){el.innerHTML+=h; el.scrollTop=el.scrollHeight;} }
+
+function memCardHTML(c,cls,id){
+  return '<div '+(id?'id="'+id+'" ':'')+'class="mcard '+(cls||'')+'">'
+    +'<div class="pts"><span class="w">+'+c.win+'</span><span class="wx">'+c.w.split('').map(x=>WMARK[x]).join('')+'</span><span class="l">'+c.lose+'</span></div>'
+    +'<div class="nm">'+(c.dp||c.nm)+'</div>'
+    +(c.fx==='reward'?'<div class="fx">せいこう時: ごほうび1枚</div>':'')
+    +(c.fx==='library'?'<div class="fx">せいこう時: しゅくだい1つ消化(ごほうび不可)</div>':'')
+    +(c.fx==='hideout'?'<div class="fx">せいこう時: 他の子のごほうび1枚ランダム捨て</div>':'')
+    +(c.tag==='kimo'?'<div class="fx">終了時: せいこうのきもだめし3枚で+13</div>':'')
+    +(c.tag==='rainbow'?'<div class="fx">終了時: せいこう+思い出7種で勝ち</div>':'')
+    +'</div>';
+}
+function rewCardHTML(c,id,cls){
+  const kd=c.k==='q'?'<span class="kind q">クイック</span>':c.k==='e'?'<span class="kind e">なつのおわり</span>':'<span class="kind">通常</span>';
+  return '<div '+(id?'id="'+id+'" ':'')+'class="rcard '+(cls||'')+'"><div class="nm">'+c.nm+'</div>'+kd+'<div>'+c.txt+'</div></div>';
+}
+
+function renderBoard(){
+  const flag=[];
+  if(S.turnFlags.yudachi)flag.push('夕立(→あめ)');
+  if(S.turnFlags.benkyokai)flag.push('べんきょうかい(しゅくだい禁止)');
+  $('drawInfo').textContent='お天気残り'+S.weaDeck.length+'枚 / 思い出山'+S.memDeck.length+'枚 / ごほうび山'+S.rewDeck.length+'枚'+(flag.length?' / '+flag.join('・'):'');
+  let h='<div class="row"><span class="hint">めくられた天気:</span> '+(S.revealed.map(w=>WLB[w]).join(' → ')||'（まだ）')+'</div>';
+  if(S.pile.length&&UI.phase==='plan')h+='<div class="hint" style="margin-top:6px">まわっている思い出カード: '+S.pile.length+'枚</div>';
+  $('board').innerHTML=h;
+  // players
+  let ph='';
+  S.players.forEach((p,pi)=>{
+    const ent=Object.keys(p.tableau).map(nm=>{
+      const e=p.tableau[nm];
+      return '<span class="'+(e.win?'':'')+'">'+(e.win?'✔':'✘')+nm+'('+(e.win?'+'+e.card.win:e.card.lose)+')</span>';
+    }).join(' ');
+    ph+='<div class="pl'+(UI.actor===pi?' turn':'')+'"><div class="name"><span>'+p.name
+      +(pi===S.oyaIdx?' <span class="badge oya">親(ラジオ体操)</span>':'')
+      +(p.human?'':' <span class="badge bot">CPU</span>')
+      +'</span><span class="score">'+(Engine.memPts(p)-p.homework.length)+'</span></div>'
+      +'<div class="mini">思い出: '+(ent||'なし')+'</div>'
+      +'<div class="mini">しゅくだい残り'+p.homework.length+'枚 / 消化: '+(p.consumed.join('・')||'なし')
+      +' / ごほうび手札'+p.hand.length+'枚'+(p.plan?' / 予定あり🂠':'')+'</div></div>';
+  });
+  $('players').innerHTML=ph;
+  $('banner').textContent='ラウンド'+S.round+' ― '+({reward:'ごほうびフェイズ',plan:'予定フェイズ',weather:'お天気フェイズ'}[UI.phase]||'');
+  flushLog();
+}
+
+/* --- パス&プレイ用マスク --- */
+function withMask(pi,fn){
+  const p=S.players[pi];
+  if(S.cfg.nHuman<=1){fn();return;}
+  $('turnTitle').textContent='交代';
+  setAction('<div class="mask"><p><b>'+p.name+'</b>さんに画面をわたしてください</p><button id="maskBtn">じゅんびOK</button></div>');
+  $('maskBtn').onclick=fn;
+}
+
+/* --- ごほうびフェイズ --- */
+function startRewardPhase(){
+  UI.phase='reward'; UI.queue=Engine.order(S);
+  stepReward();
+}
+function stepReward(){
+  renderBoard();
+  if(!UI.queue.length){ startPlanPhase(); return; }
+  const pi=UI.queue.shift(); UI.actor=pi;
+  const p=S.players[pi];
+  renderBoard();
+  if(!p.human){
+    $('turnTitle').textContent=p.name+' のごほうびフェイズ…';
+    setAction('<span class="hint">考え中…</span>');
+    schedule(()=>{ const a=Engine.cpuReward(S,pi);
+      if(a)Engine.playReward(S,pi,a.hi,a.choice||{});
+      stepReward(); });
+  }else{
+    withMask(pi,()=>renderHumanReward(pi));
+  }
+}
+function renderHumanReward(pi){
+  const p=S.players[pi];
+  $('turnTitle').textContent=p.name+' のごほうびフェイズ（1枚使えます）';
+  let h='<div class="row">';
+  p.hand.forEach((c,hi)=>{
+    const ok=Engine.canPlayReward(S,pi,c,'reward');
+    h+=rewCardHTML(c,'rw'+hi,ok?'pick':'');
+  });
+  h+='</div><div class="row" style="margin-top:10px"><button id="passBtn" class="ghost">つかわずに次へ</button></div>'
+    +'<div id="targetArea"></div>';
+  $('actionBody').innerHTML=h;
+  p.hand.forEach((c,hi)=>{
+    if(!Engine.canPlayReward(S,pi,c,'reward'))return;
+    $('rw'+hi).onclick=()=>humanRewardPick(pi,hi,'reward',()=>stepReward());
+  });
+  $('passBtn').onclick=()=>{ stepReward(); };
+}
+function humanRewardPick(pi,hi,phase,done){
+  const p=S.players[pi]; const c=p.hand[hi];
+  if(c.fx==='hakushi'){
+    const es=Engine.allEntries(S);
+    let h='<h3>すてる思い出をえらぶ</h3><div class="row">';
+    es.forEach((x,i)=>{h+='<button class="ghost small" id="tg'+i+'">'+S.players[x.pi].name+'の「'+x.nm+'」('+(x.e.win?'+'+x.e.card.win:x.e.card.lose)+')</button>';});
+    h+='</div>';
+    $('targetArea').innerHTML=h;
+    es.forEach((x,i)=>{$('tg'+i).onclick=()=>{Engine.playReward(S,pi,hi,{tPi:x.pi,tNm:x.nm});done();};});
+  }else if(c.fx==='wasure'){
+    const ts=S.players.filter(q=>q.consumed.length>0);
+    let h='<h3>だれのしゅくだいを戻す?</h3><div class="row">';
+    ts.forEach((q,i)=>{h+='<button class="ghost small" id="tg'+i+'">'+q.name+'（消化'+q.consumed.length+'枚）</button>';});
+    h+='</div>';
+    $('targetArea').innerHTML=h;
+    ts.forEach((q,i)=>{$('tg'+i).onclick=()=>{Engine.playReward(S,pi,hi,{tPi:q.idx});done();};});
+  }else if(c.fx==='karipaku'){
+    const ts=S.players.filter(q=>q.plan&&q.idx!==pi);
+    let h='<h3>だれの予定をうばう?</h3><div class="row">';
+    ts.forEach((q,i)=>{h+='<button class="ghost small" id="kv'+i+'">'+q.name+'</button>';});
+    h+='</div>';
+    $('targetArea').innerHTML=h;
+    ts.forEach((q,i)=>{$('kv'+i).onclick=()=>{Engine.playReward(S,pi,hi,{tPi:q.idx});done();};});
+  }else{
+    Engine.playReward(S,pi,hi,{});
+    if(c.fx==='yoho'){ renderBoard();
+      $('targetArea').innerHTML='<div class="banner">天気よほう: このターンの天気は【'+WLB[S.players[pi].peek]+'】</div><div class="row"><button id="peekOk">OK（見た）</button></div>';
+      $('peekOk').onclick=done;
+      return;
+    }
+    done();
+  }
+}
+
+/* --- 予定フェイズ --- */
+function startPlanPhase(){
+  UI.phase='plan';
+  S.pile=[]; for(let i=0;i<S.np+1;i++){const m=Engine.drawMem(S); if(m)S.pile.push(m);}
+  Engine.log(S,'親が思い出カードを'+S.pile.length+'枚ひいた');
+  UI.queue=Engine.order(S);
+  stepPlan();
+}
+function stepPlan(){
+  renderBoard();
+  if(!UI.queue.length){
+    S.pile.forEach(c=>S.memDiscard.push(c)); S.pile=[];
+    startWeatherPhase(); return;
+  }
+  const pi=UI.queue.shift(); UI.actor=pi; UI.quickUsed=false;
+  const p=S.players[pi];
+  renderBoard();
+  if(p.plan){ stepPlan(); return; } // かりパクされる前に予定を持つことは無いが安全側
+  if(!p.human){
+    $('turnTitle').textContent=p.name+' の予定フェイズ…';
+    setAction('<span class="hint">考え中…</span>');
+    schedule(()=>{ const a=Engine.cpuPlan(S,pi);
+      if(a.type==='take')Engine.planTake(S,pi,a.idx);
+      else if(a.type==='hw')Engine.planHomework(S,pi,false);
+      else if(a.type==='kp')Engine.playReward(S,pi,a.hi,{tPi:a.tPi});
+      else if(S.pile.length)Engine.planTake(S,pi,0);
+      stepPlan(); });
+  }else{
+    withMask(pi,()=>renderHumanPlan(pi));
+  }
+}
+function renderHumanPlan(pi){
+  const p=S.players[pi];
+  $('turnTitle').textContent=p.name+' の予定フェイズ（どれか1枚を予定にする / しゅくだいを消化する）';
+  let h='';
+  if(p.peek)h+='<div class="banner">天気よほう: このターンの天気は【'+WLB[p.peek]+'】</div>';
+  // クイック（このフェイズ1枚まで）
+  const quicks=UI.quickUsed?[]:p.hand.map((c,hi)=>({c,hi})).filter(x=>x.c.k==='q'&&Engine.canPlayReward(S,pi,x.c,'plan'));
+  if(quicks.length){
+    h+='<h3>クイックごほうび（任意・1枚）</h3><div class="row">';
+    quicks.forEach(x=>{h+=rewCardHTML(x.c,'qk'+x.hi,'pick');});
+    h+='</div>';
+  }
+  h+='<h3>まわってきた思い出カード</h3><div class="row">';
+  S.pile.forEach((c,i)=>{h+=memCardHTML(c,'pick','pm'+i);});
+  h+='</div><div class="row" style="margin-top:10px">'
+    +'<button id="hwBtn" class="ghost"'+(Engine.canHomework(S,pi)?'':' disabled')+'>しゅくだいの1番上を消化する（残り'+p.homework.length+'枚）</button>'
+    +'</div><div id="targetArea"></div>';
+  $('actionBody').innerHTML=h;
+  quicks.forEach(x=>{
+    $('qk'+x.hi).onclick=()=>humanRewardPick(pi,x.hi,'plan',()=>{
+      UI.quickUsed=true;
+      if(S.players[pi].plan){stepPlan();}else{renderHumanPlan(pi);} // かりパクなら手番終了
+    });
+  });
+  S.pile.forEach((c,i)=>{ $('pm'+i).onclick=()=>{ Engine.planTake(S,pi,i); stepPlan(); }; });
+  $('hwBtn').onclick=()=>{ Engine.planHomework(S,pi,false); stepPlan(); };
+}
+
+/* --- お天気フェイズ --- */
+function startWeatherPhase(){
+  UI.phase='weather'; UI.actor=S.oyaIdx;
+  renderBoard();
+  const oya=S.players[S.oyaIdx];
+  $('turnTitle').textContent='お天気フェイズ ― 予定を公開!';
+  // 公開表示: 各プレイヤー名を付ける
+  let h2='<div class="row">';
+  S.players.forEach(p=>{ if(p.plan){ h2+='<div><div class="hint">'+p.name+'</div>'+memCardHTML(p.plan)+'</div>'; } });
+  h2+='</div><div class="row" style="margin-top:12px"><button id="weatherBtn">🌞 あした天気にな〜れ!（天気をめくる）</button></div>';
+  setAction(h2);
+  const go=()=>{
+    Engine.resolveWeather(S);
+    renderBoard();
+    if(S.over){ showResult(); return; }
+    $('turnTitle').textContent='お天気フェイズ ― 結果';
+    setAction('<div class="row"><button id="nextBtn">次のラウンドへ</button></div>');
+    if(S.cfg.nHuman===0){ schedule(()=>{ nextRound(); }); }
+    else $('nextBtn').onclick=nextRound;
+  };
+  if(oya.human)$('weatherBtn').onclick=go;
+  else schedule(go);
+}
+function nextRound(){
+  Engine.startRound(S);
+  startRewardPhase();
+}
+
+/* --- 結果 --- */
+function showResult(){
+  const f=Engine.finalScore(S);
+  renderBoard();
+  $('game').classList.add('hidden');
+  const r=$('result'); r.classList.remove('hidden');
+  let h='<h2>🌻 なつのおわり ― 結果はっぴょう</h2><table class="res"><tr><th>順位</th><th>プレイヤー</th><th>思い出</th><th>しゅくだい</th><th>なつのおわり等</th><th>合計</th><th>内訳メモ</th></tr>';
+  f.rank.forEach((rk,i)=>{
+    const p=S.players[rk.i]; const rs=f.res[rk.i];
+    h+='<tr><td>'+(i+1)+(rs.rainbowWin?' 🌈':'')+'</td><td>'+p.name+'</td><td>'+rs.mem+'</td><td>'+rs.hw+'</td><td>'+(rs.end>=0?'+':'')+rs.end+'</td><td><b>'+rs.total+'</b></td><td class="hint">'+rs.notes.join(' / ')+'</td></tr>';
+  });
+  h+='</table>';
+  const top=f.rank[0], second=f.rank[1];
+  h+='<div class="foot">検証指標: 接戦度(1位-2位)='+(top.total-second.total)
+    +' / 虹勝利='+(f.res.some(x=>x.rainbowWin)?'あり':'なし')
+    +' / 残りしゅくだい合計='+S.players.reduce((a,p)=>a+p.homework.length,0)
+    +' / ごほうび使用枚数='+S.rewardUsed+'</div>';
+  h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1回</button><button class="ghost" id="setupBtn2">設定に戻る</button></div>';
+  r.innerHTML=h;
+  $('againBtn').onclick=()=>{ r.classList.add('hidden'); startGame(); };
+  $('setupBtn2').onclick=()=>{ r.classList.add('hidden'); $('setup').classList.remove('hidden'); };
+}
+
+/* --- 開始 --- */
+function startGame(){
+  const cfg=readCfg();
+  const np=cfg.nHuman+cfg.nCpu;
+  if(np<2||np>5){ alert('合計人数は2〜5人にしてください'); return; }
+  S=Engine.newGame(cfg);
+  UI={phase:null,queue:[],actor:-1,logPtr:0,pending:null};
+  $('log').innerHTML='';
+  $('setup').classList.add('hidden'); $('result').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  Engine.startRound(S);
+  startRewardPhase();
+}
+
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:3,removeN:-1,cpuThink:900};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('rewRecycle').checked=true;};
+
+window.__engine=Engine; // シミュ・テスト用に公開
+window.__state=()=>S;
+</script>
+
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『あした天気にな〜れっ！』は2023年ゲームマーケット春で頒布した製品版のWeb再現です。<br><a href="../" style="color:#5f8f8a">← 試遊場トップ（ほかのゲーム一覧）</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>
