@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>ふたりのまほう ― テストプレイ版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  ふたりのまほう（仮）v0.3 開発プロトタイプ（ゲームID: futarinomaho）
+  ルール正本: Resources/ルール_ふたりのまほう_v0.3.md
+  ルールに明記がなく仮置きした解釈（実機テストで要確認）:
+   - いやし【伏】の「半減」= 端数切り上げで残す（3→2, 1→1）
+   - いやし【詠】の回復量 = チャージ数（基本0）＋相手に1ダメージ
+   - あばく【即】は相手の伏せが無くても1ダメージは入る
+   - ひきはがし【即】で自分に詠唱が無ければ奪ったチャージは消える
+   - みがわり変換のあふれた値は消える
+   - ライフ上限 = 開始値（後手は11）
+   - とどめ自傷で同時に0以下 → 相手を先に判定（解放側の勝ち）
+   - 先手はランダムに決定
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;font-family:inherit}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .scard{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+         width:86px;height:112px;border-radius:12px;background:#fff;border:2px solid var(--line);
+         box-shadow:var(--shadow);margin:3px;position:relative;vertical-align:top;transition:transform .1s}
+  .scard .em{font-size:26px}
+  .scard .nm{font-size:12px;font-weight:700}
+  .scard .fx{font-size:10px;color:var(--sub);text-align:center;line-height:1.3;padding:0 4px}
+  .scard.pick{cursor:pointer}
+  .scard.pick:hover{transform:translateY(-4px)}
+  .scard.sel{outline:3px solid var(--accent)}
+  .scard.back{background:linear-gradient(135deg,#cbb7e0,#a998c8);border-color:#b7a5d2}
+  .scard .chg{position:absolute;top:4px;right:6px;font-size:12px;color:var(--chip);font-weight:800}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .life{font-size:22px;font-weight:800;color:var(--bad)}
+  .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+  .pl .zone{font-size:12px;margin-top:4px}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f4fbf5);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>✨ ふたりのまほう</h1>
+  <span class="tag">開発プロトタイプ v0.3</span>
+  <span class="tag">検証: 3モードの読み合い・腕の差・接戦度・即唱の使用感</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <h2>セットアップ（2人専用）</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="2" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="2" value="1"></label>
+      <label>CPUの強さ <select id="cpuLevel"><option value="std" selected>標準</option><option value="adv">上級</option></select></label>
+      <span class="hint">合計ちょうど2人。人間2=パス&プレイ／人間0=CPU観戦</span>
+    </div>
+    <h3>調整レバー（既定値＝v0.3凍結値）</h3>
+    <div class="grid">
+      <label>ライフ <input id="life" class="num" type="number" min="5" max="20" value="10"></label>
+      <label>後手ボーナス <input id="backBonus" class="num" type="number" min="0" max="3" value="1"></label>
+      <label>手札枚数 <input id="handSize" class="num" type="number" min="3" max="6" value="4"></label>
+      <label>チャージ上限 <input id="chargeCap" class="num" type="number" min="1" max="4" value="2"></label>
+      <label>詠唱スロット <input id="castSlots" class="num" type="number" min="1" max="4" value="3"></label>
+      <label>伏せスロット <input id="faceSlots" class="num" type="number" min="1" max="3" value="2"></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="1000"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input id="rescue" type="checkbox"> 🧪 逆転救済（ライフ差4以上で負けてる側は手番開始に＋1ドロー）</label>
+    </div>
+    <div class="foot">検証したい問い: ①おしきり/めくらまし/あばく/ふいうちの読み合いが悩ましいか ②初心者が一方的に負けないか ③勝者が無傷すぎないか ④即唱を選びたくなるか</div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>手番</td><td>①詠唱中すべてにチャージ+1（上限2）→②手札4枚まで引く→③アクション1つ（即唱／詠唱／解放／伏せ）</td></tr>
+      <tr><td>3モード</td><td>【即】隠して即時（弱）／【詠】見せて育てる（威力=基本+チャージ）／【伏】裏向きで相手の解放に割り込む</td></tr>
+      <tr><td>割込</td><td>相手の解放時、伏せ1枚を公開してよい（ふいうち=無効化+反撃／いやし=半減／みがわり=無効化+チャージ変換）。おしきり付き解放には割り込めない</td></tr>
+      <tr><td>勝敗</td><td>相手のライフ0以下で勝ち。後手はライフ+1。山札切れは捨て札を混ぜ直す</td></tr>
+    </table>
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+    <div class="flex-split">
+      <div class="card-panel" id="actionPanel" style="flex:2"><h2 id="turnTitle"></h2><div id="actionBody"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ===== カード定義（ミラー各20枚） ===== */
+const CARDS={
+  HI:{n:'ひのたま', e:'🔥', cnt:3, soku:'3ダメージ',                    ei:'2+チャージ ダメージ',           fu:'—'},
+  SW:{n:'いれかえ', e:'🔁', cnt:3, soku:'詠唱1枚と手札1枚を入替(チャージ残る)', ei:'1+チャージ ダメージ',    fu:'—'},
+  KA:{n:'かがみ',   e:'🪞', cnt:2, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'詠唱中: 受ける即唱-1'},
+  FU:{n:'ふいうち', e:'⚡', cnt:2, soku:'1ダメージ',                    ei:'2ダメージ(チャージ無効)',        fu:'割込: 解放を無効化+チャージ分反撃'},
+  IY:{n:'いやし',   e:'💚', cnt:2, soku:'自分ライフ+2',                 ei:'チャージ分回復＆相手に1ダメージ', fu:'割込: 解放ダメージ半減'},
+  AB:{n:'あばく',   e:'🔦', cnt:2, soku:'相手の伏せ1枚を暴いて破棄+1ダメージ', ei:'1+チャージ ダメージ',     fu:'—'},
+  OS:{n:'おしきり', e:'🛡', cnt:2, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'解放時に手札から捨てると割込不可'},
+  MG:{n:'みがわり', e:'🧸', cnt:1, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'割込: ダメージ無効化→チャージ変換'},
+  HG:{n:'ひきはがし',e:'🧲', cnt:1, soku:'相手の最大詠唱からチャージ2奪う', ei:'2+チャージ ダメージ',        fu:'—'},
+  TD:{n:'とどめ',   e:'☄️', cnt:1, soku:'（即唱不可）',                 ei:'チャージ×2 ダメージ(自分も1)',   fu:'—'},
+  MK:{n:'めくらまし',e:'🎭', cnt:1, soku:'1ダメージ',                   ei:'1ダメージ(チャージ無効)',        fu:'（効果なし＝はったり用）'}
+};
+const INTS={FU:1,IY:1,MG:1}; // 割込効果を持つ札
+
+/* ===== Engine（純ロジック。DOMを触らない。シミュ・テストから直接呼ぶ） ===== */
+const Engine={
+  deckList(){ const d=[]; Object.entries(CARDS).forEach(([id,c])=>{for(let k=0;k<c.cnt;k++)d.push(id);}); return d; },
+  newGame(cfg){
+    const mk=(pl,life)=>({name:pl.name,isCPU:pl.isCPU,level:pl.level||'std',life,lifeMax:life,
+      deck:shuffle(Engine.deckList()),hand:[],cast:[],face:[],disc:[],
+      stats:{soku:0,eisho:0,rel:0,fuse:0,swap:0,intUsed:0}});
+    const S={cfg,ps:[mk(cfg.players[0],cfg.life),mk(cfg.players[1],cfg.life+cfg.backBonus)],
+      cur:0,totalTurns:0,over:false,winner:null,pending:null,log:[]};
+    S.ps.forEach(p=>Engine.drawTo(S,p,cfg.handSize));
+    S.log.push(`先手: ${S.ps[0].name} ／ 後手: ${S.ps[1].name}（ライフ+${cfg.backBonus}）`);
+    return S;
+  },
+  drawTo(S,p,n){ while(p.hand.length<n){ if(p.deck.length===0){ if(p.disc.length===0)break; p.deck=shuffle(p.disc.splice(0)); S.log.push(`${p.name}: 捨て札を混ぜ直した`);} p.hand.push(p.deck.pop()); } },
+  kaCount(p){ return p.cast.filter(c=>c.id==='KA').length; },
+  relDamageOf(id,c){ if(id==='HI')return 2+c; if(id==='FU')return 2; if(id==='MK')return 1;
+    if(id==='TD')return c*2; if(id==='IY')return 1; if(id==='HG')return 2+c; return 1+c; },
+  startTurn(S){ const p=S.ps[S.cur],o=S.ps[1-S.cur];
+    p.cast.forEach(c=>c.charge=Math.min(S.cfg.chargeCap,c.charge+1));
+    let n=S.cfg.handSize;
+    if(S.cfg.rescue&&p.life<=o.life-4){n+=1;S.log.push(`${p.name}: 逆転救済で+1ドロー`);}
+    Engine.drawTo(S,p,n); S.totalTurns++;
+  },
+  legalActions(S){ const p=S.ps[S.cur]; const acts=[];
+    p.hand.forEach((id,hi)=>{
+      if(id==='SW'){ if(p.cast.length>0&&p.hand.length>=2){
+          p.cast.forEach((c,si)=>{p.hand.forEach((h2,hj)=>{if(hj!==hi)acts.push({t:'swap',hi,si,hj});});});
+        } }
+      else if(id!=='TD') acts.push({t:'soku',hi});
+      if(p.cast.length<S.cfg.castSlots) acts.push({t:'eisho',hi});
+      if(p.face.length<S.cfg.faceSlots) acts.push({t:'fuse',hi});
+    });
+    p.cast.forEach((c,si)=>{ acts.push({t:'rel',si,os:false});
+      if(p.hand.indexOf('OS')>=0) acts.push({t:'rel',si,os:true}); });
+    return acts;
+  },
+  resolveSoku(S,i,id){ const p=S.ps[i],o=S.ps[1-i],ka=Engine.kaCount(o);
+    const hit=n=>{const d=Math.max(0,n-ka);if(d>0)o.life-=d;return d;};
+    let msg='';
+    if(id==='HI')msg=`${hit(3)}ダメージ`;
+    else if(id==='IY'){p.life=Math.min(p.lifeMax,p.life+2);msg='ライフ+2';}
+    else if(id==='AB'){ if(o.face.length>0){const f=o.face.splice(rnd(o.face.length),1)[0];o.disc.push(f.id);msg=`伏せ札【${CARDS[f.id].n}】を暴いて破棄、`;} msg+=`${hit(1)}ダメージ`; }
+    else if(id==='HG'){ if(o.cast.length>0){ let best=o.cast[0];o.cast.forEach(c=>{if(c.charge>best.charge)best=c;});
+        let take=Math.min(2,best.charge);best.charge-=take;const took=take;
+        p.cast.forEach(cc=>{while(take>0&&cc.charge<S.cfg.chargeCap){cc.charge++;take--;}});
+        msg=`チャージ${took}を奪った`; } else msg='相手に詠唱なし（不発）'; }
+    else msg=`${hit(1)}ダメージ`;
+    S.log.push(`${p.name}: 即唱【${CARDS[id].n}】→ ${msg}${ka>0&&'HI KA FU OS MG MK AB'.indexOf(id)>=0?'（かがみ-'+ka+'）':''}`);
+  },
+  applyAction(S,act){ const i=S.cur,p=S.ps[i],o=S.ps[1-i];
+    if(act.t==='soku'){ const id=p.hand.splice(act.hi,1)[0]; p.stats.soku++;
+      Engine.resolveSoku(S,i,id); p.disc.push(id); Engine.checkDead(S,i); return {done:true}; }
+    if(act.t==='swap'){ let hj=act.hj; p.hand.splice(act.hi,1); if(act.hj>act.hi)hj--;
+      const inId=p.hand.splice(hj,1)[0]; const slot=p.cast[act.si];
+      S.log.push(`${p.name}: 即唱【いれかえ】→ 詠唱中【${CARDS[slot.id].n}】(チャージ${slot.charge})を【${CARDS[inId].n}】に入替`);
+      p.hand.push(slot.id); slot.id=inId; p.disc.push('SW'); p.stats.swap++; return {done:true}; }
+    if(act.t==='eisho'){ const id=p.hand.splice(act.hi,1)[0]; p.cast.push({id,charge:0}); p.stats.eisho++;
+      S.log.push(`${p.name}: 【${CARDS[id].n}】を詠唱（表向き）`); return {done:true}; }
+    if(act.t==='fuse'){ const id=p.hand.splice(act.hi,1)[0]; p.face.push({id}); p.stats.fuse++;
+      S.log.push(`${p.name}: カードを1枚伏せた`); return {done:true}; }
+    if(act.t==='rel'){ const slot=p.cast.splice(act.si,1)[0]; p.stats.rel++;
+      let unint=false;
+      if(act.os){ const oi=p.hand.indexOf('OS'); if(oi>=0){p.hand.splice(oi,1);p.disc.push('OS');unint=true;
+        S.log.push(`${p.name}: 手札から【おしきり】を捨てて割込不可！`);} }
+      S.log.push(`${p.name}: 【${CARDS[slot.id].n}】を解放（チャージ${slot.charge}）`);
+      const pend={attacker:i,id:slot.id,charge:slot.charge,unint};
+      if(!unint&&o.face.length>0){ S.pending=pend; return {pending:true}; }
+      Engine.resolveRelease(S,pend,-1); return {done:true}; }
+  },
+  resolveRelease(S,pend,intIdx){ const a=S.ps[pend.attacker],d=S.ps[1-pend.attacker];
+    let negated=false,halve=false,absorb=false;
+    if(intIdx>=0){ const f=d.face.splice(intIdx,1)[0]; d.disc.push(f.id); d.stats.intUsed++;
+      if(f.id==='FU'){ negated=true; const ref=pend.charge;
+        S.log.push(`${d.name}: 伏せ【ふいうち】で割込！解放を無効化、${ref}ダメージ反撃`);
+        if(ref>0)a.life-=ref; }
+      else if(f.id==='IY'){ halve=true; S.log.push(`${d.name}: 伏せ【いやし】で割込！ダメージ半減`); }
+      else if(f.id==='MG'){ absorb=true; S.log.push(`${d.name}: 伏せ【みがわり】で割込！`); }
+      else S.log.push(`${d.name}: 伏せ【${CARDS[f.id].n}】を公開…割込効果なし`);
+    }
+    if(!negated){ const id=pend.id,c=pend.charge; let dmg=Engine.relDamageOf(id,c),heal=0,self=0;
+      if(id==='IY')heal=c;
+      if(id==='TD')self=1;
+      if(halve)dmg=Math.ceil(dmg/2);
+      if(absorb&&dmg>0){ let pts=dmg; dmg=0;
+        if(d.cast.length===0){d.life=Math.min(d.lifeMax,d.life+1);S.log.push(`${d.name}: 詠唱なし→ライフ+1`);}
+        else{ const got=pts; d.cast.forEach(cc=>{while(pts>0&&cc.charge<S.cfg.chargeCap){cc.charge++;pts--;}});
+          S.log.push(`${d.name}: ${got-pts}をチャージに変換`); } }
+      if(heal>0){a.life=Math.min(a.lifeMax,a.life+heal);S.log.push(`${a.name}: ライフ+${heal}`);}
+      if(dmg>0){d.life-=dmg;S.log.push(`${d.name}に${dmg}ダメージ`);}
+      if(self>0){a.life-=self;S.log.push(`${a.name}は反動で${self}ダメージ`);}
+    }
+    a.disc.push(pend.id); S.pending=null; Engine.checkDead(S,pend.attacker);
+  },
+  checkDead(S,actor){ const a=S.ps[actor],o=S.ps[1-actor];
+    if(o.life<=0){S.over=true;S.winner=actor;}
+    else if(a.life<=0){S.over=true;S.winner=1-actor;} },
+  potential(id,c){ if(id==='IY')return 1+c*0.8; return Engine.relDamageOf(id,c); },
+  cpuScore(S,act){ const i=S.cur,p=S.ps[i],o=S.ps[1-i],ka=Engine.kaCount(o),cap=S.cfg.chargeCap;
+    const lethal=d=>d>=o.life?8:0;
+    if(act.t==='soku'){ const id=p.hand[act.hi];
+      if(id==='HI'){const d=Math.max(0,3-ka);return d+lethal(d);}
+      if(id==='IY')return p.life<=p.lifeMax-3?(p.life<=5?2.4:1.2):0.2;
+      if(id==='AB')return (o.face.length>0?2.0:0.2)+Math.max(0,1-ka)*0.5;
+      if(id==='HG'){let mc=0;o.cast.forEach(c=>{if(c.charge>mc)mc=c.charge;});return mc*1.4+(p.cast.length?0.3:0);}
+      const d=Math.max(0,1-ka);return d*0.9+lethal(d); }
+    if(act.t==='swap'){ const slot=p.cast[act.si];
+      const gain=Engine.potential(p.hand[act.hj],slot.charge)-Engine.potential(slot.id,slot.charge);
+      return Math.max(0.1,gain*1.1); }
+    if(act.t==='eisho'){ const id=p.hand[act.hi]; let v=Engine.potential(id,cap)*0.5;
+      if(id==='KA')v+=0.8; if(id==='FU'||id==='MK')v*=0.5; if(p.cast.length>=2)v*=0.6; return v; }
+    if(act.t==='fuse'){ const id=p.hand[act.hi]; let v,mc=0;o.cast.forEach(c=>{if(c.charge>mc)mc=c.charge;});
+      if(id==='FU')v=1.9+mc*0.4; else if(id==='MG')v=1.5+(p.cast.length?0.3:0);
+      else if(id==='IY')v=1.2; else if(id==='MK')v=0.8; else v=0.15;
+      if(p.face.length>=1)v*=0.6; return v; }
+    if(act.t==='rel'){ const slot=p.cast[act.si],id=slot.id,c=slot.charge;
+      const dmg=(id==='IY')?1:Engine.relDamageOf(id,c); const healv=(id==='IY')?c*0.8:0; const self=(id==='TD')?1:0;
+      let v;
+      if(act.os){ v=dmg+healv-0.9-self*0.5+lethal(dmg); if(o.face.length===0)v-=1.5; }
+      else{ const risk=o.face.length>0?0.45:0; v=(dmg+healv)*(1-risk)-self*0.5+lethal(dmg); }
+      if(c<cap&&id!=='FU'&&id!=='MK')v-=0.5;
+      return v; }
+    return 0;
+  },
+  softPick(scored,temp){ let mx=-1e9; scored.forEach(s=>{if(s.v>mx)mx=s.v;});
+    const ws=scored.map(s=>Math.exp((s.v-mx)/temp)); let tot=0;ws.forEach(w=>tot+=w);
+    let r=Math.random()*tot;
+    for(let k=0;k<ws.length;k++){r-=ws[k];if(r<=0)return scored[k].act;}
+    return scored[scored.length-1].act; },
+  cpuChooseAction(S){ const p=S.ps[S.cur]; const temp=p.level==='adv'?0.5:1.5;
+    const acts=Engine.legalActions(S);
+    return Engine.softPick(acts.map(a=>({act:a,v:Engine.cpuScore(S,a)})),temp); },
+  cpuChooseInterrupt(S){ const pend=S.pending,d=S.ps[1-pend.attacker];
+    const temp=d.level==='adv'?0.4:1.2;
+    const dmg=Engine.relDamageOf(pend.id,pend.charge);
+    const opts=[{act:-1,v:1.1}];
+    d.face.forEach((f,fi)=>{ let v=0.05;
+      if(f.id==='FU')v=dmg*0.9+pend.charge*0.9;
+      else if(f.id==='IY')v=(dmg-Math.ceil(dmg/2))*0.9;
+      else if(f.id==='MG')v=dmg*0.9+(d.cast.length?0.3:0);
+      if(dmg>=d.life){ if(f.id==='FU'||f.id==='MG')v+=8; else if(f.id==='IY'&&Math.ceil(dmg/2)<d.life)v+=6; }
+      opts.push({act:fi,v}); });
+    return Engine.softPick(opts,temp); },
+  playAuto(cfg){ const S=Engine.newGame(cfg); let safety=0;
+    while(!S.over&&safety++<(cfg.maxTurns||200)){ Engine.startTurn(S);
+      const act=Engine.cpuChooseAction(S); const r=Engine.applyAction(S,act);
+      if(r&&r.pending)Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S));
+      if(!S.over)S.cur=1-S.cur; }
+    if(!S.over){S.over=true;
+      S.winner=S.ps[0].life>S.ps[1].life?0:(S.ps[1].life>S.ps[0].life?1:null);}
+    return S; }
+};
+
+/* ===== UI（Engineを呼ぶだけ。数値は必ず +$(id).value で読む） ===== */
+let S=null;
+const UI={sel:-1,swapSlot:-1,phase:'idle'};
+function readCfg(){ const c={};
+  ['nHuman','nCpu','life','backBonus','handSize','chargeCap','castSlots','faceSlots','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  c.cpuLevel=$('cpuLevel').value; c.rescue=$('rescue').checked; return c; }
+function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
+function drainLog(){ while(S.log.length)log(S.log.shift()); }
+function chip(id){ return `${CARDS[id].e}${CARDS[id].n}`; }
+function cardHTML(id,extra,idAttr,charge){ const c=CARDS[id];
+  return `<div class="scard ${extra||''}"${idAttr?` id="${idAttr}"`:''}>`+
+    (charge!==undefined&&charge>0?`<span class="chg">${'●'.repeat(charge)}</span>`:'')+
+    `<span class="em">${c.e}</span><span class="nm">${c.n}</span><span class="fx">${c.soku==='（即唱不可）'?'詠唱専用':''}</span></div>`; }
+function backHTML(idAttr){ return `<div class="scard back"${idAttr?` id="${idAttr}"`:''}><span class="em">🌙</span></div>`; }
+function revealAll(){ return S.cfg.nHuman===0; }
+function renderPlayers(){ const wrap=$('players'); let html='';
+  S.ps.forEach((p,idx)=>{
+    const showSecret=revealAll();
+    html+=`<div class="pl ${S.cur===idx&&!S.over?'turn':''}">
+      <div class="name"><span>${p.name}</span>${p.isCPU?`<span class="badge bot">CPU(${p.level==='adv'?'上級':'標準'})</span>`:''}</div>
+      <div class="life">❤ ${p.life}</div>
+      <div class="mini"><span>山札${p.deck.length}</span><span>手札${p.hand.length}</span><span>捨て${p.disc.length}</span></div>
+      <div class="zone">詠唱: ${p.cast.map(c=>`${chip(c.id)}${'●'.repeat(c.charge)}`).join(' ／ ')||'—'}</div>
+      <div class="zone">伏せ: ${p.face.map(f=>showSecret?`(${chip(f.id)})`:'🌙').join(' ')||'—'}</div>
+      ${showSecret?`<div class="zone hint">手札: ${p.hand.map(chip).join(' ')}</div>`:''}
+    </div>`; });
+  wrap.innerHTML=html; }
+function renderBanner(){ $('banner').textContent=`ターン${S.totalTurns} ― ${S.ps[S.cur].name}の番`; }
+function renderAll(){ renderBanner(); renderPlayers(); drainLog(); }
+
+function startGame(){ const cfg=readCfg();
+  if(cfg.nHuman+cfg.nCpu!==2){alert('人間+CPUの合計をちょうど2人にしてください');return;}
+  const players=[]; for(let h=0;h<cfg.nHuman;h++)players.push({name:cfg.nHuman>1?`プレイヤー${h+1}`:'あなた',isCPU:false});
+  for(let c=0;c<cfg.nCpu;c++)players.push({name:cfg.nCpu>1?`CPU${c+1}`:'CPU',isCPU:true,level:cfg.cpuLevel});
+  if(rnd(2)===1)players.reverse();
+  cfg.players=players;
+  S=Engine.newGame(cfg);
+  $('setup').classList.add('hidden');$('result').classList.add('hidden');$('game').classList.remove('hidden');
+  $('log').innerHTML='';
+  nextTurn();
+}
+function nextTurn(){ if(S.over){showResult();return;}
+  Engine.startTurn(S); renderAll();
+  const p=S.ps[S.cur];
+  if(p.isCPU){ $('turnTitle').textContent=`${p.name}が考えています…`; $('actionBody').innerHTML='';
+    setTimeout(cpuMove,S.cfg.cpuThink); }
+  else if(S.cfg.nHuman===2){ maskThen(p.name,renderHumanTurn); }
+  else renderHumanTurn();
+}
+function maskThen(name,fn){ $('turnTitle').textContent='交代';
+  $('actionBody').innerHTML=`<div class="mask">📱 ${name}に渡してください<br><br><button id="readyBtn">準備OK</button></div>`;
+  $('readyBtn').onclick=fn; }
+function cpuMove(){ const act=Engine.cpuChooseAction(S); const r=Engine.applyAction(S,act);
+  renderAll();
+  if(r&&r.pending){ handlePending(); return; }
+  finishTurn(); }
+function handlePending(){ const d=S.ps[1-S.pending.attacker];
+  if(d.isCPU){ setTimeout(()=>{ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); renderAll(); finishTurn(); },S.cfg.cpuThink); }
+  else if(S.cfg.nHuman===2){ maskThen(d.name,renderInterruptUI); }
+  else renderInterruptUI(); }
+function finishTurn(){ renderAll();
+  if(S.over){showResult();return;}
+  S.cur=1-S.cur; nextTurn(); }
+
+function renderHumanTurn(){ const p=S.ps[S.cur]; UI.sel=-1;UI.swapSlot=-1;UI.phase='idle';
+  $('turnTitle').textContent=`${p.name}の番 ― 手札を選んでモードを決める／詠唱中カードを解放`;
+  let html='<h3>手札（クリックで選択）</h3><div class="row" id="handRow">';
+  p.hand.forEach((id,hi)=>{html+=cardHTML(id,'pick',`hand${hi}`);});
+  html+='</div>';
+  html+=`<div class="row" style="margin:8px 0">
+    <button id="btnSoku" disabled>【即】即唱</button>
+    <button id="btnEisho" disabled>【詠】詠唱</button>
+    <button id="btnFuse" disabled>【伏】伏せる</button>
+    <button class="ghost" id="btnCancel">選択解除</button>
+  </div><div class="hint" id="modeHint"></div>`;
+  if(p.cast.length){ html+='<h3>詠唱中（クリックで解放）</h3><div class="row">';
+    p.cast.forEach((c,si)=>{html+=`<button class="ghost" id="relSlot${si}">解放 ${chip(c.id)}●${c.charge}（威力${c.id==='IY'?`回復${c.charge}+1ダメ`:Engine.relDamageOf(c.id,c.charge)}）</button>`;});
+    html+='</div>'; }
+  if(p.face.length){ html+=`<h3>自分の伏せ札</h3><div class="row">${p.face.map(f=>`(${chip(f.id)})`).join(' ')}</div>`; }
+  $('actionBody').innerHTML=html;
+  p.hand.forEach((id,hi)=>{ $(`hand${hi}`).onclick=()=>selectHand(hi); });
+  $('btnCancel').onclick=renderHumanTurn;
+  $('btnSoku').onclick=doSoku; $('btnEisho').onclick=doEisho; $('btnFuse').onclick=doFuse;
+  p.cast.forEach((c,si)=>{ $(`relSlot${si}`)&&($(`relSlot${si}`).onclick=()=>askRelease(si)); });
+}
+function selectHand(hi){ const p=S.ps[S.cur]; UI.sel=hi;
+  const row=$('handRow');
+  for(let k=0;k<row.children.length;k++)row.children[k].classList.remove('sel');
+  $(`hand${hi}`).classList.add('sel');
+  const id=p.hand[hi];
+  const sokuOK=id==='SW'?(p.cast.length>0&&p.hand.length>=2):(id!=='TD');
+  $('btnSoku').disabled=!sokuOK;
+  $('btnEisho').disabled=p.cast.length>=S.cfg.castSlots;
+  $('btnFuse').disabled=p.face.length>=S.cfg.faceSlots;
+  $('modeHint').textContent=`【${CARDS[id].n}】 即:${CARDS[id].soku} ／ 詠:${CARDS[id].ei} ／ 伏:${CARDS[id].fu}`;
+}
+function doSoku(){ const p=S.ps[S.cur],id=p.hand[UI.sel];
+  if(id==='SW'){ renderSwapUI(); return; }
+  const r=Engine.applyAction(S,{t:'soku',hi:UI.sel}); afterHumanAction(r); }
+function doEisho(){ const r=Engine.applyAction(S,{t:'eisho',hi:UI.sel}); afterHumanAction(r); }
+function doFuse(){ const r=Engine.applyAction(S,{t:'fuse',hi:UI.sel}); afterHumanAction(r); }
+function renderSwapUI(){ const p=S.ps[S.cur];
+  let html='<h3>いれかえ: チャージを残したまま入れ替える詠唱枠を選択</h3><div class="row">';
+  p.cast.forEach((c,si)=>{html+=cardHTML(c.id,'pick',`swapSlot${si}`,c.charge);});
+  html+='</div><button class="ghost" id="btnCancel">やめる</button>';
+  $('actionBody').innerHTML=html;
+  $('btnCancel').onclick=renderHumanTurn;
+  p.cast.forEach((c,si)=>{ $(`swapSlot${si}`).onclick=()=>{ UI.swapSlot=si; renderSwapHand(); }; });
+}
+function renderSwapHand(){ const p=S.ps[S.cur];
+  let html='<h3>いれかえ: 枠に入れる手札を選択</h3><div class="row">';
+  p.hand.forEach((id,hj)=>{ if(hj!==UI.sel)html+=cardHTML(id,'pick',`swapHand${hj}`); });
+  html+='</div><button class="ghost" id="btnCancel">やめる</button>';
+  $('actionBody').innerHTML=html;
+  $('btnCancel').onclick=renderHumanTurn;
+  p.hand.forEach((id,hj)=>{ if(hj!==UI.sel)$(`swapHand${hj}`).onclick=()=>{
+    const r=Engine.applyAction(S,{t:'swap',hi:UI.sel,si:UI.swapSlot,hj}); afterHumanAction(r); }; });
+}
+function askRelease(si){ const p=S.ps[S.cur];
+  if(p.hand.indexOf('OS')>=0){
+    const c=p.cast[si];
+    $('actionBody').innerHTML=`<div class="banner">【${CARDS[c.id].n}】（チャージ${c.charge}）を解放します。手札の【おしきり】を捨てて割込不可にしますか？</div>
+      <div class="row">
+        <button id="relBtn">そのまま解放</button>
+        <button id="relOsBtn">🛡おしきり併用（割込不可）</button>
+        <button class="ghost" id="btnCancel">やめる</button>
+      </div>`;
+    $('relBtn').onclick=()=>{const r=Engine.applyAction(S,{t:'rel',si,os:false});afterHumanAction(r);};
+    $('relOsBtn').onclick=()=>{const r=Engine.applyAction(S,{t:'rel',si,os:true});afterHumanAction(r);};
+    $('btnCancel').onclick=renderHumanTurn;
+  } else { const r=Engine.applyAction(S,{t:'rel',si,os:false}); afterHumanAction(r); }
+}
+function afterHumanAction(r){ renderAll();
+  if(r&&r.pending){ handlePending(); return; }
+  finishTurn(); }
+function renderInterruptUI(){ const pend=S.pending,d=S.ps[1-pend.attacker],a=S.ps[pend.attacker];
+  const dmg=Engine.relDamageOf(pend.id,pend.charge);
+  $('turnTitle').textContent=`${d.name} ― 割り込みますか？`;
+  let html=`<div class="banner">${a.name}が【${CARDS[pend.id].n}】を解放（チャージ${pend.charge}・威力${dmg}）</div>
+    <h3>伏せ札を1枚公開して割り込める（割込効果が無い札は空振り）</h3><div class="row">`;
+  d.face.forEach((f,fi)=>{html+=cardHTML(f.id,'pick',`int${fi}`);});
+  html+=`</div><div class="row" style="margin-top:10px"><button class="ghost" id="noIntBtn">割り込まない</button></div>`;
+  $('actionBody').innerHTML=html;
+  d.face.forEach((f,fi)=>{ $(`int${fi}`).onclick=()=>{ Engine.resolveRelease(S,S.pending,fi); renderAll(); finishTurn(); }; });
+  $('noIntBtn').onclick=()=>{ Engine.resolveRelease(S,S.pending,-1); renderAll(); finishTurn(); };
+}
+function showResult(){ const w=S.winner;
+  const ranked=w===null?S.ps.slice():[S.ps[w],S.ps[1-w]];
+  let html=`<h2>🏆 結果</h2>`;
+  html+=w===null?`<div class="banner">引き分け（ターン上限）</div>`
+    :`<div class="banner">${S.ps[w].name}の勝ち！（${S.totalTurns}ターン）</div>`;
+  html+=`<table class="rules"><tr><td>プレイヤー</td><td>残ライフ</td><td>即唱</td><td>詠唱</td><td>解放</td><td>伏せ</td><td>入替</td><td>割込発動</td></tr>`;
+  ranked.forEach(p=>{ const st=p.stats;
+    html+=`<tr><td>${p.name}${p.isCPU?' 🤖':''}</td><td><b>${Math.max(0,p.life)}</b></td><td>${st.soku}</td><td>${st.eisho}</td><td>${st.rel}</td><td>${st.fuse}</td><td>${st.swap}</td><td>${st.intUsed}</td></tr>`; });
+  html+='</table>';
+  if(w!==null)html+=`<div class="foot">接戦度: 勝者の残ライフ <b>${Math.max(0,S.ps[w].life)}</b>／${S.ps[w].lifeMax}（出口条件: 勝者が無傷すぎないか）</div>`;
+  html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1戦</button><button class="ghost" id="setupBtn2">設定を変える</button></div>`;
+  const r=$('result'); r.innerHTML=html; r.classList.remove('hidden'); $('game').classList.add('hidden');
+  $('againBtn').onclick=startGame;
+  $('setupBtn2').onclick=()=>{r.classList.add('hidden');$('setup').classList.remove('hidden');};
+}
+
+/* ---------- setup buttons ---------- */
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:1,life:10,backBonus:1,handSize:4,chargeCap:2,castSlots:3,faceSlots:2,cpuThink:1000};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);
+  $('cpuLevel').value='std';$('rescue').checked=false;};
+
+// テスト・シミュレーション用に公開（UIからは使わない）
+window.__engine=Engine;
+</script>
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br>© ゆるるかなアイキュ〜</footer>
+</body>
+</html>
