@@ -192,12 +192,14 @@ const Engine = {
   colorCount(p){
     const c={}; p.cards.forEach(g=>{c[g.color]=(c[g.color]||0)+1;}); return c;
   },
-  scoreOf(p,cfg){
+  scoreOf(p,cfg,reveal){
+    // reveal: 本命色ボーナスを見せてよいか。省略時=true(集計・シミュ用)。ゲーム中の表示だけfalseを渡して伏せる。
+    if(reveal===undefined) reveal=true;
     let sum=0; p.cards.forEach(g=>sum+=g.pt);
     const cc=Engine.colorCount(p);
     let sets=0; Object.values(cc).forEach(n=>sets+=Math.floor(n/3));
     const mitsuPts=p.mitsu*cfg.mitsuVal;
-    const honmeiHit = cfg.honmeiOn && p.honmei!=null && ((cc[p.honmei]||0)>=3);
+    const honmeiHit = reveal && cfg.honmeiOn && p.honmei!=null && ((cc[p.honmei]||0)>=3);
     const honmeiPts = honmeiHit ? cfg.honmeiBonus : 0;
     return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,honmeiHit,honmeiPts,
             total:sum+sets*cfg.setBonus+mitsuPts+honmeiPts};
@@ -421,7 +423,7 @@ function renderAll(pickerIdx){
   $('drawInfo').textContent=` ― 山札残${S.deck.length}枚 / しおれ${S.wilts}回`;
   const box=$('players'); box.innerHTML='';
   S.players.forEach((p,i)=>{
-    const s=Engine.scoreOf(p,S.cfg);
+    const s=Engine.scoreOf(p,S.cfg,false); // ゲーム中は本命ボーナスを伏せる（終了時に一斉オープン）
     const d=document.createElement('div');
     d.className='pl'+(i===pickerIdx?' turn':'');
     const cc=Engine.colorCount(p);

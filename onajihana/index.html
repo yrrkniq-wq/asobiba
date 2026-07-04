@@ -3,16 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>おなじはな、だめ｜ブラウザで対戦できる開発中プロトタイプ</title>
-<meta property="og:title" content="おなじはな、だめ｜部屋コードで友だちと対戦">
-<meta property="og:description" content="全員同時に花を選んで、かぶったらだめ！ ゆるるかなアイキュ〜の開発中ボードゲームをブラウザですぐ対戦。">
-<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
-<meta property="og:type" content="website">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:site" content="@yrr_iq">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>おなじはな、だめ ― オンライン対戦</title>
 <!--
-  オンライン対戦版 v0.1（ルールはローカル版プロトタイプと同一）
+  オンライン対戦版 v0.2（ルールはローカル版プロトタイプと同一・本命色対応）
   仕組み: PeerJS（無料のP2P仲介。アカウント・課金不要）でホストの部屋に接続。
   ホスト＝進行役（このタブを閉じると部屋が終わる）。ゲストは部屋コードで参加。
   遊び方: ①誰かが「部屋を作る」→ 出てきたコードをLINE等で共有 ②他の人が「部屋に入る」
@@ -90,7 +83,7 @@
 <body>
 <header>
   <h1>🌼 おなじはな、だめ</h1>
-  <span class="tag">オンライン対戦 v0.1</span>
+  <span class="tag">オンライン対戦 v0.2</span>
   <span class="tag">部屋コードで友だちと</span>
 </header>
 
@@ -111,13 +104,13 @@
     </div>
     <div id="homeErr" class="err"></div>
     <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
-    <div class="foot" style="margin-top:6px">🌼 このゲームはサークル「ゆるるかなアイキュ〜」の開発中プロトタイプ（v0.1）です。感想は <a href="https://x.com/yrr_iq" target="_blank" rel="noopener">X: @yrr_iq</a> まで。／ <a href="solo.html">ひとりでCPUと試す</a> ／ <a href="../">ほかのプロトタイプ一覧</a></div>
     <h3>ルール要約</h3>
     <table class="rules">
+      <tr><td>0. 本命色</td><td>開始時に各自1色ずつ秘密の目標色を持つ（本命色オン時）</td></tr>
       <tr><td>1. ならべる</td><td>場に花が並ぶ</td></tr>
       <tr><td>2. えらぶ</td><td>全員同時に、場の花1つを秘密指名（「みつ休み」＝確実に1点、も選べる）</td></tr>
       <tr><td>3. オープン</td><td>1人だけ→花束へ。かぶり→その花はしおれて消滅（だめ！）</td></tr>
-      <tr><td>得点</td><td>花の値の合計 ＋ 同色3枚そろうごとにボーナス ＋ みつ休みの点</td></tr>
+      <tr><td>得点</td><td>花の値の合計 ＋ 同色3枚そろうごとにボーナス ＋ 本命色を3枚そろえたら追加ボーナス(終了時オープン) ＋ みつ休みの点</td></tr>
     </table>
   </div>
 
@@ -139,9 +132,13 @@
         <label>みつ休みの点 <input id="mitsuVal" class="num" type="number" value="1"></label>
         <label>ラウンド数 <input id="rounds" class="num" type="number" value="8"></label>
         <label>各色×各値の枚数 <input id="copies" class="num" type="number" min="1" max="4" value="2"></label>
+        <label>本命ボーナス <input id="honmeiBonus" class="num" type="number" value="3"></label>
       </div>
       <div class="row" style="margin-top:10px">
         <label><input id="carryOver" type="checkbox"> 🧪 しおれ持ち越し（かぶった花は1回だけ場に残る）</label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label><input id="honmeiOn" type="checkbox" checked> 🎯 本命色を使う（v0.2）― 開始時に各自1色ずつ秘密の目標色を持ち、3枚そろえると追加ボーナス。終了時に一斉オープン</label>
       </div>
       <div class="row" style="margin-top:14px">
         <button id="startBtn">▶ ゲーム開始（合計3〜5人）</button>
@@ -181,7 +178,7 @@ const COLORS=[{e:'🌷',n:'あか'},{e:'🌻',n:'きいろ'},{e:'🌸',n:'ぴん
 const rnd = n => Math.floor(Math.random()*n);
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-/* ================= Engine（ローカル版プロトタイプと同一のv0.1ロジック） ================= */
+/* ================= Engine（ローカル版プロトタイプと同一のv0.2ロジック。本命色はホストのみ全色を把握し、各自には自分の色だけ個別送信） ================= */
 const Engine = {
   buildDeck(cfg){
     const deck=[];
@@ -192,7 +189,11 @@ const Engine = {
   },
   newGame(cfg,specs){
     const players=specs.map((s,i)=>({id:i,name:s.name,isCPU:s.isCPU,policy:s.policy||'smart',
-      cards:[],mitsu:0,collisions:0}));
+      cards:[],mitsu:0,collisions:0,honmei:null}));
+    if(cfg.honmeiOn){
+      const order=shuffle(COLORS.map((_,i)=>i));
+      players.forEach((p,i)=>{ p.honmei=order[i % order.length]; });
+    }
     return {cfg,players,deck:Engine.buildDeck(cfg),field:[],round:0,wilts:0,mitsuTotal:0};
   },
   fieldSize(S){ return Math.max(2, S.players.length + S.cfg.fieldOffset); },
@@ -203,13 +204,17 @@ const Engine = {
   colorCount(p){
     const c={}; p.cards.forEach(g=>{c[g.color]=(c[g.color]||0)+1;}); return c;
   },
-  scoreOf(p,cfg){
+  scoreOf(p,cfg,reveal){
+    // reveal: 本命色ボーナスを見せてよいか。省略時=true(集計用)。ゲーム中の表示だけfalseを渡して伏せる。
+    if(reveal===undefined) reveal=true;
     let sum=0; p.cards.forEach(g=>sum+=g.pt);
     const cc=Engine.colorCount(p);
     let sets=0; Object.values(cc).forEach(n=>sets+=Math.floor(n/3));
     const mitsuPts=p.mitsu*cfg.mitsuVal;
-    return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,
-            total:sum+sets*cfg.setBonus+mitsuPts};
+    const honmeiHit = reveal && cfg.honmeiOn && p.honmei!=null && ((cc[p.honmei]||0)>=3);
+    const honmeiPts = honmeiHit ? cfg.honmeiBonus : 0;
+    return {sum,sets,bonus:sets*cfg.setBonus,mitsu:p.mitsu,mitsuPts,honmeiHit,honmeiPts,
+            total:sum+sets*cfg.setBonus+mitsuPts+honmeiPts};
   },
   gainOf(S,p,card){
     const cc=Engine.colorCount(p);
@@ -217,6 +222,11 @@ const Engine = {
     let g=card.pt;
     if(have===2) g+=S.cfg.setBonus;
     else if(have===1) g+=S.cfg.setBonus*0.35;
+    if(S.cfg.honmeiOn && p.honmei===card.color){
+      if(have===2) g+=S.cfg.honmeiBonus;
+      else if(have===1) g+=S.cfg.honmeiBonus*0.35;
+      else g+=S.cfg.honmeiBonus*0.15;
+    }
     return g;
   },
   cpuPick(S,idx){
@@ -288,6 +298,7 @@ let guestConn=null;       // guest: ホストへの接続
 let S=null;               // host: Engineの状態
 let pickState=null;       // host: {round, got:{seat:pk}}
 let mySeat=-1;            // 共通: 自分の席
+let myHonmei=null;        // 共通: 自分の本命色（本人にしか送られない秘密情報）
 let curSnap=null;         // 共通: 直近スナップショット
 let myPicked=false;
 
@@ -380,28 +391,31 @@ function hostStart(){
   $('lobbyErr').textContent='';
   const cfg={ fieldOffset:+$('fieldOffset').value, setBonus:+$('setBonus').value,
     mitsuVal:+$('mitsuVal').value, rounds:+$('rounds').value, copies:+$('copies').value,
-    carryOver:$('carryOver').checked };
+    carryOver:$('carryOver').checked, honmeiOn:$('honmeiOn').checked, honmeiBonus:+$('honmeiBonus').value };
   const specs=[{name:myName+'（ホスト）',isCPU:false}];
   hostConns.filter(c=>c.alive).forEach(c=>specs.push({name:c.name,isCPU:false}));
   for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true});
   S=Engine.newGame(cfg,specs);
   mySeat=0;
+  myHonmei=S.players[mySeat].honmei; // 自分の本命色は自分だけが知る
   hostConns.filter(c=>c.alive).forEach((c,i)=>{ c.seat=i+1; });
-  hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+  hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat,honmei:S.players[c.seat].honmei}));
   $('log').innerHTML='';
   log(`ゲーム開始（${total}人 / ${cfg.rounds}ラウンド）`);
   show('game');
   hostNextRound();
 }
 function buildSnap(phase){
+  const reveal = (phase==='over'); // 本命色ボーナスは終了時だけ一斉オープン
   return {
     phase, round:S.round, rounds:S.cfg.rounds, deckLeft:S.deck.length, wilts:S.wilts,
-    mitsuVal:S.cfg.mitsuVal,
+    mitsuVal:S.cfg.mitsuVal, honmeiOn:!!S.cfg.honmeiOn,
     field:S.field.map(c=>({color:c.color,pt:c.pt,wilted:!!c.wilted})),
     players:S.players.map((p,i)=>{
-      const s=Engine.scoreOf(p,S.cfg);
+      const s=Engine.scoreOf(p,S.cfg,reveal);
       return { name:p.name,isCPU:p.isCPU,score:s,colorCount:Engine.colorCount(p),
-               collisions:p.collisions,picked:pickState?(i in pickState.got):false };
+               collisions:p.collisions,picked:pickState?(i in pickState.got):false,
+               honmei:reveal?p.honmei:undefined };
     })
   };
 }
@@ -452,19 +466,19 @@ function maybeResolve(){
   hostBroadcast({t:'reveal',events,snap,over});
   renderReveal(events,snap,over);
   if(over){
-    const d={ranking:rankingOf(),wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal};
+    const d={ranking:rankingOf(),wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal,honmeiOn:!!S.cfg.honmeiOn};
     hostBroadcast(Object.assign({t:'result'},d));
     renderResult(d); // ホスト自身の画面にも結果を出す
   }
 }
 function rankingOf(){
-  return S.players.map(p=>({name:p.name,isCPU:p.isCPU,collisions:p.collisions,s:Engine.scoreOf(p,S.cfg)}))
+  return S.players.map(p=>({name:p.name,isCPU:p.isCPU,collisions:p.collisions,honmei:p.honmei,s:Engine.scoreOf(p,S.cfg,true)}))
     .sort((a,b)=> b.s.total-a.s.total || b.s.sets-a.s.sets || a.collisions-b.collisions);
 }
 function hostFinish(){
   const ranking=rankingOf();
-  hostBroadcast({t:'result',ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal});
-  renderResult({ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal});
+  hostBroadcast({t:'result',ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal,honmeiOn:!!S.cfg.honmeiOn});
+  renderResult({ranking,wilts:S.wilts,rounds:S.round,mitsuTotal:S.mitsuTotal,honmeiOn:!!S.cfg.honmeiOn});
 }
 
 /* ---------- ゲスト ---------- */
@@ -502,7 +516,7 @@ function onGuestData(d){
     $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
     renderLobby();
   }
-  if(d.t==='start'){ mySeat=d.seat; $('log').innerHTML=''; log('ゲーム開始！'); show('game'); }
+  if(d.t==='start'){ mySeat=d.seat; myHonmei=(d.honmei==null?null:d.honmei); $('log').innerHTML=''; log('ゲーム開始！'); show('game'); }
   if(d.t==='note'){ log(d.msg); }
   if(d.t==='round'){ curSnap=d.snap; if(!(d.snap.players[mySeat]&&d.snap.players[mySeat].picked)) myPicked=false; renderGame(d.snap); }
   if(d.t==='reveal'){ curSnap=d.snap; renderReveal(d.events,d.snap,d.over); }
@@ -551,7 +565,9 @@ function renderGame(snap){
   $('turnTitle').textContent=`${myName} ― 花をひとつ選ぶ（他の人には見えません）`;
   let sel=null;
   const body=$('actionBody');
-  body.innerHTML=`<div class="hint">場の花をクリックで選択。「決めた」を押すまで確定しません。</div>
+  const honmeiLine = (snap.honmeiOn && myHonmei!=null)
+    ? `<div class="hint">🤫 あなたの本命色: <b>${COLORS[myHonmei].e}${COLORS[myHonmei].n}</b>（他の人には言わない）</div>` : '';
+  body.innerHTML=`${honmeiLine}<div class="hint">場の花をクリックで選択。「決めた」を押すまで確定しません。</div>
     <div class="fieldrow" id="pickRow"></div>
     <div class="row" style="margin-top:10px">
       <button class="ghost" id="mitsuBtn">🍯 みつ休み（確実に${snap.mitsuVal}点）</button>
@@ -595,8 +611,15 @@ function renderReveal(events,snap,over){
 }
 function renderResult(d){
   show('result');
-  let html=`<h2>🏆 結果</h2><table class="rules"><tr><td>順位</td><td>プレイヤー</td><td>合計</td><td>素点</td><td>セット</td><td>🍯</td><td>だめ回数</td></tr>`;
-  d.ranking.forEach((r,i)=>{html+=`<tr><td>${i+1}</td><td>${r.name}${r.isCPU?' 🤖':''}</td><td><b>${r.s.total}</b></td><td>${r.s.sum}</td><td>${r.s.sets}(+${r.s.bonus})</td><td>${r.s.mitsu}</td><td>${r.collisions}</td></tr>`;});
+  const honmeiCol = d.honmeiOn ? '<td>🎯本命</td>' : '';
+  let html=`<h2>🏆 結果</h2>`;
+  if(d.honmeiOn) html+=`<div class="banner" style="margin-bottom:12px">🎯 本命色を一斉オープン！</div>`;
+  html+=`<table class="rules"><tr><td>順位</td><td>プレイヤー</td><td>合計</td><td>素点</td><td>セット</td>${honmeiCol}<td>🍯</td><td>だめ回数</td></tr>`;
+  d.ranking.forEach((r,i)=>{
+    const honmeiCell = d.honmeiOn
+      ? `<td>${COLORS[r.honmei].e}${COLORS[r.honmei].n} ${r.s.honmeiHit?`<b>達成+${r.s.honmeiPts}</b>`:'未達成'}</td>` : '';
+    html+=`<tr><td>${i+1}</td><td>${r.name}${r.isCPU?' 🤖':''}</td><td><b>${r.s.total}</b></td><td>${r.s.sum}</td><td>${r.s.sets}(+${r.s.bonus})</td>${honmeiCell}<td>${r.s.mitsu}</td><td>${r.collisions}</td></tr>`;
+  });
   html+='</table>';
   const diff=d.ranking.length>1?(d.ranking[0].s.total-d.ranking[1].s.total):0;
   html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度）／ かぶり総数：<b>${d.wilts}</b>回（${d.rounds}R → ${(d.wilts/Math.max(1,d.rounds)).toFixed(2)}件/R）／ みつ休み：${d.mitsuTotal}回</div>`;
@@ -610,7 +633,8 @@ function renderResult(d){
     $('againBtn').onclick=()=>{
       const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU}));
       S=Engine.newGame(S.cfg,specs);
-      hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+      myHonmei=S.players[mySeat].honmei; // 本命色は毎回引き直す
+      hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat,honmei:S.players[c.seat].honmei}));
       $('log').innerHTML=''; log('もう1戦！');
       show('game');
       hostNextRound();
