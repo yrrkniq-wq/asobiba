@@ -7,16 +7,18 @@
 <title>なくはない ― テストプレイ版</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  なくはない（仮）v0.3 開発プロトタイプ（ゲームID: nakuhanai）
-  ルール正本: Resources/ルール_なくはない_v0.3.md
+  なくはない（仮）v0.4 開発プロトタイプ（ゲームID: nakuhanai）
+  ルール正本: Resources/ルール_なくはない_v0.4.md
   ルールに明記がなく仮置きした解釈（実機テストで要確認）:
-   - お題交換は1手番に1回まで
    - 「実質同じ答え」の自動判定は完全一致（清音正規化後）のみ。表記ゆれ・類義は人間判定に委ねる
    - 伸ばし棒「ー」は無視して照合（らーめん=らめん）。カタカナはひらがなに正規化
    - 答えは2文字以上
-   - すきま・少数派・パスの引きで山が尽きたら捨て札を混ぜ直して山にする（市場はリセット）
+   - すきま・少数派の引きで山が尽きたら捨て札を混ぜ直して山にする
    - CPUはお題との意味的な適合を判定できない（辞書語を出す/構造で投票する）。
      「なくはない」の笑い・判定の面白さは人間テスト専用。CPUはテンポと収束の検証用
+   - v0.4で手番を廃止（早出し）。1台の端末で回すパス&プレイでは「毎ラウンド確認順をランダム再抽選し、
+     最初に有効な答えを出した人を採用」で早出しを近似する（実際の卓の"先に声を出した人"の技術的近似）。
+   - 誰も答えを出せないまま1巡したら、安全弁としてお題を自動交換する（実プレイでは滅多に起きない想定）。
 -->
 <style>
   :root{
@@ -52,7 +54,7 @@
          border:2px solid var(--line);border-radius:10px;font-size:17px;font-weight:700;box-shadow:var(--shadow)}
   .chipL.mine{border-color:var(--accent2)}
   .chipD{display:inline-block;min-width:30px;text-align:center;padding:4px 7px;margin:2px;background:#fbf6e8;
-         border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700}
+         border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700;opacity:.6}
   .ansTag{display:inline-block;padding:2px 10px;margin:2px;background:#eef6ef;border:1px solid #cfe3d2;
           border-radius:14px;font-size:13px}
   .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
@@ -63,7 +65,7 @@
   .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
   .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
   .bot{background:#eaf3ec;color:#3f7a4e}
-  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+  .log{height:150px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
        padding:10px;font-size:13px}
   .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
   .hidden{display:none}
@@ -81,7 +83,7 @@
 <body>
 <header>
   <h1>🙆‍♀️ なくはない</h1>
-  <span class="tag">開発プロトタイプ v0.3</span>
+  <span class="tag">開発プロトタイプ v0.4（早出し）</span>
   <span class="tag">検証: 枯渇の傾斜・すきま・判定割れ</span>
 </header>
 
@@ -94,25 +96,23 @@
       <label>CPU <input id="nCpu" class="num" type="number" min="0" max="5" value="3"></label>
       <span class="hint">合計3〜5人。人間0で観戦デモ／人間2以上はパス&プレイ</span>
     </div>
-    <h3>調整レバー（ルールノートv0.3と1対1）</h3>
+    <h3>調整レバー（ルールノートv0.4と1対1）</h3>
     <div class="grid">
       <label>初期手札 <input id="handSize" class="num" type="number" min="4" max="15" value="10"></label>
       <label>すきま上限 <input id="gapMax" class="num" type="number" min="0" max="4" value="2"></label>
       <label>すきまコスト(枚) <input id="gapCost" class="num" type="number" min="0" max="3" value="1"></label>
-      <label>お題交換コスト(枚) <input id="swapCost" class="num" type="number" min="0" max="3" value="1"></label>
       <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
       <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="900"></label>
     </div>
     <div class="row" style="margin-top:10px">
       <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
-      <label><input id="recentOnly" type="checkbox"> 🧪 パス拾いは「直前に通った答えの文字」だけ</label>
     </div>
-    <div class="foot">既定値＝v0.3。検証したい問い: ①同じお題の後半ほど判定が割れるか ②お題交換・捨て札拾いが使われるか ③パス率25%以下・すきま0回答40%以上</div>
+    <div class="foot">既定値＝v0.4（手番なし・早出し）。検証したい問い: ①同じお題の後半ほど判定が割れるか ②すきま0回答40%以上か ③早出し近似(ランダム順スキャン)で滞りなく進むか</div>
     <h3>ルール要約</h3>
     <table class="rules">
-      <tr><td>手番</td><td>（任意:お題交換=山1枚引く）→ 手札を並べてお題に答える or パス（山1枚 or 捨て札から1枚）</td></tr>
+      <tr><td>進行</td><td>手番なし。お題に対して誰でも好きなタイミングで手札を並べて答えを宣言できる（早出し）</td></tr>
       <tr><td>答え</td><td>手札の文字で作る。無い文字は「すきま」（1つ=山1枚引く・2つまで）。既に通った答えはダメ</td></tr>
-      <tr><td>判定</td><td>回答者以外が同時に あり/ないでしょ。過半数あり=正解→使った手札を捨てられる。少数派は山1枚引く</td></tr>
+      <tr><td>判定</td><td>回答者以外が同時に あり/ないでしょ。過半数あり=正解→使った手札を捨てて公開、<b>即座にお題を自動交換</b>。少数派は山1枚引く</td></tr>
       <tr><td>勝ち</td><td>手札を出し切ったら勝ち</td></tr>
     </table>
     <div class="row" style="margin-top:16px">
@@ -126,7 +126,7 @@
     <div class="card-panel">
       <h2>お題 <span class="hint" id="drawInfo"></span></h2>
       <div class="row"><span class="topicBox" id="topicBox"></span></div>
-      <h3>捨て札（ここから拾える）</h3>
+      <h3>捨てられた文字（使用済み・もう拾えません）</h3>
       <div id="discardRow"></div>
       <h3>通った答え（同じ答えはもう出せない）</h3>
       <div id="usedRow"></div>
@@ -191,8 +191,8 @@ const Engine = {
   newGame(cfg,specs){
     const S={cfg,players:specs.map(sp=>({name:sp.name,isCPU:!!sp.isCPU,policy:sp.policy||'smart',hand:[]})),
       deck:Engine.makeDeck(),discard:[],topicDeck:shuffle(TOPICS.slice()),topicDiscard:[],topic:'',topicCycle:0,
-      used:[],cur:0,turnCount:0,swappedThisTurn:false,over:false,winners:[],lastAccepted:[],
-      stats:{answers:0,accepted:0,passes:0,swaps:0,discardPicks:0,gap0:0,gapAns:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
+      used:[],over:false,winners:[],
+      stats:{answers:0,accepted:0,topicChanges:0,deadRounds:0,gap0:0,gapAns:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
     S.players.forEach(p=>{for(let i=0;i<cfg.handSize;i++)p.hand.push(Engine.drawRaw(S));});
     S.topic=S.topicDeck.pop();
     return S;
@@ -204,16 +204,14 @@ const Engine = {
   },
   drawTo(S,seat,n){ let got=0; for(let i=0;i<n;i++){const c=Engine.drawRaw(S); if(c!==null){S.players[seat].hand.push(c);got++;}} return got; },
 
-  swapTopic(S,seat){ // 戻り値: 新お題 or null（交換不能=2巡目切れ）
-    if(S.swappedThisTurn) return null;
-    Engine.drawTo(S,seat,S.cfg.swapCost);
+  // あり=正解になった直後、または「誰も答えられない1巡」の安全弁として呼ばれる。戻り値: 新お題 or null(ゲーム終了)
+  autoSwapTopic(S){
     S.topicDiscard.push(S.topic);
     if(S.topicDeck.length===0){
       if(S.topicCycle===0){ S.topicDeck=shuffle(S.topicDiscard); S.topicDiscard=[]; S.topicCycle=1; }
       else { Engine.finish(S); return null; }
     }
     S.topic=S.topicDeck.pop(); Engine.topicSeqUp(S);
-    S.swappedThisTurn=true; S.stats.swaps++;
     return S.topic;
   },
   topicSeqUp(S){ S.stats.topicSeq++; S.stats.perTopicIdx=0; },
@@ -233,7 +231,6 @@ const Engine = {
   // votes: 回答者以外の席順の true(あり)/false 配列
   resolveAnswer(S,seat,val,votes){
     const p=S.players[seat];
-    // すきまコストは宣言時に引く
     const gapDraw=Engine.drawTo(S,seat,val.gaps*S.cfg.gapCost);
     const ari=votes.filter(v=>v).length, nasi=votes.length-ari;
     const ok = S.cfg.tieWin ? ari>=nasi : ari>nasi;
@@ -253,44 +250,16 @@ const Engine = {
         }
       }
     }
+    let newTopic=null;
     if(ok){
       // 使った文字を手札から除去して捨て札へ
       for(const ch of val.use){ const k=p.hand.indexOf(ch); p.hand.splice(k,1); S.discard.push(ch); }
       S.used.push({w:val.w,by:seat});
-      S.lastAccepted=val.use.slice();
       S.stats.accepted++;
       if(p.hand.length===0){ S.over=true; S.winners=[seat]; }
+      if(!S.over){ newTopic=Engine.autoSwapTopic(S); if(newTopic!==null) S.stats.topicChanges++; }
     }
-    return {ok,ari,nasi,split,gapDraw,penalized};
-  },
-
-  passAction(S,seat,src,letter){ // src:'deck'|'discard'
-    S.stats.passes++;
-    if(src==='discard'){
-      const k=S.discard.indexOf(letter);
-      if(k<0) return false;
-      S.discard.splice(k,1); S.players[seat].hand.push(letter); S.stats.discardPicks++;
-    }else{
-      Engine.drawTo(S,seat,1);
-    }
-    return true;
-  },
-
-  discardChoices(S){
-    if(!S.cfg.recentOnly) return S.discard.slice();
-    return S.discard.filter(c=>S.lastAccepted.includes(c));
-  },
-
-  nextTurn(S){
-    if(S.over)return;
-    S.cur=(S.cur+1)%S.players.length; S.turnCount++; S.swappedThisTurn=false;
-    if(S.turnCount>400) Engine.finish(S); // 安全弁
-  },
-  finish(S){
-    if(S.over)return;
-    S.over=true;
-    const min=Math.min(...S.players.map(p=>p.hand.length));
-    S.winners=S.players.map((p,i)=>p.hand.length===min?i:-1).filter(i=>i>=0);
+    return {ok,ari,nasi,split,gapDraw,penalized,newTopic};
   },
 
   /* --- CPU方策（argmax禁止: ノイズ入り。教訓準拠） --- */
@@ -304,40 +273,21 @@ const Engine = {
     }
     return out;
   },
-  cpuTakeTurn(S,seat){ // 戻り値: {kind:'answer',val,votes,res} | {kind:'pass',src,letter} | {kind:'swap+...'}
+  // 早出し1人分の意思決定: {kind:'answer',val} または {kind:'skip'}
+  cpuDecide(S,seat){
     const p=S.players[seat];
-    let swapped=false;
-    let cands=Engine.cpuCandidates(S,seat);
-    const bestUse=cands.reduce((m,c)=>Math.max(m,c.use.length),0);
-    if(p.policy==='smart' && !S.swappedThisTurn && (cands.length===0||bestUse<=1) && Math.random()<0.6){
-      if(Engine.swapTopic(S,seat)!==null){ swapped=true; cands=Engine.cpuCandidates(S,seat); }
-    }
-    if(cands.length===0){
-      return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
-    }
-    let val;
+    const cands=Engine.cpuCandidates(S,seat);
+    if(cands.length===0) return {kind:'skip'};
     if(p.policy==='smart'){
       let best=null,bs=-1e9;
       for(const c of cands){
         const sc=c.use.length*2 + c.w.length*0.3 - c.gaps*1.2 + Engine.gauss()*1.0;
         if(sc>bs){bs=sc;best=c;}
       }
-      val=best;
-    }else{
-      if(Math.random()<0.15) return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
-      val=cands[rnd(cands.length)];
+      return {kind:'answer',val:best};
     }
-    return {kind:'answer',swapped,val};
-  },
-  cpuPassPick(S,seat){
-    const p=S.players[seat];
-    const ch=Engine.discardChoices(S);
-    if(ch.length&&((p.policy==='smart'&&Math.random()<0.65)||(p.policy!=='smart'&&Math.random()<0.4))){
-      let best=ch[0],bs=-1;
-      for(const c of ch){ const f=(DECK_DEF[c]||1)+Math.random()*2; if(f>bs){bs=f;best=c;} }
-      return {src:'discard',letter:p.policy==='smart'?best:ch[rnd(ch.length)]};
-    }
-    return {src:'deck',letter:null};
+    if(Math.random()<0.15) return {kind:'skip'};
+    return {kind:'answer',val:cands[rnd(cands.length)]};
   },
   cpuVote(S,judgeSeat,ansSeat,val){
     const j=S.players[judgeSeat];
@@ -348,22 +298,35 @@ const Engine = {
     return Math.random()<pr;
   },
 
-  /* --- 全CPU自動1ゲーム（シミュ用） --- */
+  finish(S){
+    if(S.over)return;
+    S.over=true;
+    const min=Math.min(...S.players.map(p=>p.hand.length));
+    S.winners=S.players.map((p,i)=>p.hand.length===min?i:-1).filter(i=>i>=0);
+  },
+  isOver(S){ return S.over; },
+
+  /* --- 全CPU自動プレイ（シミュ用）: 早出しをランダム順1巡でスキャンして近似 --- */
   playAuto(cfg,specs){
     const S=Engine.newGame(cfg,specs);
     let safety=0;
-    while(!S.over && safety++<450){
-      const seat=S.cur;
-      const t=Engine.cpuTakeTurn(S,seat);
-      if(S.over)break;
-      if(t.kind==='answer'){
-        const votes=[];
-        for(let i=0;i<S.players.length;i++){ if(i!==seat)votes.push(Engine.cpuVote(S,i,seat,t.val)); }
-        Engine.resolveAnswer(S,seat,t.val,votes);
-      }else{
-        Engine.passAction(S,seat,t.src,t.letter);
+    while(!S.over && safety++<3000){
+      const order=shuffle(S.players.map((_,i)=>i));
+      let acted=false;
+      for(const seat of order){
+        const dec=Engine.cpuDecide(S,seat);
+        if(dec.kind==='answer'){
+          const votes=[];
+          for(let i=0;i<S.players.length;i++){ if(i!==seat)votes.push(Engine.cpuVote(S,i,seat,dec.val)); }
+          Engine.resolveAnswer(S,seat,dec.val,votes);
+          acted=true;
+          break;
+        }
       }
-      if(!S.over)Engine.nextTurn(S);
+      if(!acted && !S.over){
+        S.stats.deadRounds++;
+        Engine.autoSwapTopic(S);
+      }
     }
     if(!S.over)Engine.finish(S);
     return S;
@@ -374,8 +337,8 @@ const Engine = {
 let S=null, uiBusy=false;
 function readCfg(){
   const c={};
-  ['nHuman','nCpu','handSize','gapMax','gapCost','swapCost','minorPen','cpuThink'].forEach(i=>c[i]=+$(i).value);
-  c.tieWin=$('tieWin').checked; c.recentOnly=$('recentOnly').checked;
+  ['nHuman','nCpu','handSize','gapMax','gapCost','minorPen','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  c.tieWin=$('tieWin').checked;
   return c;
 }
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
@@ -385,18 +348,17 @@ function chipHand(hand,mine){ return hand.map(c=>`<span class="chipL${mine?' min
 function renderBoard(){
   $('topicBox').textContent=S.topic;
   $('drawInfo').textContent=`お題山 残り${S.topicDeck.length}${S.topicCycle?'（2巡目）':''} ／ 文字の山 残り${S.deck.length}枚`;
-  const dc=Engine.discardChoices(S);
   $('discardRow').innerHTML = S.discard.length
-    ? S.discard.map(c=>`<span class="chipD"${S.cfg.recentOnly&&!dc.includes(c)?' style="opacity:.35"':''}>${c}</span>`).join('')
+    ? S.discard.map(c=>`<span class="chipD">${c}</span>`).join('')
     : '<span class="hint">（まだなし）</span>';
   $('usedRow').innerHTML = S.used.length
     ? S.used.map(u=>`<span class="ansTag">${esc(u.w)}</span>`).join('')
     : '<span class="hint">（まだなし）</span>';
   $('players').innerHTML=S.players.map((p,i)=>`
-    <div class="pl${i===S.cur&&!S.over?' turn':''}">
+    <div class="pl${(!S.over&&curSeat===i)?' turn':''}">
       <div class="name"><span>${esc(p.name)}${p.isCPU?' <span class="badge bot">CPU</span>':''}</span>
       <span class="score">${p.hand.length}</span></div>
-      <div class="mini"><span>残り手札</span>${i===S.cur&&!S.over?'<span>◀ 手番</span>':''}</div>
+      <div class="mini"><span>残り手札</span></div>
     </div>`).join('');
 }
 
@@ -412,30 +374,63 @@ function startGame(){
   $('setup').classList.add('hidden');$('result').classList.add('hidden');$('game').classList.remove('hidden');
   $('log').innerHTML='';
   log(`ゲーム開始（${n}人）。最初のお題「${S.topic}」`);
-  beginTurn();
+  beginRound();
 }
 
-function beginTurn(){
+/* ---- 早出しのランダム順スキャン（1台の端末で回すための技術的近似） ---- */
+let scanOrder=[], scanPos=0, curSeat=-1;
+function beginRound(){
   if(S.over){ showResult(); return; }
+  scanOrder=shuffle(S.players.map((_,i)=>i));
+  scanPos=0;
+  curSeat=-1;
   renderBoard();
-  const p=S.players[S.cur];
-  $('banner').textContent=`お題「${S.topic}」 ― ${p.name} の番`;
-  $('turnTitle').textContent=`${p.name} の手番`;
-  if(p.isCPU){ setAction('<span class="hint">考え中…</span>'); setTimeout(cpuTurn,S.cfg.cpuThink); }
-  else renderHumanGate(p);
+  $('banner').textContent=`お題「${S.topic}」 ― 誰でも答えを宣言できます`;
+  advanceScan();
 }
-
-function renderHumanGate(p){
+function advanceScan(){
+  if(S.over){ showResult(); return; }
+  if(scanPos>=scanOrder.length){
+    // 誰も答えられないまま1巡 → 安全弁でお題を自動交換
+    S.stats.deadRounds++;
+    const t=Engine.autoSwapTopic(S);
+    if(S.over){ showResult(); return; }
+    log(`💭 誰も答えられず → お題を交換 →「${t}」`);
+    beginRound();
+    return;
+  }
+  curSeat=scanOrder[scanPos];
+  const p=S.players[curSeat];
+  $('turnTitle').textContent=`${p.name} の番（早出し確認中…）`;
+  if(p.isCPU){
+    setAction('<span class="hint">考え中…</span>');
+    setTimeout(cpuScanStep,S.cfg.cpuThink);
+  }else{
+    renderHumanScanGate(curSeat);
+  }
+}
+function cpuScanStep(){
+  if(S.over)return;
+  const seat=curSeat;
+  const dec=Engine.cpuDecide(S,seat);
+  if(dec.kind==='answer'){
+    startJudging(seat,dec.val);
+  }else{
+    scanPos++;
+    advanceScan();
+  }
+}
+function renderHumanScanGate(seat){
   const humans=S.players.filter(q=>!q.isCPU).length;
+  const p=S.players[seat];
   if(humans>=2){
     setAction(`<div class="mask">端末を <b>${esc(p.name)}</b> に渡してください<br><br><button id="maskBtn">手札を見る</button></div>`);
-    $('maskBtn').onclick=()=>renderHumanTurn(p);
-  }else renderHumanTurn(p);
+    $('maskBtn').onclick=()=>renderHumanScanTurn(seat);
+  }else renderHumanScanTurn(seat);
 }
-
-function renderHumanTurn(p){
-  const seat=S.cur;
-  const swapLeft=!S.swappedThisTurn;
+function renderHumanScanTurn(seat){
+  const p=S.players[seat];
+  renderBoard();
   setAction(`
     <div>あなたの手札（${p.hand.length}枚）: ${chipHand(p.hand,true)}</div>
     <div class="row" style="margin:10px 0">
@@ -445,8 +440,7 @@ function renderHumanTurn(p){
     </div>
     <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言</div>
     <div class="row" style="margin-top:12px">
-      <button id="swapBtn" class="ghost small" ${swapLeft?'':'disabled'}>🔄 お題を変える（山から${S.cfg.swapCost}枚引く）</button>
-      <button id="passBtn" class="ghost small">パスする</button>
+      <button id="skipBtn" class="ghost small">今は出さない（スルー）</button>
     </div>`);
   let pend=null;
   $('checkBtn').onclick=()=>{
@@ -456,27 +450,7 @@ function renderHumanTurn(p){
     $('ansPreview').textContent=`○「${v.w}」= 手札${v.use.length}枚（${v.use.join('・')}）＋すきま${v.gaps}${v.gaps?`（山から${v.gaps*S.cfg.gapCost}枚引く）`:''}`;
   };
   $('declareBtn').onclick=()=>{ if(pend)startJudging(seat,pend); };
-  $('swapBtn').onclick=()=>{
-    const t=Engine.swapTopic(S,seat);
-    if(t===null){ if(S.over){showResult();return;} return; }
-    log(`${S.players[seat].name} がお題を交換（山から${S.cfg.swapCost}枚）→「${t}」`);
-    renderBoard(); $('banner').textContent=`お題「${S.topic}」 ― ${S.players[seat].name} の番`;
-    renderHumanTurn(S.players[seat]);
-  };
-  $('passBtn').onclick=()=>renderPassMenu(seat);
-}
-
-function renderPassMenu(seat){
-  const ch=Engine.discardChoices(S);
-  setAction(`
-    <div>パス: どちらかを選ぶ</div>
-    <div class="row" style="margin:10px 0"><button id="drawBtn">山から1枚引く</button>
-    <button id="backActBtn" class="ghost small">← 戻る</button></div>
-    <div class="hint">または捨て札から1枚拾う:</div>
-    <div id="dcRow">${ch.length?ch.map((c,i)=>`<button id="dc${i}" class="ghost small" style="margin:2px">${c}</button>`).join(''):'<span class="hint">（拾えるものなし）</span>'}</div>`);
-  $('drawBtn').onclick=()=>{ Engine.passAction(S,seat,'deck',null); log(`${S.players[seat].name} はパス（山から1枚）`); endTurn(); };
-  $('backActBtn').onclick=()=>renderHumanTurn(S.players[seat]);
-  ch.forEach((c,i)=>{ $('dc'+i).onclick=()=>{ Engine.passAction(S,seat,'discard',c); log(`${S.players[seat].name} はパスして捨て札から「${c}」を拾った`); endTurn(); }; });
+  $('skipBtn').onclick=()=>{ scanPos++; advanceScan(); };
 }
 
 /* 判定フェーズ: CPUは即時投票、人間の判定者は順番に秘密投票 */
@@ -488,7 +462,6 @@ function startJudging(seat,val){
   stepJudge();
 }
 function stepJudge(){
-  // queue順に未投票の判定者を探す
   let target=null;
   for(const i of J.queue){ if(J['v'+i]===undefined){ target=i; break; } }
   if(target===null){ finishJudging(); return; }
@@ -514,30 +487,11 @@ function finishJudging(){
   log(`判定 [${names}] → ${res.ok?'✅ それ正解！':'❌ ないでしょ…'}（あり${res.ari}/ない${res.nasi}）`);
   if(res.gapDraw)log(`　すきまコスト: ${S.players[J.seat].name} が山から${res.gapDraw}枚`);
   res.penalized.forEach(i=>log(`　少数派ペナルティ: ${S.players[i].name} が山から${S.cfg.minorPen}枚`));
-  if(res.ok&&S.players[J.seat].hand.length===0)log(`🎉 ${S.players[J.seat].name} が出し切って勝利！`);
+  if(res.ok&&res.newTopic)log(`🔄 正解！ お題を自動交換 →「${res.newTopic}」`);
+  if(res.ok&&S.over)log(`🎉 ${S.players[J.seat].name} が出し切って勝利！`);
   J=null;
-  endTurn();
-}
-
-function cpuTurn(){
-  const seat=S.cur;
-  const t=Engine.cpuTakeTurn(S,seat);
-  if(t.swapped){ log(`${S.players[seat].name} がお題を交換 →「${S.topic}」`); renderBoard(); }
   if(S.over){ showResult(); return; }
-  if(t.kind==='answer'){ startJudging(seat,t.val); }
-  else{
-    Engine.passAction(S,seat,t.src,t.letter);
-    log(`${S.players[seat].name} はパス（${t.src==='discard'?`捨て札から「${t.letter}」`:'山から1枚'}）`);
-    endTurn();
-  }
-}
-
-function endTurn(){
-  renderBoard();
-  if(S.over){ setTimeout(showResult,Math.min(S.cfg.cpuThink,400)); return; }
-  Engine.nextTurn(S);
-  if(S.over){ setTimeout(showResult,Math.min(S.cfg.cpuThink,400)); return; }
-  setTimeout(beginTurn,Math.min(S.cfg.cpuThink,600));
+  beginRound();
 }
 
 function showResult(){
@@ -556,7 +510,6 @@ function showResult(){
     list.forEach((e,k)=>{ if(k<half){fh[0]+=e.split?1:0;fh[1]++;}else{sh[0]+=e.split?1:0;sh[1]++;} });
   });
   const fhR=fh[1]?Math.round(100*fh[0]/fh[1]):0, shR=sh[1]?Math.round(100*sh[0]/sh[1]):0;
-  const totalActs=st.answers+st.passes;
   $('game').classList.add('hidden');
   $('result').classList.remove('hidden');
   $('result').innerHTML=`
@@ -565,14 +518,13 @@ function showResult(){
     <table class="rules">
       ${order.map((o,k)=>`<tr><td>${k+1}位</td><td>${esc(S.players[o.i].name)}</td><td>残り${o.n}枚</td></tr>`).join('')}
     </table>
-    <h3>検証指標（出口条件）</h3>
+    <h3>検証指標（出口条件・CPUは構造検証専用＝面白さの合否ではない）</h3>
     <table class="rules">
-      <tr><td>手番数</td><td>${S.turnCount+1}</td><td>回答${st.answers}（成立${st.accepted}）/ パス${st.passes}</td></tr>
+      <tr><td>宣言試行</td><td>${st.answers}（成立${st.accepted}）</td><td>お題交換(自動): 正解${st.topicChanges}回 / 誰も出せず${st.deadRounds}回</td></tr>
       <tr><td>①枯渇の傾斜</td><td>判定割れ 前半${fhR}% → 後半${shR}%</td><td>全体${splitRate}%（目標30〜60%）</td></tr>
-      <tr><td>②お題交換 / 拾い</td><td>交換${st.swaps}回 / 拾い${st.discardPicks}回</td><td>どちらも1回以上が目標</td></tr>
-      <tr><td>③パス率 / すきま0率</td><td>パス${totalActs?Math.round(100*st.passes/totalActs):0}%（目標25%以下）</td><td>すきま0回答${st.answers?Math.round(100*st.gap0/st.answers):0}%（目標40%以上）</td></tr>
+      <tr><td>②すきま0回答率</td><td>${st.answers?Math.round(100*st.gap0/st.answers):0}%</td><td>目標40%以上</td></tr>
     </table>
-    <div class="row" style="margin-top:14px">
+    <div class="row" style="margin-top:12px">
       <button id="againBtn">もう1戦（同じ設定）</button>
       <button id="setupBtn2" class="ghost">設定に戻る</button>
     </div>`;
@@ -583,11 +535,11 @@ function showResult(){
 $('startBtn').onclick=startGame;
 $('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
 $('restartSame').onclick=startGame;
-const DEF={nHuman:1,nCpu:3,handSize:10,gapMax:2,gapCost:1,swapCost:1,minorPen:1,cpuThink:900};
-$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('tieWin').checked=true;$('recentOnly').checked=false;};
+const DEF={nHuman:1,nCpu:3,handSize:10,gapMax:2,gapCost:1,minorPen:1,cpuThink:900};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('tieWin').checked=true;};
 
 window.__engine=Engine;
-window.__state=()=>({S});
+window.__state=()=>({S,curSeat,scanOrder,scanPos});
 window.__norm=normWord;
 </script>
 <footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br><a href="./" style="color:#5f8f8a">オンライン対戦版（部屋コード式）はこちら</a> ／ © ゆるるかなアイキュ〜</footer>

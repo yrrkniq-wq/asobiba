@@ -7,12 +7,15 @@
 <title>なくはない ― オンライン対戦（テスト版）</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  なくはない（仮）v0.3 オンライン対戦版（ゲームID: nakuhanai）
+  なくはない（仮）v0.4 オンライン対戦版（ゲームID: nakuhanai・早出し方式）
   ルールはローカル版プロトタイプ（なくはない_プロトタイプ.html）と同一ロジック（Engineをそのままコピー）。
+  v0.4で手番を廃止（早出し）: お題が出ている間、誰でも好きなタイミングで宣言リクエストを送れる。
+  ホストに最初に届いた宣言リクエストだけを採用し、同時多発は「先を越されました」で弾く（真の早押しをホスト権威で実現）。
+  あり=正解になった瞬間、自動でお題を交換する。
   仕組み: PeerJS（無料P2P仲介）でホストの部屋に接続。ホスト＝Engineを持つ進行役（タブを閉じると部屋終了）。
   各自の手札は本人にしか送らない（deliverToSeatで個別配信）。捨て札・通った答え・お題・手札の枚数は全員に公開。
   判定（あり/ないでしょ）は各自が秘密に投票し、全員分そろってから結果を一斉に見せる。
-  切断者はCPUが代打ち（手番中・判定中どちらでも）。
+  切断者はCPUが代打ち（判定中の投票待ちのときのみ。手番が無いのでそれ以外の代打ちは不要）。
   実ネットワークでの接続はkaiyoの実機確認待ち（同じファイルを2端末で開いて部屋コードを入れるだけ）。
 -->
 <style>
@@ -53,12 +56,11 @@
   .chipL{display:inline-block;min-width:34px;text-align:center;padding:6px 8px;margin:2px;background:#fff;
          border:2px solid var(--accent2);border-radius:10px;font-size:17px;font-weight:700;box-shadow:var(--shadow)}
   .chipD{display:inline-block;min-width:30px;text-align:center;padding:4px 7px;margin:2px;background:#fbf6e8;
-         border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700}
+         border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700;opacity:.6}
   .ansTag{display:inline-block;padding:2px 10px;margin:2px;background:#eef6ef;border:1px solid #cfe3d2;
           border-radius:14px;font-size:13px}
   .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
   .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
-  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
   .pl.me{border-color:var(--accent2)}
   .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
   .pl .score{font-size:22px;font-weight:800;color:var(--accent)}
@@ -83,7 +85,7 @@
 <body>
 <header>
   <h1>🙆‍♀️ なくはない</h1>
-  <span class="tag">オンライン対戦 v0.3</span>
+  <span class="tag">オンライン対戦 v0.4（早出し）</span>
   <span class="tag">部屋コードで友だちと</span>
 </header>
 
@@ -104,11 +106,11 @@
     </div>
     <div id="homeErr" class="err"></div>
     <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
-    <h3>ルール要約</h3>
+    <h3>ルール要約（手番なし・早出し）</h3>
     <table class="rules">
-      <tr><td>手番</td><td>（任意:お題交換=山1枚引く）→ 手札を並べてお題に答える or パス（山1枚 or 捨て札から1枚）</td></tr>
+      <tr><td>進行</td><td>お題が出ている間、誰でも好きなタイミングで手札を並べて答えを宣言できる（早い者勝ち）</td></tr>
       <tr><td>答え</td><td>手札の文字で作る。無い文字は「すきま」（1つ=山1枚引く・2つまで）。既に通った答えはダメ</td></tr>
-      <tr><td>判定</td><td>回答者以外が秘密に あり/ないでしょ を投票。過半数あり=正解→使った手札を捨てられる。少数派は山1枚引く</td></tr>
+      <tr><td>判定</td><td>回答者以外が秘密に あり/ないでしょ を投票。過半数あり=正解→使った手札を捨てて公開、即座にお題を自動交換。少数派は山1枚引く</td></tr>
       <tr><td>勝ち</td><td>手札を出し切ったら勝ち</td></tr>
     </table>
   </div>
@@ -123,19 +125,17 @@
     <h3>参加者</h3>
     <div id="lobbyPlayers" class="players"></div>
     <div id="hostCfg">
-      <h3>調整レバー（ホストのみ・ルールノートv0.3と1対1）</h3>
+      <h3>調整レバー（ホストのみ・ルールノートv0.4と1対1）</h3>
       <div class="grid">
         <label>CPUの数 <input id="nCpu" class="num" type="number" min="0" max="4" value="0"></label>
         <label>初期手札 <input id="handSize" class="num" type="number" min="4" max="15" value="10"></label>
         <label>すきま上限 <input id="gapMax" class="num" type="number" min="0" max="4" value="2"></label>
         <label>すきまコスト(枚) <input id="gapCost" class="num" type="number" min="0" max="3" value="1"></label>
-        <label>お題交換コスト(枚) <input id="swapCost" class="num" type="number" min="0" max="3" value="1"></label>
         <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
         <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="900"></label>
       </div>
       <div class="row" style="margin-top:10px">
         <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
-        <label><input id="recentOnly" type="checkbox"> 🧪 パス拾いは「直前に通った答えの文字」だけ</label>
       </div>
       <div class="row" style="margin-top:14px">
         <button id="startBtn">▶ ゲーム開始（合計3〜5人）</button>
@@ -151,7 +151,7 @@
     <div class="card-panel">
       <h2>お題 <span class="hint" id="drawInfo"></span></h2>
       <div class="row"><span class="topicBox" id="topicBox"></span></div>
-      <h3>捨て札（ここから拾える）</h3>
+      <h3>捨てられた文字（使用済み・もう拾えません）</h3>
       <div id="discardRow"></div>
       <h3>通った答え（同じ答えはもう出せない）</h3>
       <div id="usedRow"></div>
@@ -214,8 +214,8 @@ const Engine = {
   newGame(cfg,specs){
     const S={cfg,players:specs.map(sp=>({name:sp.name,isCPU:!!sp.isCPU,policy:sp.policy||'smart',hand:[]})),
       deck:Engine.makeDeck(),discard:[],topicDeck:shuffle(TOPICS.slice()),topicDiscard:[],topic:'',topicCycle:0,
-      used:[],cur:0,turnCount:0,swappedThisTurn:false,over:false,winners:[],lastAccepted:[],judgeSeq:0,
-      stats:{answers:0,accepted:0,passes:0,swaps:0,discardPicks:0,gap0:0,gapAns:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
+      used:[],over:false,winners:[],judgeSeq:0,
+      stats:{answers:0,accepted:0,topicChanges:0,deadRounds:0,gap0:0,gapAns:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
     S.players.forEach(p=>{for(let i=0;i<cfg.handSize;i++)p.hand.push(Engine.drawRaw(S));});
     S.topic=S.topicDeck.pop();
     return S;
@@ -227,16 +227,13 @@ const Engine = {
   },
   drawTo(S,seat,n){ let got=0; for(let i=0;i<n;i++){const c=Engine.drawRaw(S); if(c!==null){S.players[seat].hand.push(c);got++;}} return got; },
 
-  swapTopic(S,seat){
-    if(S.swappedThisTurn) return null;
-    Engine.drawTo(S,seat,S.cfg.swapCost);
+  autoSwapTopic(S){
     S.topicDiscard.push(S.topic);
     if(S.topicDeck.length===0){
       if(S.topicCycle===0){ S.topicDeck=shuffle(S.topicDiscard); S.topicDiscard=[]; S.topicCycle=1; }
       else { Engine.finish(S); return null; }
     }
     S.topic=S.topicDeck.pop(); Engine.topicSeqUp(S);
-    S.swappedThisTurn=true; S.stats.swaps++;
     return S.topic;
   },
   topicSeqUp(S){ S.stats.topicSeq++; S.stats.perTopicIdx=0; },
@@ -274,43 +271,15 @@ const Engine = {
         }
       }
     }
+    let newTopic=null;
     if(ok){
       for(const ch of val.use){ const k=p.hand.indexOf(ch); p.hand.splice(k,1); S.discard.push(ch); }
       S.used.push({w:val.w,by:seat});
-      S.lastAccepted=val.use.slice();
       S.stats.accepted++;
       if(p.hand.length===0){ S.over=true; S.winners=[seat]; }
+      if(!S.over){ newTopic=Engine.autoSwapTopic(S); if(newTopic!==null) S.stats.topicChanges++; }
     }
-    return {ok,ari,nasi,split,gapDraw,penalized};
-  },
-
-  passAction(S,seat,src,letter){
-    S.stats.passes++;
-    if(src==='discard'){
-      const k=S.discard.indexOf(letter);
-      if(k<0) return false;
-      S.discard.splice(k,1); S.players[seat].hand.push(letter); S.stats.discardPicks++;
-    }else{
-      Engine.drawTo(S,seat,1);
-    }
-    return true;
-  },
-
-  discardChoices(S){
-    if(!S.cfg.recentOnly) return S.discard.slice();
-    return S.discard.filter(c=>S.lastAccepted.includes(c));
-  },
-
-  nextTurn(S){
-    if(S.over)return;
-    S.cur=(S.cur+1)%S.players.length; S.turnCount++; S.swappedThisTurn=false;
-    if(S.turnCount>400) Engine.finish(S);
-  },
-  finish(S){
-    if(S.over)return;
-    S.over=true;
-    const min=Math.min(...S.players.map(p=>p.hand.length));
-    S.winners=S.players.map((p,i)=>p.hand.length===min?i:-1).filter(i=>i>=0);
+    return {ok,ari,nasi,split,gapDraw,penalized,newTopic};
   },
 
   gauss(){ return (Math.random()+Math.random()+Math.random()-1.5); },
@@ -323,40 +292,20 @@ const Engine = {
     }
     return out;
   },
-  cpuTakeTurn(S,seat){
+  cpuDecide(S,seat){
     const p=S.players[seat];
-    let swapped=false;
-    let cands=Engine.cpuCandidates(S,seat);
-    const bestUse=cands.reduce((m,c)=>Math.max(m,c.use.length),0);
-    if(p.policy==='smart' && !S.swappedThisTurn && (cands.length===0||bestUse<=1) && Math.random()<0.6){
-      if(Engine.swapTopic(S,seat)!==null){ swapped=true; cands=Engine.cpuCandidates(S,seat); }
-    }
-    if(cands.length===0){
-      return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
-    }
-    let val;
+    const cands=Engine.cpuCandidates(S,seat);
+    if(cands.length===0) return {kind:'skip'};
     if(p.policy==='smart'){
       let best=null,bs=-1e9;
       for(const c of cands){
         const sc=c.use.length*2 + c.w.length*0.3 - c.gaps*1.2 + Engine.gauss()*1.0;
         if(sc>bs){bs=sc;best=c;}
       }
-      val=best;
-    }else{
-      if(Math.random()<0.15) return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
-      val=cands[rnd(cands.length)];
+      return {kind:'answer',val:best};
     }
-    return {kind:'answer',swapped,val};
-  },
-  cpuPassPick(S,seat){
-    const p=S.players[seat];
-    const ch=Engine.discardChoices(S);
-    if(ch.length&&((p.policy==='smart'&&Math.random()<0.65)||(p.policy!=='smart'&&Math.random()<0.4))){
-      let best=ch[0],bs=-1;
-      for(const c of ch){ const f=(DECK_DEF[c]||1)+Math.random()*2; if(f>bs){bs=f;best=c;} }
-      return {src:'discard',letter:p.policy==='smart'?best:ch[rnd(ch.length)]};
-    }
-    return {src:'deck',letter:null};
+    if(Math.random()<0.15) return {kind:'skip'};
+    return {kind:'answer',val:cands[rnd(cands.length)]};
   },
   cpuVote(S,judgeSeat,ansSeat,val){
     const j=S.players[judgeSeat];
@@ -365,14 +314,22 @@ const Engine = {
     if(j.policy!=='smart') pr=0.6;
     pr=Math.max(0.05,Math.min(0.97,pr+Engine.gauss()*0.12));
     return Math.random()<pr;
+  },
+
+  finish(S){
+    if(S.over)return;
+    S.over=true;
+    const min=Math.min(...S.players.map(p=>p.hand.length));
+    S.winners=S.players.map((p,i)=>p.hand.length===min?i:-1).filter(i=>i>=0);
   }
 };
 
-/* ===== 通信・進行（ホスト権威型） ===== */
+/* ===== 通信・進行（ホスト権威型・早出し） ===== */
 let role=null, myName='', roomId='';
 let peer=null, hostConns=[], guestConn=null;
 let S=null, J=null;               // host側のみ実体を持つ
 let mySeat=-1, myHand=[], myVotedSeq=-1, curPub=null;
+let noAnswerTicks=0;              // 連続で誰も宣言しなかったCPUループの回数（安全弁用）
 
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
 function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
@@ -436,8 +393,6 @@ function onGuestLeave(conn){
     if(J && J.order.includes(rec.seat) && !(rec.seat in J.got)){
       J.got[rec.seat]=Engine.cpuVote(S,rec.seat,J.seat,J.val);
       maybeResolveJudge();
-    } else if(!J && S.cur===rec.seat){
-      hostRunCpuTurn(rec.seat);
     }
   } else if(!S){
     broadcastLobby();
@@ -470,13 +425,11 @@ function hostSendHand(seat){
 }
 function buildPub(){
   return {
-    cur:S.cur, phase: J?'judge':(S.over?'over':'action'),
-    swappedThisTurn:S.swappedThisTurn,
+    phase: J?'judge':(S.over?'over':'action'),
     topic:S.topic, topicDeckLeft:S.topicDeck.length, topicCycle:S.topicCycle,
     deckLeft:S.deck.length,
-    discard:S.discard.slice(), discardPick:Engine.discardChoices(S),
+    discard:S.discard.slice(),
     used:S.used.map(u=>u.w),
-    turnCount:S.turnCount,
     players:S.players.map(p=>({name:p.name,isCPU:p.isCPU,handCount:p.hand.length})),
     cfg:S.cfg,
     judging: J?{seat:J.seat,name:S.players[J.seat].name,word:J.val.w,gaps:J.val.gaps,seq:J.seq}:null
@@ -491,17 +444,13 @@ function hostStart(){
   if(total<3||total>5){ $('lobbyErr').textContent=`合計3〜5人にしてください（今: 人間${humans}+CPU${ncpu}）`; return; }
   $('lobbyErr').textContent='';
   const cfg={handSize:+$('handSize').value,gapMax:+$('gapMax').value,gapCost:+$('gapCost').value,
-    swapCost:+$('swapCost').value,minorPen:+$('minorPen').value,cpuThink:+$('cpuThink').value,
-    tieWin:$('tieWin').checked,recentOnly:$('recentOnly').checked};
+    minorPen:+$('minorPen').value,cpuThink:+$('cpuThink').value,tieWin:$('tieWin').checked};
   const specs=[{name:myName+'（ホスト）',isCPU:false}];
   hostConns.filter(c=>c.alive).forEach(c=>specs.push({name:c.name,isCPU:false}));
   for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true,policy:'smart'});
   shuffle(specs);
   S=Engine.newGame(cfg,specs);
-  let gi=0;
-  hostConns.filter(c=>c.alive).forEach(c=>{ gi++; c.seat=gi; });
-  // 席順に合わせて名前が一致するようspecsの並びとhostConnsの割当が食い違わないよう、ホストは常に0番
-  // (specsはshuffle済みだが、host自身のレコードは含まれないため、host以外の並びに合わせて座席を振り直す)
+  J=null; noAnswerTicks=0;
   for(let i=0;i<S.players.length;i++){
     if(S.players[i].name===myName+'（ホスト）') mySeat=i;
   }
@@ -513,72 +462,63 @@ function hostStart(){
   log(`ゲーム開始（${total}人）。最初のお題「${S.topic}」`);
   show('game');
   S.players.forEach((p,i)=>{ deliverToSeat(i,{t:'start',seat:i,hand:p.hand.slice()}); });
-  hostBeginTurn();
-}
-function hostBeginTurn(){
-  if(S.over){ hostFinish(); return; }
   broadcastPub();
-  const seat=S.cur;
-  if(S.players[seat].isCPU){
-    setTimeout(()=>hostRunCpuTurn(seat), Math.max(0,S.cfg.cpuThink));
-  }
+  hostCpuLoop();
 }
-function hostRunCpuTurn(seat){
-  if(!S||S.over||S.cur!==seat||J) return;
-  const t=Engine.cpuTakeTurn(S,seat);
-  if(t.swapped){ log(`${S.players[seat].name} がお題を交換 →「${S.topic}」`); }
-  if(S.over){ hostFinish(); return; }
-  if(t.kind==='answer'){ hostStartJudge(seat,t.val); }
-  else{
-    Engine.passAction(S,seat,t.src,t.letter);
-    log(`${S.players[seat].name} はパス（${t.src==='discard'?`捨て札から「${t.letter}」`:'山から1枚'}）`);
-    hostSendHand(seat);
-    hostEndTurn();
+
+/* CPUは手番が無いので、定期的に「今なら誰かが答えを出せるか」をチェックする早出しループ */
+function hostCpuLoop(){
+  if(!S||S.over) return;
+  if(!J){
+    const cpuSeats=shuffle(S.players.map((_,i)=>i).filter(i=>S.players[i].isCPU));
+    let acted=false;
+    for(const seat of cpuSeats){
+      const dec=Engine.cpuDecide(S,seat);
+      if(dec.kind==='answer'){ hostDeclare(seat,dec.val); acted=true; break; }
+    }
+    noAnswerTicks = acted ? 0 : noAnswerTicks+1;
+    if(!acted && noAnswerTicks>=3){
+      // 誰も答えられないまま複数巡 → 安全弁でお題を自動交換
+      noAnswerTicks=0;
+      S.stats.deadRounds++;
+      const t=Engine.autoSwapTopic(S);
+      if(S.over){ hostFinish(); return; }
+      log(`💭 誰も答えられず → お題を交換 →「${t}」`);
+      broadcastPub();
+    }
   }
+  setTimeout(hostCpuLoop, Math.max(200,S.cfg.cpuThink));
 }
-function hostHandleMsg(seat,d){
-  if(!S||!d) return;
-  if(d.t==='swap'){
-    if(seat!==S.cur||J) return;
-    const t=Engine.swapTopic(S,seat);
-    if(t===null){ if(S.over){hostFinish();} return; }
-    log(`${S.players[seat].name} がお題を交換（山から${S.cfg.swapCost}枚）→「${t}」`);
-    hostSendHand(seat); broadcastPub();
-    return;
-  }
-  if(d.t==='checkAnswer'){
-    const v=Engine.validateAnswer(S,seat,d.text);
-    deliverToSeat(seat,{t:'checkResult',ok:!v.err,err:v.err,w:v.w,use:v.use,gaps:v.gaps});
-    return;
-  }
-  if(d.t==='declareAnswer'){
-    if(seat!==S.cur||J) return;
-    const v=Engine.validateAnswer(S,seat,d.text);
-    if(v.err){ deliverToSeat(seat,{t:'checkResult',ok:false,err:v.err}); return; }
-    hostStartJudge(seat,v);
-    return;
-  }
-  if(d.t==='pass'){
-    if(seat!==S.cur||J) return;
-    const ok=Engine.passAction(S,seat,d.src,d.letter);
-    if(!ok) return;
-    log(`${S.players[seat].name} はパス（${d.src==='discard'?`捨て札から「${d.letter}」`:'山から1枚'}）`);
-    hostSendHand(seat);
-    hostEndTurn();
-    return;
-  }
-  if(d.t==='vote'){
-    onVote(seat,!!d.value);
-    return;
-  }
-}
-function hostStartJudge(seat,val){
+
+function hostDeclare(seat,val){
+  noAnswerTicks=0;
   S.judgeSeq++;
   J={seat,val,got:{},order:S.players.map((_,i)=>i).filter(i=>i!==seat),seq:S.judgeSeq};
   log(`${S.players[seat].name} の答え:「${val.w}」（手札${val.use.length}枚＋すきま${val.gaps}）→ みんなの判定へ`);
   broadcastPub();
   J.order.forEach(i=>{ if(S.players[i].isCPU){ J.got[i]=Engine.cpuVote(S,i,seat,val); } });
   maybeResolveJudge();
+}
+
+function hostHandleMsg(seat,d){
+  if(!S||!d||S.over) return;
+  if(d.t==='checkAnswer'){
+    if(J){ deliverToSeat(seat,{t:'checkResult',ok:false,err:'先を越されました（他の人が先に宣言しました）'}); return; }
+    const v=Engine.validateAnswer(S,seat,d.text);
+    deliverToSeat(seat,{t:'checkResult',ok:!v.err,err:v.err,w:v.w,use:v.use,gaps:v.gaps});
+    return;
+  }
+  if(d.t==='declareAnswer'){
+    if(J){ deliverToSeat(seat,{t:'checkResult',ok:false,err:'先を越されました（他の人が先に宣言しました）'}); return; }
+    const v=Engine.validateAnswer(S,seat,d.text);
+    if(v.err){ deliverToSeat(seat,{t:'checkResult',ok:false,err:v.err}); return; }
+    hostDeclare(seat,v);
+    return;
+  }
+  if(d.t==='vote'){
+    onVote(seat,!!d.value);
+    return;
+  }
 }
 function onVote(seat,value){
   if(!J||!J.order.includes(seat)) return;
@@ -595,20 +535,14 @@ function maybeResolveJudge(){
   log(`判定 [${names}] → ${res.ok?'✅ それ正解！':'❌ ないでしょ…'}（あり${res.ari}/ない${res.nasi}）`);
   if(res.gapDraw) log(`　すきまコスト: ${S.players[J.seat].name} が山から${res.gapDraw}枚`);
   res.penalized.forEach(i=>log(`　少数派ペナルティ: ${S.players[i].name} が山から${S.cfg.minorPen}枚`));
+  if(res.ok&&res.newTopic) log(`🔄 正解！ お題を自動交換 →「${res.newTopic}」`);
   if(res.ok&&S.players[J.seat].hand.length===0) log(`🎉 ${S.players[J.seat].name} が出し切って勝利！`);
   hostSendHand(J.seat);
   res.penalized.forEach(i=>hostSendHand(i));
   const wasOver=S.over;
   J=null;
-  if(wasOver){ hostFinish(); return; }
-  hostEndTurn();
-}
-function hostEndTurn(){
   broadcastPub();
-  if(S.over){ hostFinish(); return; }
-  Engine.nextTurn(S);
-  if(S.over){ hostFinish(); return; }
-  setTimeout(hostBeginTurn,20);
+  if(wasOver){ hostFinish(); return; }
 }
 function hostFinish(){
   const st=S.stats;
@@ -623,13 +557,11 @@ function hostFinish(){
     list.forEach((e,k)=>{ if(k<half){fh[0]+=e.split?1:0;fh[1]++;} else {sh[0]+=e.split?1:0;sh[1]++;} });
   });
   const fhR=fh[1]?Math.round(100*fh[0]/fh[1]):0, shR=sh[1]?Math.round(100*sh[0]/sh[1]):0;
-  const totalActs=st.answers+st.passes;
   const d={
     winners:S.winners.map(i=>S.players[i].name),
     order:order.map(o=>({name:S.players[o.i].name,n:o.n})),
-    turnCount:S.turnCount+1, answers:st.answers, accepted:st.accepted, passes:st.passes,
-    fhR,shR,splitRate,swaps:st.swaps,discardPicks:st.discardPicks,
-    passRate: totalActs?Math.round(100*st.passes/totalActs):0,
+    answers:st.answers, accepted:st.accepted,
+    fhR,shR,splitRate,topicChanges:st.topicChanges,deadRounds:st.deadRounds,
     gap0Rate: st.answers?Math.round(100*st.gap0/st.answers):0
   };
   hostBroadcastAll({t:'result',d});
@@ -638,11 +570,12 @@ function hostAgain(){
   const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU,policy:'smart'}));
   const cfg=S.cfg;
   S=Engine.newGame(cfg,specs);
-  J=null;
+  J=null; noAnswerTicks=0;
   $('log').innerHTML=''; log('もう1戦！');
   show('game');
   S.players.forEach((p,i)=>{ deliverToSeat(i,{t:'start',seat:i,hand:p.hand.slice()}); });
-  hostBeginTurn();
+  broadcastPub();
+  hostCpuLoop();
 }
 
 /* ---------- ゲスト ---------- */
@@ -703,21 +636,21 @@ function renderGame(){
   $('topicBox').textContent=snap.topic;
   $('drawInfo').textContent=`お題山 残り${snap.topicDeckLeft}${snap.topicCycle?'（2巡目）':''} ／ 文字の山 残り${snap.deckLeft}枚`;
   $('discardRow').innerHTML = snap.discard.length
-    ? snap.discard.map(c=>`<span class="chipD"${snap.discardPick.includes(c)?'':' style="opacity:.35"'}>${c}</span>`).join('')
+    ? snap.discard.map(c=>`<span class="chipD">${c}</span>`).join('')
     : '<span class="hint">（まだなし）</span>';
   $('usedRow').innerHTML = snap.used.length
     ? snap.used.map(w=>`<span class="ansTag">${esc(w)}</span>`).join('')
     : '<span class="hint">（まだなし）</span>';
   $('players').innerHTML=snap.players.map((p,i)=>`
-    <div class="pl${i===snap.cur&&snap.phase==='action'?' turn':''}${i===mySeat?' me':''}">
+    <div class="pl${i===mySeat?' me':''}">
       <div class="name"><span>${esc(p.name)}${p.isCPU?' <span class="badge bot">CPU</span>':''}${i===mySeat?' (あなた)':''}</span>
       <span class="score">${p.handCount}</span></div>
-      <div class="mini"><span>残り手札</span>${i===snap.cur&&snap.phase==='action'?'<span>◀ 手番</span>':''}</div>
+      <div class="mini"><span>残り手札</span></div>
     </div>`).join('');
   $('banner').textContent = snap.phase==='judge'
     ? `「${snap.judging.word}」を判定中…（お題「${snap.topic}」）`
-    : `お題「${snap.topic}」 ― ${snap.players[snap.cur].name} の番`;
-  $('turnTitle').textContent = snap.phase==='judge' ? '判定タイム' : `${snap.players[snap.cur].name} の手番`;
+    : `お題「${snap.topic}」 ― 誰でも早い者勝ちで宣言できます`;
+  $('turnTitle').textContent = snap.phase==='judge' ? '判定タイム' : '答えが浮いたら宣言しよう';
   renderAction(snap);
 }
 function setAction(html){ $('actionBody').innerHTML=''; $('actionBody').innerHTML=html; }
@@ -733,7 +666,6 @@ function renderAction(snap){
     $('voteNasi').onclick=()=>{ myVotedSeq=snap.judging.seq; mySend({t:'vote',value:false}); renderAction(snap); };
     return;
   }
-  if(snap.cur!==mySeat){ setAction(`<div class="mask">🤫 ${esc(snap.players[snap.cur].name)} の手番を待っています…</div>`); return; }
   renderMyTurn(snap);
 }
 function renderMyTurn(snap){
@@ -744,16 +676,10 @@ function renderMyTurn(snap){
       <button id="checkBtn" class="ghost small">チェック</button>
       <button id="declareBtn" disabled>宣言する</button>
     </div>
-    <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言</div>
-    <div class="row" style="margin-top:12px">
-      <button id="swapBtn" class="ghost small" ${snap.swappedThisTurn?'disabled':''}>🔄 お題を変える（山から${snap.cfg.swapCost}枚引く）</button>
-      <button id="passBtn" class="ghost small">パスする</button>
-    </div>`);
+    <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言（早い者勝ち）</div>`);
   $('ansInput').oninput=()=>{ $('declareBtn').disabled=true; };
   $('checkBtn').onclick=()=>mySend({t:'checkAnswer',text:$('ansInput').value});
   $('declareBtn').onclick=()=>{ if(!$('declareBtn').disabled) mySend({t:'declareAnswer',text:$('ansInput').value}); };
-  $('swapBtn').onclick=()=>mySend({t:'swap'});
-  $('passBtn').onclick=()=>renderPassMenu(snap);
 }
 function applyCheckResult(d){
   if(!$('declareBtn')) return; // 画面が切り替わった後の遅延到着は無視
@@ -765,18 +691,6 @@ function applyCheckResult(d){
     $('ansPreview').textContent='✖ '+d.err;
   }
 }
-function renderPassMenu(snap){
-  const ch=snap.discardPick;
-  setAction(`
-    <div>パス: どちらかを選ぶ</div>
-    <div class="row" style="margin:10px 0"><button id="drawBtn">山から1枚引く</button>
-    <button id="backActBtn" class="ghost small">← 戻る</button></div>
-    <div class="hint">または捨て札から1枚拾う:</div>
-    <div id="dcRow">${ch.length?ch.map((c,i)=>`<button id="dc${i}" class="ghost small" style="margin:2px">${c}</button>`).join(''):'<span class="hint">（拾えるものなし）</span>'}</div>`);
-  $('drawBtn').onclick=()=>mySend({t:'pass',src:'deck',letter:null});
-  $('backActBtn').onclick=()=>renderMyTurn(snap);
-  ch.forEach((c,i)=>{ $('dc'+i).onclick=()=>mySend({t:'pass',src:'discard',letter:c}); });
-}
 function renderResult(d){
   show('result');
   let html=`<h2>結果</h2>
@@ -784,12 +698,11 @@ function renderResult(d){
     <table class="rules">
       ${d.order.map((o,k)=>`<tr><td>${k+1}位</td><td>${esc(o.name)}</td><td>残り${o.n}枚</td></tr>`).join('')}
     </table>
-    <h3>検証指標（出口条件）</h3>
+    <h3>検証指標（出口条件・CPUは構造検証専用＝面白さの合否ではない）</h3>
     <table class="rules">
-      <tr><td>手番数</td><td>${d.turnCount}</td><td>回答${d.answers}（成立${d.accepted}）/ パス${d.passes}</td></tr>
+      <tr><td>宣言試行</td><td>${d.answers}（成立${d.accepted}）</td><td>お題交換(自動): 正解${d.topicChanges}回 / 誰も出せず${d.deadRounds}回</td></tr>
       <tr><td>①枯渇の傾斜</td><td>判定割れ 前半${d.fhR}% → 後半${d.shR}%</td><td>全体${d.splitRate}%（目標30〜60%）</td></tr>
-      <tr><td>②お題交換 / 拾い</td><td>交換${d.swaps}回 / 拾い${d.discardPicks}回</td><td>どちらも1回以上が目標</td></tr>
-      <tr><td>③パス率 / すきま0率</td><td>パス${d.passRate}%（目標25%以下）</td><td>すきま0回答${d.gap0Rate}%（目標40%以上）</td></tr>
+      <tr><td>②すきま0回答率</td><td>${d.gap0Rate}%</td><td>目標40%以上</td></tr>
     </table>`;
   if(role==='host'){
     html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>`;
