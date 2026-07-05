@@ -4,20 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>ふたりのまほう ― テストプレイ版</title>
+<title>ふたりのまほう ― オンライン対戦（テスト版）</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  ふたりのまほう（仮）v0.3 開発プロトタイプ（ゲームID: futarinomaho）
-  ルール正本: Resources/ルール_ふたりのまほう_v0.3.md
-  ルールに明記がなく仮置きした解釈（実機テストで要確認）:
-   - いやし【伏】の「半減」= 端数切り上げで残す（3→2, 1→1）
-   - いやし【詠】の回復量 = チャージ数（基本0）＋相手に1ダメージ
-   - あばく【即】は相手の伏せが無くても1ダメージは入る
-   - ひきはがし【即】で自分に詠唱が無ければ奪ったチャージは消える
-   - みがわり変換のあふれた値は消える
-   - ライフ上限 = 開始値（後手は11）
-   - とどめ自傷で同時に0以下 → 相手を先に判定（解放側の勝ち）
-   - 先手はランダムに決定
+  オンライン対戦版（ルールはローカル版 ふたりのまほう_プロトタイプ.html と同一。Engineはコピー）
+  仕組み: PeerJS（無料のP2P仲介。アカウント・課金不要）でホストの部屋に接続。
+  ホスト＝進行役（Engineを持つ。このタブを閉じると部屋が終わる）。ゲストは部屋コードで参加。
+  2人専用: ホスト+ゲスト1人（ゲスト不在ならCPUと対戦）。
+  秘密情報（手札・自分の伏せ札）は手番メッセージ/割込メッセージでのみ本人に送る。
+  相手の解放への「割込」は、防御側に個別の割込プロンプトを送って返答を待つ。切断者はCPUが代打ち。
+  注意: 会社ネットワーク等ではP2P接続に失敗することがある（その場合は別回線/スマホ回線を試す）
 -->
 <style>
   :root{
@@ -41,6 +37,7 @@
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
   .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  .txt{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
   select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;font-family:inherit}
   button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
          font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
@@ -48,6 +45,9 @@
   button.small{padding:5px 11px;font-size:13px}
   button:disabled{opacity:.4;cursor:not-allowed}
   .hint{font-size:12px;color:var(--sub)}
+  .err{color:var(--bad);font-size:13px;font-weight:700}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;background:#fdf3e2;border:1px dashed var(--accent);
+        border-radius:10px;padding:6px 18px;display:inline-block}
   .scard{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
          width:86px;height:112px;border-radius:12px;background:#fff;border:2px solid var(--line);
          box-shadow:var(--shadow);margin:3px;position:relative;vertical-align:top;transition:transform .1s}
@@ -61,13 +61,15 @@
   .scard .chg{position:absolute;top:4px;right:6px;font-size:12px;color:var(--chip);font-weight:800}
   .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
   .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
-  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl.me{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl.turn{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(111,174,122,.3)}
   .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
   .pl .life{font-size:22px;font-weight:800;color:var(--bad)}
   .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
   .pl .zone{font-size:12px;margin-top:4px}
   .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
   .bot{background:#eaf3ec;color:#3f7a4e}
+  .ok{background:#eaf3ec;color:#3f7a4e;font-weight:700}
   .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
        padding:10px;font-size:13px}
   .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
@@ -78,6 +80,8 @@
   .flex-split>*{flex:1;min-width:260px}
   table.rules{font-size:12px;border-collapse:collapse;width:100%}
   table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
   .foot{font-size:11px;color:var(--sub);margin-top:8px}
   .mask{padding:30px;text-align:center}
 </style>
@@ -85,34 +89,27 @@
 <body>
 <header>
   <h1>✨ ふたりのまほう</h1>
-  <span class="tag">開発プロトタイプ v0.3</span>
-  <span class="tag">検証: 3モードの読み合い・腕の差・接戦度・即唱の使用感</span>
+  <span class="tag">オンライン対戦</span>
+  <span class="tag">部屋コードでふたりで（ゲスト不在ならCPU戦）</span>
 </header>
 
 <div class="wrap">
 
-  <div id="setup" class="card-panel">
-    <h2>セットアップ（2人専用）</h2>
+  <!-- ===== HOME ===== -->
+  <div id="home" class="card-panel">
+    <h2>はじめる</h2>
     <div class="row" style="margin-bottom:12px">
-      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="2" value="1"></label>
-      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="2" value="1"></label>
-      <label>CPUの強さ <select id="cpuLevel"><option value="std" selected>標準</option><option value="adv">上級</option></select></label>
-      <span class="hint">合計ちょうど2人。人間2=パス&プレイ／人間0=CPU観戦</span>
+      <label>なまえ <input id="nameInput" class="txt" type="text" maxlength="8" value=""></label>
     </div>
-    <h3>調整レバー（既定値＝v0.3凍結値）</h3>
-    <div class="grid">
-      <label>ライフ <input id="life" class="num" type="number" min="5" max="20" value="10"></label>
-      <label>後手ボーナス <input id="backBonus" class="num" type="number" min="0" max="3" value="1"></label>
-      <label>手札枚数 <input id="handSize" class="num" type="number" min="3" max="6" value="4"></label>
-      <label>チャージ上限 <input id="chargeCap" class="num" type="number" min="1" max="4" value="2"></label>
-      <label>詠唱スロット <input id="castSlots" class="num" type="number" min="1" max="4" value="3"></label>
-      <label>伏せスロット <input id="faceSlots" class="num" type="number" min="1" max="3" value="2"></label>
-      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="1000"></label>
+    <div class="row" style="margin-bottom:8px">
+      <button id="createBtn">🏠 部屋を作る（ホスト）</button>
     </div>
-    <div class="row" style="margin-top:10px">
-      <label><input id="rescue" type="checkbox"> 🧪 逆転救済（ライフ差4以上で負けてる側は手番開始に＋1ドロー）</label>
+    <div class="row">
+      <input id="roomInput" class="txt" type="text" placeholder="部屋コード（例: futa-xxxxx）">
+      <button class="ghost" id="joinBtn">🚪 部屋に入る</button>
     </div>
-    <div class="foot">検証したい問い: ①おしきり/めくらまし/あばく/ふいうちの読み合いが悩ましいか ②初心者が一方的に負けないか ③勝者が無傷すぎないか ④即唱を選びたくなるか</div>
+    <div id="homeErr" class="err"></div>
+    <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
     <h3>ルール要約</h3>
     <table class="rules">
       <tr><td>手番</td><td>①詠唱中すべてにチャージ+1（上限2）→②手札4枚まで引く→③アクション1つ（即唱／詠唱／解放／伏せ）</td></tr>
@@ -120,12 +117,41 @@
       <tr><td>割込</td><td>相手の解放時、伏せ1枚を公開してよい（ふいうち=無効化+反撃／いやし=半減／みがわり=無効化+チャージ変換）。おしきり付き解放には割り込めない</td></tr>
       <tr><td>勝敗</td><td>相手のライフ0以下で勝ち。後手はライフ+1。山札切れは捨て札を混ぜ直す</td></tr>
     </table>
-    <div class="row" style="margin-top:16px">
-      <button id="startBtn">▶ ゲーム開始</button>
-      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
-    </div>
   </div>
 
+  <!-- ===== LOBBY ===== -->
+  <div id="lobby" class="card-panel hidden">
+    <h2>ロビー <span class="hint" id="roleTag"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <span>部屋コード: <span class="code" id="roomCodeView">...</span></span>
+      <span class="hint">← これを共有して入ってもらう（2人専用）</span>
+    </div>
+    <h3>参加者</h3>
+    <div id="lobbyPlayers" class="players"></div>
+    <div id="hostCfg">
+      <h3>調整レバー（ホストのみ・既定値＝v0.3凍結値）</h3>
+      <div class="grid">
+        <label>ライフ <input id="life" class="num" type="number" min="5" max="20" value="10"></label>
+        <label>後手ボーナス <input id="backBonus" class="num" type="number" min="0" max="3" value="1"></label>
+        <label>手札枚数 <input id="handSize" class="num" type="number" min="3" max="6" value="4"></label>
+        <label>チャージ上限 <input id="chargeCap" class="num" type="number" min="1" max="4" value="2"></label>
+        <label>詠唱スロット <input id="castSlots" class="num" type="number" min="1" max="4" value="3"></label>
+        <label>伏せスロット <input id="faceSlots" class="num" type="number" min="1" max="3" value="2"></label>
+        <label>CPUの強さ <select id="cpuLevel"><option value="std" selected>標準</option><option value="adv">上級</option></select></label>
+        <label>CPUの間(ms) <input id="cpuThink" class="num" type="number" value="900"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label><input id="rescue" type="checkbox"> 🧪 逆転救済（ライフ差4以上で負けてる側は手番開始に＋1ドロー）</label>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="startBtn">▶ ゲーム開始（ゲストが居なければCPU戦）</button>
+      </div>
+    </div>
+    <div id="lobbyErr" class="err"></div>
+    <div class="foot" id="lobbyHint"></div>
+  </div>
+
+  <!-- ===== GAME ===== -->
   <div id="game" class="hidden">
     <div id="banner" class="banner"></div>
     <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
@@ -133,16 +159,14 @@
       <div class="card-panel" id="actionPanel" style="flex:2"><h2 id="turnTitle"></h2><div id="actionBody"></div></div>
       <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
     </div>
-    <div class="row">
-      <button class="ghost small" id="backSetup">← 設定に戻す</button>
-      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
-    </div>
   </div>
 
+  <!-- ===== RESULT ===== -->
   <div id="result" class="hidden card-panel"></div>
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -317,179 +341,431 @@ const Engine={
     return S; }
 };
 
-/* ===== UI（Engineを呼ぶだけ。数値は必ず +$(id).value で読む） ===== */
-let S=null;
-const UI={sel:-1,swapSlot:-1,phase:'idle'};
-function readCfg(){ const c={};
-  ['nHuman','nCpu','life','backBonus','handSize','chargeCap','castSlots','faceSlots','cpuThink'].forEach(i=>c[i]=+$(i).value);
-  c.cpuLevel=$('cpuLevel').value; c.rescue=$('rescue').checked; return c; }
-function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
-function drainLog(){ while(S.log.length)log(S.log.shift()); }
-function chip(id){ return `${CARDS[id].e}${CARDS[id].n}`; }
+/* ================= 通信・進行（あし天オンラインと同型・2人専用） ================= */
+let role=null, myName='', roomId='';
+let peer=null, hostConns=[], guestConn=null;
+let S=null;            // hostのみ
+let Flow=null;         // hostのみ: {phase:'act'|'int', waiting:seat}
+let sentLog=0;         // hostのみ
+let mySeat=-1, curSnap=null;
+let myTurn=null;       // 自分の未消化の手番/割込UI状態 {phase:'act'|'int', data, ui}
+                       // snap再描画で消えないようapplySnapが復元する
+
+function log(msg){ const el=$('log'); el.innerHTML+='<div>'+msg+'</div>'; el.scrollTop=el.scrollHeight; }
+function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
+function setAction(html){ $('actionBody').innerHTML=html; }
+function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'futa-'+r; }
+function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
+function chip(id){ return CARDS[id].e+CARDS[id].n; }
 function cardHTML(id,extra,idAttr,charge){ const c=CARDS[id];
-  return `<div class="scard ${extra||''}"${idAttr?` id="${idAttr}"`:''}>`+
-    (charge!==undefined&&charge>0?`<span class="chg">${'●'.repeat(charge)}</span>`:'')+
-    `<span class="em">${c.e}</span><span class="nm">${c.n}</span><span class="fx">${c.soku==='（即唱不可）'?'詠唱専用':''}</span></div>`; }
-function backHTML(idAttr){ return `<div class="scard back"${idAttr?` id="${idAttr}"`:''}><span class="em">🌙</span></div>`; }
-function revealAll(){ return S.cfg.nHuman===0; }
-function renderPlayers(){ const wrap=$('players'); let html='';
-  S.ps.forEach((p,idx)=>{
-    const showSecret=revealAll();
-    html+=`<div class="pl ${S.cur===idx&&!S.over?'turn':''}">
-      <div class="name"><span>${p.name}</span>${p.isCPU?`<span class="badge bot">CPU(${p.level==='adv'?'上級':'標準'})</span>`:''}</div>
-      <div class="life">❤ ${p.life}</div>
-      <div class="mini"><span>山札${p.deck.length}</span><span>手札${p.hand.length}</span><span>捨て${p.disc.length}</span></div>
-      <div class="zone">詠唱: ${p.cast.map(c=>`${chip(c.id)}${'●'.repeat(c.charge)}`).join(' ／ ')||'—'}</div>
-      <div class="zone">伏せ: ${p.face.map(f=>showSecret?`(${chip(f.id)})`:'🌙').join(' ')||'—'}</div>
-      ${showSecret?`<div class="zone hint">手札: ${p.hand.map(chip).join(' ')}</div>`:''}
-    </div>`; });
-  wrap.innerHTML=html; }
-function renderBanner(){ $('banner').textContent=`ターン${S.totalTurns} ― ${S.ps[S.cur].name}の番`; }
-function renderAll(){ renderBanner(); renderPlayers(); drainLog(); }
+  return '<div class="scard '+(extra||'')+'"'+(idAttr?' id="'+idAttr+'"':'')+'>'
+    +((charge!==undefined&&charge>0)?'<span class="chg">'+'●'.repeat(charge)+'</span>':'')
+    +'<span class="em">'+c.e+'</span><span class="nm">'+c.n+'</span><span class="fx">'+(id==='TD'?'詠唱専用':'')+'</span></div>'; }
 
-function startGame(){ const cfg=readCfg();
-  if(cfg.nHuman+cfg.nCpu!==2){alert('人間+CPUの合計をちょうど2人にしてください');return;}
-  const players=[]; for(let h=0;h<cfg.nHuman;h++)players.push({name:cfg.nHuman>1?`プレイヤー${h+1}`:'あなた',isCPU:false});
-  for(let c=0;c<cfg.nCpu;c++)players.push({name:cfg.nCpu>1?`CPU${c+1}`:'CPU',isCPU:true,level:cfg.cpuLevel});
-  if(rnd(2)===1)players.reverse();
-  cfg.players=players;
+/* ---------- 共通描画（snapから） ---------- */
+function applySnap(snap,lines){
+  curSnap=snap;
+  (lines||[]).forEach(l=>log(l));
+  $('banner').textContent='ターン'+snap.turnNo+' ― '+snap.players[snap.cur].name+'の番'+(snap.phase==='int'?'（割込確認中）':'');
+  let ph='';
+  snap.players.forEach((p,pi)=>{
+    ph+='<div class="pl'+(pi===mySeat?' me':'')+(pi===snap.actor?' turn':'')+'">'
+      +'<div class="name"><span>'+p.name+'</span>'+(p.isCPU?'<span class="badge bot">CPU('+(p.level==='adv'?'上級':'標準')+')</span>':'')+'</div>'
+      +'<div class="life">❤ '+p.life+'</div>'
+      +'<div class="mini"><span>山札'+p.deck+'</span><span>手札'+p.handCount+'</span><span>捨て'+p.discCount+'</span></div>'
+      +'<div class="zone">詠唱: '+(p.cast.map(c=>chip(c.id)+'●'.repeat(c.charge)).join(' ／ ')||'—')+'</div>'
+      +'<div class="zone">伏せ: '+('🌙'.repeat(p.faceCount)||'—')+'</div>'
+      +'</div>';
+  });
+  $('players').innerHTML=ph;
+  if(snap.actor>=0&&snap.actor!==mySeat){
+    myTurn=null;
+    $('turnTitle').textContent=snap.players[snap.actor].name+' の番…';
+    setAction('<span class="hint">待っています…</span>');
+  }else if(snap.actor===mySeat){
+    if(myTurn)renderMyTurn();
+    else { $('turnTitle').textContent='…'; setAction('<span class="hint">…</span>'); }
+  }else{
+    $('turnTitle').textContent='…';
+    setAction('<span class="hint">…</span>');
+  }
+}
+function sendAct(a){ if(role==='host')hostApplyAct(mySeat,a); else guestConn.send({t:'act',a}); }
+function renderMyTurn(){
+  if(!myTurn)return;
+  if(myTurn.phase==='act')renderActUI(myTurn.data,sendAct);
+  else if(myTurn.phase==='int')renderIntUI(myTurn.data,sendAct);
+}
+
+/* ---------- 手番UI（ホスト自席もゲストも同じ描画・sendだけ違う） ---------- */
+function sokuOK(data,hi){ const id=data.hand[hi];
+  if(id==='TD')return false;
+  if(id==='SW')return data.cast.length>0&&data.hand.length>=2;
+  return true; }
+function renderActUI(data,send){
+  const ui=myTurn.ui||(myTurn.ui={sel:-1,mode:null,swapSlot:-1,relSi:-1});
+  $('turnTitle').textContent=data.myName+' の番 ― 手札を選んでモードを決める／詠唱中カードを解放';
+  if(ui.mode==='swapSlot'){
+    let h='<h3>いれかえ: チャージを残したまま入れ替える詠唱枠を選択</h3><div class="row">';
+    data.cast.forEach((c,si)=>{h+=cardHTML(c.id,'pick','swapSlot'+si,c.charge);});
+    h+='</div><button class="ghost" id="btnCancel">やめる</button>';
+    setAction(h);
+    $('btnCancel').onclick=()=>{ui.mode=null;ui.sel=-1;renderMyTurn();};
+    data.cast.forEach((c,si)=>{ $('swapSlot'+si).onclick=()=>{ui.swapSlot=si;ui.mode='swapHand';renderMyTurn();}; });
+    return;
+  }
+  if(ui.mode==='swapHand'){
+    let h='<h3>いれかえ: 枠に入れる手札を選択</h3><div class="row">';
+    data.hand.forEach((id,hj)=>{ if(hj!==ui.sel)h+=cardHTML(id,'pick','swapHand'+hj); });
+    h+='</div><button class="ghost" id="btnCancel">やめる</button>';
+    setAction(h);
+    $('btnCancel').onclick=()=>{ui.mode=null;ui.sel=-1;renderMyTurn();};
+    data.hand.forEach((id,hj)=>{ if(hj!==ui.sel)$('swapHand'+hj).onclick=()=>send({type:'swap',hi:ui.sel,si:ui.swapSlot,hj}); });
+    return;
+  }
+  if(ui.mode==='osConfirm'){
+    const c=data.cast[ui.relSi];
+    let h='<div class="banner">【'+CARDS[c.id].n+'】（チャージ'+c.charge+'）を解放します。手札の【おしきり】を捨てて割込不可にしますか？</div>'
+      +'<div class="row"><button id="relBtn">そのまま解放</button>'
+      +'<button id="relOsBtn">🛡おしきり併用（割込不可）</button>'
+      +'<button class="ghost" id="btnCancel">やめる</button></div>';
+    setAction(h);
+    $('relBtn').onclick=()=>send({type:'rel',si:ui.relSi,os:false});
+    $('relOsBtn').onclick=()=>send({type:'rel',si:ui.relSi,os:true});
+    $('btnCancel').onclick=()=>{ui.mode=null;renderMyTurn();};
+    return;
+  }
+  let h='<h3>手札（クリックで選択）</h3><div class="row" id="handRow">';
+  data.hand.forEach((id,hi)=>{h+=cardHTML(id,'pick'+(ui.sel===hi?' sel':''),'hand'+hi);});
+  h+='</div>';
+  const selId=ui.sel>=0?data.hand[ui.sel]:null;
+  h+='<div class="row" style="margin:8px 0">'
+    +'<button id="btnSoku"'+((ui.sel>=0&&sokuOK(data,ui.sel))?'':' disabled')+'>【即】即唱</button>'
+    +'<button id="btnEisho"'+((ui.sel>=0&&data.canEisho)?'':' disabled')+'>【詠】詠唱</button>'
+    +'<button id="btnFuse"'+((ui.sel>=0&&data.canFuse)?'':' disabled')+'>【伏】伏せる</button>'
+    +'<button class="ghost" id="btnCancel">選択解除</button></div>'
+    +'<div class="hint">'+(selId?('【'+CARDS[selId].n+'】 即:'+CARDS[selId].soku+' ／ 詠:'+CARDS[selId].ei+' ／ 伏:'+CARDS[selId].fu):'')+'</div>';
+  if(data.cast.length){
+    h+='<h3>詠唱中（クリックで解放）</h3><div class="row">';
+    data.cast.forEach((c,si)=>{h+='<button class="ghost" id="relSlot'+si+'">解放 '+chip(c.id)+'●'+c.charge
+      +'（威力'+(c.id==='IY'?('回復'+c.charge+'+1ダメ'):Engine.relDamageOf(c.id,c.charge))+'）</button>';});
+    h+='</div>';
+  }
+  if(data.faceOwn.length){
+    h+='<h3>自分の伏せ札</h3><div class="row">'+data.faceOwn.map(id=>'('+chip(id)+')').join(' ')+'</div>';
+  }
+  setAction(h);
+  data.hand.forEach((id,hi)=>{ $('hand'+hi).onclick=()=>{ui.sel=hi;ui.mode=null;renderMyTurn();}; });
+  $('btnCancel').onclick=()=>{ui.sel=-1;ui.mode=null;renderMyTurn();};
+  $('btnSoku').onclick=()=>{
+    if(data.hand[ui.sel]==='SW'){ui.mode='swapSlot';renderMyTurn();return;}
+    send({type:'soku',hi:ui.sel}); };
+  $('btnEisho').onclick=()=>send({type:'eisho',hi:ui.sel});
+  $('btnFuse').onclick=()=>send({type:'fuse',hi:ui.sel});
+  data.cast.forEach((c,si)=>{ $('relSlot'+si).onclick=()=>{
+    if(data.osAvail){ui.relSi=si;ui.mode='osConfirm';renderMyTurn();}
+    else send({type:'rel',si,os:false}); }; });
+}
+function renderIntUI(data,send){
+  $('turnTitle').textContent=data.myName+' ― 割り込みますか？';
+  let h='<div class="banner">'+data.attName+'が【'+CARDS[data.cardId].n+'】を解放（チャージ'+data.charge+'・威力'+data.dmg+'）</div>'
+    +'<h3>伏せ札を1枚公開して割り込める（割込効果が無い札は空振り）</h3><div class="row">';
+  data.faces.forEach((id,fi)=>{h+=cardHTML(id,'pick','int'+fi);});
+  h+='</div><div class="row" style="margin-top:10px"><button class="ghost" id="noIntBtn">割り込まない</button></div>';
+  setAction(h);
+  data.faces.forEach((id,fi)=>{ $('int'+fi).onclick=()=>send({type:'int',fi}); });
+  $('noIntBtn').onclick=()=>send({type:'noint'});
+}
+
+/* ---------- ホスト ---------- */
+function createRoom(){
+  myName=($('nameInput').value||'ホスト').trim()||'ホスト';
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='host'; roomId=randCode();
+  $('homeErr').textContent='';
+  peer=new window.Peer(roomId);
+  peer.on('open',()=>{
+    show('lobby');
+    $('roleTag').textContent='あなたがホスト（進行役）です';
+    $('roomCodeView').textContent=roomId;
+    $('hostCfg').classList.remove('hidden');
+    $('lobbyHint').textContent='ゲストが入ったら「ゲーム開始」。誰も来なければCPU戦で始められます。';
+    renderLobby();
+  });
+  peer.on('connection',conn=>{
+    conn.on('data',d=>onHostData(conn,d));
+    conn.on('close',()=>onGuestLeave(conn));
+  });
+  peer.on('error',e=>{
+    if(String(e&&e.type)==='unavailable-id'){ roomId=randCode(); peer=null; createRoom(); return; }
+    $('homeErr').textContent='接続エラー: '+(e&&e.type?e.type:e);
+  });
+}
+function lobbyNames(){
+  const names=[{name:myName+'（ホスト）',isCPU:false}];
+  const g=hostConns.filter(c=>c.alive)[0];
+  if(g)names.push({name:g.name,isCPU:false});
+  else names.push({name:'CPU（ゲストが来るまで）',isCPU:true});
+  return names;
+}
+function onHostData(conn,d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='hello'){
+    if(S){ conn.send({t:'busy'}); return; }
+    if(hostConns.filter(c=>c.alive).length>=1){ conn.send({t:'full'}); return; }
+    let nm=String(d.name||'ゲスト').slice(0,8);
+    if(nm===myName+'（ホスト）')nm=nm+'2';
+    hostConns.push({conn,seat:-1,name:nm,alive:true});
+    broadcastLobby();
+  }
+  if(d.t==='act'){
+    const rec=hostConns.find(c=>c.conn===conn&&c.alive);
+    if(!rec||rec.seat<0) return;
+    if(!Flow||Flow.waiting!==rec.seat) return;
+    hostApplyAct(rec.seat,d.a||{});
+  }
+}
+function onGuestLeave(conn){
+  const rec=hostConns.find(c=>c.conn===conn);
+  if(!rec||!rec.alive) return;
+  rec.alive=false;
+  if(S&&rec.seat>=0){
+    S.ps[rec.seat].isCPU=true; S.ps[rec.seat].level=$('cpuLevel').value;
+    S.log.push('⚠️ '+rec.name+' が切断 → CPUが代わりに打ちます');
+    sync();
+    if(Flow&&Flow.waiting===rec.seat){
+      if(Flow.phase==='act')cpuAct(rec.seat);
+      else if(Flow.phase==='int'&&S.pending){ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); afterResolve(); }
+    }
+  } else {
+    broadcastLobby();
+  }
+}
+function hostBroadcast(msg){ hostConns.filter(c=>c.alive).forEach(c=>{ try{ c.conn.send(msg); }catch(e){} }); }
+function sendTo(seat,msg){ const rec=hostConns.find(c=>c.alive&&c.seat===seat); if(rec){ try{ rec.conn.send(msg); }catch(e){} } }
+function broadcastLobby(){ hostBroadcast({t:'lobby',names:lobbyNames()}); renderLobby(); }
+function renderLobby(){
+  const box=$('lobbyPlayers'); box.innerHTML='';
+  const names=(role==='host')?lobbyNames():(curSnap&&curSnap.lobbyNames)||[];
+  names.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='pl';
+    d.innerHTML='<div class="name"><span>'+n.name+(n.isCPU?' <span class="badge bot">BOT</span>':'')+'</span><span class="badge ok">参加中</span></div>';
+    box.appendChild(d);
+  });
+}
+function buildSnap(){
+  return {
+    turnNo:S.totalTurns, cur:S.cur,
+    actor:(Flow&&Flow.waiting!=null)?Flow.waiting:-1,
+    phase:Flow?Flow.phase:'',
+    players:S.ps.map(p=>({
+      name:p.name,isCPU:p.isCPU,level:p.level,life:Math.max(0,p.life),lifeMax:p.lifeMax,
+      deck:p.deck.length,handCount:p.hand.length,discCount:p.disc.length,
+      cast:p.cast.map(c=>({id:c.id,charge:c.charge})),
+      faceCount:p.face.length
+    }))
+  };
+}
+function sync(){
+  const snap=buildSnap();
+  const lines=S.log.slice(sentLog); sentLog=S.log.length;
+  hostBroadcast({t:'snap',snap,log:lines});
+  applySnap(snap,lines);
+}
+function readHostCfg(){
+  const c={};
+  ['life','backBonus','handSize','chargeCap','castSlots','faceSlots'].forEach(i=>c[i]=+$(i).value);
+  c.rescue=$('rescue').checked;
+  return c;
+}
+function beginGame(){
+  const g=hostConns.filter(c=>c.alive)[0]||null;
+  const specs=[{kind:'host',name:myName+'（ホスト）'},
+               g?{kind:'guest',name:g.name}:{kind:'cpu',name:'CPU'}];
+  if(rnd(2)===1)specs.reverse();
+  const cfg=readHostCfg();
+  cfg.players=specs.map(s=>({name:s.name,isCPU:s.kind==='cpu',level:$('cpuLevel').value}));
   S=Engine.newGame(cfg);
-  $('setup').classList.add('hidden');$('result').classList.add('hidden');$('game').classList.remove('hidden');
+  mySeat=specs.findIndex(s=>s.kind==='host');
+  sentLog=0; myTurn=null; Flow=null;
+  if(g){ g.seat=specs.findIndex(s=>s.kind==='guest'); g.conn.send({t:'start',seat:g.seat}); }
   $('log').innerHTML='';
-  nextTurn();
+  show('game');
+  stepTurn();
 }
-function nextTurn(){ if(S.over){showResult();return;}
-  Engine.startTurn(S); renderAll();
+function hostStart(){
+  $('lobbyErr').textContent='';
+  beginGame();
+}
+
+/* --- ホストの手番進行 --- */
+function buildTurnData(pi){
+  const p=S.ps[pi];
+  return {phase:'act',myName:p.name,
+    hand:p.hand.slice(),
+    cast:p.cast.map(c=>({id:c.id,charge:c.charge})),
+    faceOwn:p.face.map(f=>f.id),
+    canEisho:p.cast.length<S.cfg.castSlots,
+    canFuse:p.face.length<S.cfg.faceSlots,
+    osAvail:p.hand.indexOf('OS')>=0};
+}
+function buildIntData(def){
+  const pend=S.pending, a=S.ps[pend.attacker];
+  return {phase:'int',myName:S.ps[def].name,attName:a.name,cardId:pend.id,charge:pend.charge,
+    dmg:Engine.relDamageOf(pend.id,pend.charge),faces:S.ps[def].face.map(f=>f.id)};
+}
+function stepTurn(){
+  Engine.startTurn(S);
+  Flow={phase:'act',waiting:S.cur};
   const p=S.ps[S.cur];
-  if(p.isCPU){ $('turnTitle').textContent=`${p.name}が考えています…`; $('actionBody').innerHTML='';
-    setTimeout(cpuMove,S.cfg.cpuThink); }
-  else if(S.cfg.nHuman===2){ maskThen(p.name,renderHumanTurn); }
-  else renderHumanTurn();
+  if(p.isCPU){ myTurn=null; sync(); setTimeout(()=>cpuAct(S.cur),cpuMs()); return; }
+  if(S.cur===mySeat){ myTurn={phase:'act',data:buildTurnData(S.cur)}; sync(); }
+  else { myTurn=null; sync(); sendTo(S.cur,{t:'turn',data:buildTurnData(S.cur)}); }
 }
-function maskThen(name,fn){ $('turnTitle').textContent='交代';
-  $('actionBody').innerHTML=`<div class="mask">📱 ${name}に渡してください<br><br><button id="readyBtn">準備OK</button></div>`;
-  $('readyBtn').onclick=fn; }
-function cpuMove(){ const act=Engine.cpuChooseAction(S); const r=Engine.applyAction(S,act);
-  renderAll();
-  if(r&&r.pending){ handlePending(); return; }
-  finishTurn(); }
-function handlePending(){ const d=S.ps[1-S.pending.attacker];
-  if(d.isCPU){ setTimeout(()=>{ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); renderAll(); finishTurn(); },S.cfg.cpuThink); }
-  else if(S.cfg.nHuman===2){ maskThen(d.name,renderInterruptUI); }
-  else renderInterruptUI(); }
-function finishTurn(){ renderAll();
-  if(S.over){showResult();return;}
-  S.cur=1-S.cur; nextTurn(); }
-
-function renderHumanTurn(){ const p=S.ps[S.cur]; UI.sel=-1;UI.swapSlot=-1;UI.phase='idle';
-  $('turnTitle').textContent=`${p.name}の番 ― 手札を選んでモードを決める／詠唱中カードを解放`;
-  let html='<h3>手札（クリックで選択）</h3><div class="row" id="handRow">';
-  p.hand.forEach((id,hi)=>{html+=cardHTML(id,'pick',`hand${hi}`);});
-  html+='</div>';
-  html+=`<div class="row" style="margin:8px 0">
-    <button id="btnSoku" disabled>【即】即唱</button>
-    <button id="btnEisho" disabled>【詠】詠唱</button>
-    <button id="btnFuse" disabled>【伏】伏せる</button>
-    <button class="ghost" id="btnCancel">選択解除</button>
-  </div><div class="hint" id="modeHint"></div>`;
-  if(p.cast.length){ html+='<h3>詠唱中（クリックで解放）</h3><div class="row">';
-    p.cast.forEach((c,si)=>{html+=`<button class="ghost" id="relSlot${si}">解放 ${chip(c.id)}●${c.charge}（威力${c.id==='IY'?`回復${c.charge}+1ダメ`:Engine.relDamageOf(c.id,c.charge)}）</button>`;});
-    html+='</div>'; }
-  if(p.face.length){ html+=`<h3>自分の伏せ札</h3><div class="row">${p.face.map(f=>`(${chip(f.id)})`).join(' ')}</div>`; }
-  $('actionBody').innerHTML=html;
-  p.hand.forEach((id,hi)=>{ $(`hand${hi}`).onclick=()=>selectHand(hi); });
-  $('btnCancel').onclick=renderHumanTurn;
-  $('btnSoku').onclick=doSoku; $('btnEisho').onclick=doEisho; $('btnFuse').onclick=doFuse;
-  p.cast.forEach((c,si)=>{ $(`relSlot${si}`)&&($(`relSlot${si}`).onclick=()=>askRelease(si)); });
+function cpuAct(pi){
+  if(!Flow||Flow.phase!=='act'||Flow.waiting!==pi)return;
+  const act=Engine.cpuChooseAction(S);
+  const r=Engine.applyAction(S,act);
+  if(r&&r.pending){ startInterrupt(); return; }
+  afterResolve();
 }
-function selectHand(hi){ const p=S.ps[S.cur]; UI.sel=hi;
-  const row=$('handRow');
-  for(let k=0;k<row.children.length;k++)row.children[k].classList.remove('sel');
-  $(`hand${hi}`).classList.add('sel');
-  const id=p.hand[hi];
-  const sokuOK=id==='SW'?(p.cast.length>0&&p.hand.length>=2):(id!=='TD');
-  $('btnSoku').disabled=!sokuOK;
-  $('btnEisho').disabled=p.cast.length>=S.cfg.castSlots;
-  $('btnFuse').disabled=p.face.length>=S.cfg.faceSlots;
-  $('modeHint').textContent=`【${CARDS[id].n}】 即:${CARDS[id].soku} ／ 詠:${CARDS[id].ei} ／ 伏:${CARDS[id].fu}`;
+function startInterrupt(){
+  const def=1-S.pending.attacker;
+  Flow={phase:'int',waiting:def};
+  const d=S.ps[def];
+  if(d.isCPU){
+    sync();
+    setTimeout(()=>{ if(Flow&&Flow.phase==='int'&&S.pending){ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); afterResolve(); } },cpuMs());
+    return;
+  }
+  if(def===mySeat){ myTurn={phase:'int',data:buildIntData(def)}; sync(); }
+  else { myTurn=null; sync(); sendTo(def,{t:'turn',data:buildIntData(def)}); }
 }
-function doSoku(){ const p=S.ps[S.cur],id=p.hand[UI.sel];
-  if(id==='SW'){ renderSwapUI(); return; }
-  const r=Engine.applyAction(S,{t:'soku',hi:UI.sel}); afterHumanAction(r); }
-function doEisho(){ const r=Engine.applyAction(S,{t:'eisho',hi:UI.sel}); afterHumanAction(r); }
-function doFuse(){ const r=Engine.applyAction(S,{t:'fuse',hi:UI.sel}); afterHumanAction(r); }
-function renderSwapUI(){ const p=S.ps[S.cur];
-  let html='<h3>いれかえ: チャージを残したまま入れ替える詠唱枠を選択</h3><div class="row">';
-  p.cast.forEach((c,si)=>{html+=cardHTML(c.id,'pick',`swapSlot${si}`,c.charge);});
-  html+='</div><button class="ghost" id="btnCancel">やめる</button>';
-  $('actionBody').innerHTML=html;
-  $('btnCancel').onclick=renderHumanTurn;
-  p.cast.forEach((c,si)=>{ $(`swapSlot${si}`).onclick=()=>{ UI.swapSlot=si; renderSwapHand(); }; });
+function afterResolve(){
+  if(S.over){ sync(); hostFinish(); return; }
+  S.cur=1-S.cur;
+  stepTurn();
 }
-function renderSwapHand(){ const p=S.ps[S.cur];
-  let html='<h3>いれかえ: 枠に入れる手札を選択</h3><div class="row">';
-  p.hand.forEach((id,hj)=>{ if(hj!==UI.sel)html+=cardHTML(id,'pick',`swapHand${hj}`); });
-  html+='</div><button class="ghost" id="btnCancel">やめる</button>';
-  $('actionBody').innerHTML=html;
-  $('btnCancel').onclick=renderHumanTurn;
-  p.hand.forEach((id,hj)=>{ if(hj!==UI.sel)$(`swapHand${hj}`).onclick=()=>{
-    const r=Engine.applyAction(S,{t:'swap',hi:UI.sel,si:UI.swapSlot,hj}); afterHumanAction(r); }; });
+function hostApplyAct(pi,a){
+  if(!Flow)return;
+  if(Flow.phase==='act'){
+    if(Flow.waiting!==pi)return;
+    const p=S.ps[pi];
+    let act=null;
+    if(a.type==='soku'){ const id=p.hand[a.hi]; if(id===undefined||id==='TD'||id==='SW')return; act={t:'soku',hi:a.hi}; }
+    else if(a.type==='swap'){ if(p.hand[a.hi]!=='SW')return;
+      if(!(a.si>=0&&a.si<p.cast.length))return;
+      if(!(a.hj>=0&&a.hj<p.hand.length)||a.hj===a.hi)return; act={t:'swap',hi:a.hi,si:a.si,hj:a.hj}; }
+    else if(a.type==='eisho'){ if(p.hand[a.hi]===undefined||p.cast.length>=S.cfg.castSlots)return; act={t:'eisho',hi:a.hi}; }
+    else if(a.type==='fuse'){ if(p.hand[a.hi]===undefined||p.face.length>=S.cfg.faceSlots)return; act={t:'fuse',hi:a.hi}; }
+    else if(a.type==='rel'){ if(!(a.si>=0&&a.si<p.cast.length))return;
+      if(a.os&&p.hand.indexOf('OS')<0)return; act={t:'rel',si:a.si,os:!!a.os}; }
+    if(!act)return;
+    if(pi===mySeat)myTurn=null;
+    const r=Engine.applyAction(S,act);
+    if(r&&r.pending){ startInterrupt(); return; }
+    afterResolve();
+    return;
+  }
+  if(Flow.phase==='int'){
+    if(Flow.waiting!==pi)return;
+    if(!S.pending)return;
+    const d=S.ps[pi];
+    let choice=-1;
+    if(a.type==='int'){ if(!(a.fi>=0&&a.fi<d.face.length))return; choice=a.fi; }
+    else if(a.type!=='noint')return;
+    if(pi===mySeat)myTurn=null;
+    Engine.resolveRelease(S,S.pending,choice);
+    afterResolve();
+  }
 }
-function askRelease(si){ const p=S.ps[S.cur];
-  if(p.hand.indexOf('OS')>=0){
-    const c=p.cast[si];
-    $('actionBody').innerHTML=`<div class="banner">【${CARDS[c.id].n}】（チャージ${c.charge}）を解放します。手札の【おしきり】を捨てて割込不可にしますか？</div>
-      <div class="row">
-        <button id="relBtn">そのまま解放</button>
-        <button id="relOsBtn">🛡おしきり併用（割込不可）</button>
-        <button class="ghost" id="btnCancel">やめる</button>
-      </div>`;
-    $('relBtn').onclick=()=>{const r=Engine.applyAction(S,{t:'rel',si,os:false});afterHumanAction(r);};
-    $('relOsBtn').onclick=()=>{const r=Engine.applyAction(S,{t:'rel',si,os:true});afterHumanAction(r);};
-    $('btnCancel').onclick=renderHumanTurn;
-  } else { const r=Engine.applyAction(S,{t:'rel',si,os:false}); afterHumanAction(r); }
-}
-function afterHumanAction(r){ renderAll();
-  if(r&&r.pending){ handlePending(); return; }
-  finishTurn(); }
-function renderInterruptUI(){ const pend=S.pending,d=S.ps[1-pend.attacker],a=S.ps[pend.attacker];
-  const dmg=Engine.relDamageOf(pend.id,pend.charge);
-  $('turnTitle').textContent=`${d.name} ― 割り込みますか？`;
-  let html=`<div class="banner">${a.name}が【${CARDS[pend.id].n}】を解放（チャージ${pend.charge}・威力${dmg}）</div>
-    <h3>伏せ札を1枚公開して割り込める（割込効果が無い札は空振り）</h3><div class="row">`;
-  d.face.forEach((f,fi)=>{html+=cardHTML(f.id,'pick',`int${fi}`);});
-  html+=`</div><div class="row" style="margin-top:10px"><button class="ghost" id="noIntBtn">割り込まない</button></div>`;
-  $('actionBody').innerHTML=html;
-  d.face.forEach((f,fi)=>{ $(`int${fi}`).onclick=()=>{ Engine.resolveRelease(S,S.pending,fi); renderAll(); finishTurn(); }; });
-  $('noIntBtn').onclick=()=>{ Engine.resolveRelease(S,S.pending,-1); renderAll(); finishTurn(); };
-}
-function showResult(){ const w=S.winner;
-  const ranked=w===null?S.ps.slice():[S.ps[w],S.ps[1-w]];
-  let html=`<h2>🏆 結果</h2>`;
-  html+=w===null?`<div class="banner">引き分け（ターン上限）</div>`
-    :`<div class="banner">${S.ps[w].name}の勝ち！（${S.totalTurns}ターン）</div>`;
-  html+=`<table class="rules"><tr><td>プレイヤー</td><td>残ライフ</td><td>即唱</td><td>詠唱</td><td>解放</td><td>伏せ</td><td>入替</td><td>割込発動</td></tr>`;
-  ranked.forEach(p=>{ const st=p.stats;
-    html+=`<tr><td>${p.name}${p.isCPU?' 🤖':''}</td><td><b>${Math.max(0,p.life)}</b></td><td>${st.soku}</td><td>${st.eisho}</td><td>${st.rel}</td><td>${st.fuse}</td><td>${st.swap}</td><td>${st.intUsed}</td></tr>`; });
-  html+='</table>';
-  if(w!==null)html+=`<div class="foot">接戦度: 勝者の残ライフ <b>${Math.max(0,S.ps[w].life)}</b>／${S.ps[w].lifeMax}（出口条件: 勝者が無傷すぎないか）</div>`;
-  html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1戦</button><button class="ghost" id="setupBtn2">設定を変える</button></div>`;
-  const r=$('result'); r.innerHTML=html; r.classList.remove('hidden'); $('game').classList.add('hidden');
-  $('againBtn').onclick=startGame;
-  $('setupBtn2').onclick=()=>{r.classList.add('hidden');$('setup').classList.remove('hidden');};
+function hostFinish(){
+  Flow=null;
+  const w=S.winner;
+  const data={
+    winner:w, turns:S.totalTurns,
+    rows:S.ps.map((p,i)=>({name:p.name,isCPU:p.isCPU,life:Math.max(0,p.life),lifeMax:p.lifeMax,st:p.stats,win:i===w}))
+  };
+  hostBroadcast({t:'result',data});
+  renderResult(data);
 }
 
-/* ---------- setup buttons ---------- */
-$('startBtn').onclick=startGame;
-$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
-$('restartSame').onclick=startGame;
-const DEF={nHuman:1,nCpu:1,life:10,backBonus:1,handSize:4,chargeCap:2,castSlots:3,faceSlots:2,cpuThink:1000};
-$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);
-  $('cpuLevel').value='std';$('rescue').checked=false;};
+/* ---------- ゲスト ---------- */
+function joinRoom(){
+  myName=($('nameInput').value||'ゲスト').trim()||'ゲスト';
+  const code=($('roomInput').value||'').trim();
+  if(!code){ $('homeErr').textContent='部屋コードを入れてください。'; return; }
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='guest';
+  $('homeErr').textContent='接続中…';
+  peer=new window.Peer();
+  peer.on('open',()=>{
+    guestConn=peer.connect(code,{reliable:true});
+    guestConn.on('open',()=>{ guestConn.send({t:'hello',name:myName}); });
+    guestConn.on('data',onGuestData);
+    guestConn.on('close',()=>{
+      $('banner')&&($('banner').textContent='⚠️ ホストとの接続が切れました（部屋終了）');
+      $('homeErr').textContent='ホストとの接続が切れました。';
+    });
+  });
+  peer.on('error',e=>{
+    const t=e&&e.type?String(e.type):'';
+    $('homeErr').textContent=(t==='peer-unavailable')?'その部屋コードが見つかりません。':('接続エラー: '+(t||e));
+  });
+}
+function onGuestData(d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='busy'){ $('homeErr').textContent='この部屋はすでにゲーム中です。'; return; }
+  if(d.t==='full'){ $('homeErr').textContent='この部屋は満員です（2人専用）。'; return; }
+  if(d.t==='lobby'){
+    curSnap={lobbyNames:d.names};
+    show('lobby');
+    $('roleTag').textContent='ホストの開始待ち';
+    $('roomCodeView').textContent=($('roomInput').value||'').trim();
+    $('hostCfg').classList.add('hidden');
+    $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
+    renderLobby();
+  }
+  if(d.t==='start'){ mySeat=d.seat; myTurn=null; $('log').innerHTML=''; log('ゲーム開始！'); show('game'); }
+  if(d.t==='snap'){ applySnap(d.snap,d.log); }
+  if(d.t==='turn'){ myTurn={phase:d.data.phase,data:d.data}; renderMyTurn(); }
+  if(d.t==='result'){ renderResult(d.data); }
+}
 
-// テスト・シミュレーション用に公開（UIからは使わない）
+/* ---------- 結果（共通） ---------- */
+function renderResult(d){
+  show('result');
+  let h='<h2>🏆 結果</h2>';
+  h+=(d.winner===null||d.winner===undefined)
+    ?'<div class="banner">引き分け</div>'
+    :'<div class="banner">'+d.rows[d.winner].name+'の勝ち！（'+d.turns+'ターン）</div>';
+  h+='<table class="res"><tr><th>プレイヤー</th><th>残ライフ</th><th>即唱</th><th>詠唱</th><th>解放</th><th>伏せ</th><th>入替</th><th>割込発動</th></tr>';
+  d.rows.forEach(r=>{
+    h+='<tr><td>'+(r.win?'👑 ':'')+r.name+(r.isCPU?' 🤖':'')+'</td><td><b>'+r.life+'</b>/'+r.lifeMax+'</td>'
+      +'<td>'+r.st.soku+'</td><td>'+r.st.eisho+'</td><td>'+r.st.rel+'</td><td>'+r.st.fuse+'</td><td>'+r.st.swap+'</td><td>'+r.st.intUsed+'</td></tr>';
+  });
+  h+='</table>';
+  if(d.winner!==null&&d.winner!==undefined)
+    h+='<div class="foot">接戦度: 勝者の残ライフ <b>'+d.rows[d.winner].life+'</b>／'+d.rows[d.winner].lifeMax+'</div>';
+  if(role==='host'){
+    h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>';
+  }else{
+    h+='<div class="foot" style="margin-top:14px">ホストが「もう1戦」を押すと再開します。</div>';
+  }
+  $('result').innerHTML=h;
+  if(role==='host'){ $('againBtn').onclick=beginGame; }
+}
+
+/* ---------- ボタン配線 ---------- */
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('startBtn').onclick=hostStart;
+
+// テスト用に公開（UIからは使わない）
 window.__engine=Engine;
+window.__state=()=>({role,roomId,mySeat,S,curSnap,Flow});
 </script>
-<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br>© ゆるるかなアイキュ〜</footer>
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br><a href="solo.html" style="color:#5f8f8a">ひとり用CPU対戦版はこちら → solo.html</a> ／ © ゆるるかなアイキュ〜</footer>
 </body>
 </html>
