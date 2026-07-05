@@ -13,7 +13,8 @@
 <meta name="twitter:site" content="@yrr_iq">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  オンライン対戦版 v0.3(ルールはローカル版 ほりだしもの_プロトタイプ.html と同一)
+  オンライン対戦版 v0.4(ルールはローカル版 ほりだしもの_プロトタイプ.html と同一)
+  v0.4: 袋点1/1/2・注文12種・順番ドラフト(キープ残りは山底へ)・公開時の注文補充
   PeerJSホスト権威型。逐次手番+秘密手札(注文・道具)なので、手番プレイヤーにだけ
   秘密情報つき手番メッセージを送る。手番UIはmyTurn状態として保持しスナップ再描画から復元
   (教訓_逐次手番オンラインでは手番UIを状態として持つ)。切断者はCPUが代打ち。
@@ -97,7 +98,7 @@
 <body>
 <header>
   <h1>⛏️ ほりだしもの</h1>
-  <span class="tag">オンライン対戦 v0.3</span>
+  <span class="tag">オンライン対戦 v0.4</span>
   <span class="tag">部屋コードで友だちと(2〜5人)</span>
 </header>
 
@@ -120,8 +121,8 @@
     <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線(スマホ回線など)を試してください。</div>
     <h3>ルール要約</h3>
     <table class="rules">
-      <tr><td>準備</td><td>鉱山14枚(ルビー5/サファイア4/エメラルド3/ダイヤ2・公開構成)から3枚を見ずに抜く(崩落)。注文3枚配り→2枚秘密でキープ</td></tr>
-      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石は自分の袋へ(R/S=1点 E=2点 D=3点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定+早出しボーナス)</td></tr>
+      <tr><td>準備</td><td>鉱山14枚(ルビー5/サファイア4/エメラルド3/ダイヤ2・公開構成)から3枚を見ずに抜く(崩落)。席順に注文3枚引き→2枚秘密でキープ(残りは山の底へ)</td></tr>
+      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石は自分の袋へ(R/S/E=1点 D=2点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定+早出しボーナス)。公開したら注文山から1枚補充してよい</td></tr>
       <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩される(袋からも没収)。掘るが3手番なければ次は掘る強制</td></tr>
       <tr><td>終了</td><td>山が尽きたら崩落3枚を公開→手札一斉公開。袋+注文(成立=基礎点/不成立=-1)の合計勝負</td></tr>
     </table>
@@ -198,56 +199,46 @@ function softmaxPick(opts,temp){
 }
 
 /* ===== カードデータ(ローカル版v0.3と同一) ===== */
-const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:2},D:{nm:'ダイヤ',n:2,val:3}};
+const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:1},D:{nm:'ダイヤ',n:2,val:2}};
 const GEMKEYS=['R','S','E','D'];
 function cnt(hist,g){ let c=0; for(const x of hist)if(x===g)c++; return c; }
+/* judge(h,rm,tot,over) → 'met'|'failed'|'open'。埋め戻しでhistが縮むと再評価される(隠し注文のリスク) */
+/* v0.4: 18種→12種。勝率偏りシミュ(3000G)の負け組+重複ファミリーから
+   #2サファイア鉱脈・#8崩落は空振り・#9赤の時代・#13とどめのダイヤ・#16大山盛り・#17赤の独占をカット。
+   基礎点は偏り是正のため再値付け(過剰勝ち組#15/#5/#14を減点、負け組#1/#11/#12を増点) */
 const ORDERS=[
  {id:1, nm:'ルビーラッシュ', base:5, txt:'8枚目までにルビーが4枚掘られたら成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,8); if(cnt(w,'R')>=4)return 'met';
      if(h.length>=8||over)return 'failed'; return 'open';}},
- {id:2, nm:'サファイア鉱脈', base:5, txt:'サファイアが4枚すべて掘られたら成立',
-   judge:(h,rm,tot,over)=>cnt(h,'S')>=4?'met':(over?'failed':'open')},
  {id:3, nm:'みどりの鉱脈', base:5, txt:'エメラルドが3枚すべて掘られたら成立',
    judge:(h,rm,tot,over)=>cnt(h,'E')>=3?'met':(over?'failed':'open')},
- {id:4, nm:'かけこみダイヤ', base:3, txt:'4枚目までにダイヤが掘られたら成立',
+ {id:4, nm:'かけこみダイヤ', base:2, txt:'4枚目までにダイヤが掘られたら成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,4); if(cnt(w,'D')>=1)return 'met';
      if(h.length>=4||over)return 'failed'; return 'open';}},
- {id:5, nm:'ダブルダイヤ', base:5, txt:'9枚目までにダイヤが2枚とも掘られたら成立',
+ {id:5, nm:'ダブルダイヤ', base:3, txt:'9枚目までにダイヤが2枚とも掘られたら成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,9); if(cnt(w,'D')>=2)return 'met';
      if(h.length>=9||over)return 'failed'; return 'open';}},
- {id:6, nm:'眠れるダイヤ', base:4, txt:'6枚目までダイヤが1枚も掘られなければ成立',
+ {id:6, nm:'眠れるダイヤ', base:3, txt:'6枚目までダイヤが1枚も掘られなければ成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,6); if(cnt(w,'D')>=1)return 'failed';
      if(h.length>=6)return 'met'; if(over)return 'met'; return 'open';}},
  {id:7, nm:'埋もれた宝', base:5, txt:'崩落の3枚にダイヤが含まれていたら成立(最後に公開)',
    judge:(h,rm,tot,over)=>rm? (rm.indexOf('D')>=0?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
- {id:8, nm:'崩落は空振り', base:6, txt:'崩落の3枚がすべてルビーかサファイアなら成立(最後に公開)',
-   judge:(h,rm,tot,over)=>rm? (rm.every(g=>g==='R'||g==='S')?'met':'failed') : 'open'},
- {id:9, nm:'赤の時代', base:5, txt:'終了時、ルビーがサファイアより2枚以上多く掘られていたら成立',
-   judge:(h,rm,tot,over)=>over? (cnt(h,'R')-cnt(h,'S')>=2?'met':'failed') : 'open'},
  {id:10, nm:'青の逆襲', base:5, txt:'終了時、サファイアがルビー以上掘られていたら成立',
    judge:(h,rm,tot,over)=>over? (cnt(h,'S')>=cnt(h,'R')?'met':'failed') : 'open'},
  {id:11, nm:'青の先行', base:3, txt:'サファイアの3枚目がルビーの4枚目より先に掘られたら成立',
    judge:(h,rm,tot,over)=>{
    let sc=0,rc=0; for(const x of h){ if(x==='S')sc++; if(x==='R')rc++; if(sc>=3)return 'met'; if(rc>=4)return 'failed'; }
    return over?'failed':'open';}},
- {id:12, nm:'緑の先駆け', base:5, txt:'エメラルドの3枚目がルビーの4枚目より先に掘られたら成立',
+ {id:12, nm:'緑の先駆け', base:6, txt:'エメラルドの3枚目がルビーの4枚目より先に掘られたら成立',
    judge:(h,rm,tot,over)=>{
    let e=0,r=0; for(const x of h){ if(x==='E')e++; if(x==='R')r++; if(e>=3)return 'met'; if(r>=4)return 'failed'; }
    return over?'failed':'open';}},
- {id:13, nm:'とどめのダイヤ', base:6, txt:'山札の最後の1枚がダイヤなら成立',
-   judge:(h,rm,tot,over)=>over? (h[h.length-1]==='D'?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
- {id:14, nm:'希少ペア', base:5, txt:'エメラルドまたはダイヤが同じ種類2枚連続で掘られたら成立(1度でも)',
+ {id:14, nm:'希少ペア', base:4, txt:'エメラルドまたはダイヤが同じ種類2枚連続で掘られたら成立(1度でも)',
    judge:(h,rm,tot,over)=>{ for(let i=1;i<h.length;i++)if(h[i]===h[i-1]&&(h[i]==='E'||h[i]==='D'))return 'met'; return over?'failed':'open';}},
- {id:15, nm:'四色ならび', base:4, txt:'連続する4枚が4種類すべてになったら成立(1度でも)',
+ {id:15, nm:'四色ならび', base:3, txt:'連続する4枚が4種類すべてになったら成立(1度でも)',
    judge:(h,rm,tot,over)=>{ for(let i=3;i<h.length;i++){ const w=[h[i-3],h[i-2],h[i-1],h[i]];
      let uniq=true; for(let a=0;a<4;a++)for(let b=a+1;b<4;b++)if(w[a]===w[b])uniq=false;
      if(uniq)return 'met'; } return over?'failed':'open';}},
- {id:16, nm:'大山盛り', base:4, txt:'6枚目までに4種類すべてが掘られたら成立',
-   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6);
-     if(GEMKEYS.every(g=>cnt(w,g)>=1))return 'met';
-     if(h.length>=6||over)return 'failed'; return 'open';}},
- {id:17, nm:'赤の独占', base:6, txt:'ルビーが5枚すべて掘られたら成立',
-   judge:(h,rm,tot,over)=>cnt(h,'R')>=5?'met':(over?'failed':'open')},
  {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立',
    judge:(h,rm,tot,over)=>(cnt(h,'E')+cnt(h,'D'))>=4?'failed':(over?'met':'open')},
 ];
@@ -261,7 +252,7 @@ const TOOLS=[
  {fx:'survey', nm:'崩落調査', txt:'崩落の1枚をこっそり見る', n:2},
 ];
 
-/* ===== Engine(ローカル版v0.3と同一ロジック。newGameはspecs式) ===== */
+/* ===== Engine(ローカル版v0.4と同一ロジック。newGameはspecs式) ===== */
 const Engine = {
   newGame(cfg,specs){
     const np=specs.length;
@@ -275,15 +266,18 @@ const Engine = {
     const S={cfg,np,mine,removed,removedOpen:false,hist:[],orderDeck,toolDeck,toolDiscard:[],
       orderDiscard:[],
       turnIdx:rnd(np),over:false,log:[],noDigStreak:0,roadblock:false,lastDig:null,
-      players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0},toolStats:{}};
+      players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0,refill:0},toolStats:{}};
     specs.forEach((sp,i)=>{
       S.players.push({idx:i,isCPU:!!sp.isCPU,policy:'smart',name:sp.name,
         orders:[],revealed:[],tools:[Engine.drawTool(S)].filter(Boolean),
         peek:null,peekRemoved:null,spied:[],dealt:[],revealBonus:0,bag:[]});
     });
-    S.players.forEach(p=>{ for(let i=0;i<cfg.dealN&&S.orderDeck.length;i++)p.dealt.push(S.orderDeck.pop()); });
-    Engine.log(S,'開山! 鉱山'+S.mine.length+'枚('+cfg.nRemove+'枚は崩落で埋まった)。注文を'+cfg.dealN+'枚から'+cfg.keepN+'枚選んで秘密にキープ');
+    Engine.log(S,'開山! 鉱山'+S.mine.length+'枚('+cfg.nRemove+'枚は崩落で埋まった)。席順に注文を'+cfg.dealN+'枚引いて'+cfg.keepN+'枚選び秘密にキープ(残りは山の底へ)');
     return S;
+  },
+  dealTo(S,pi){ // v0.4: 順番ドラフト。この人の分をその場で山から引く
+    const p=S.players[pi];
+    for(let i=0;i<S.cfg.dealN&&S.orderDeck.length;i++)p.dealt.push(S.orderDeck.pop());
   },
   log(S,m){S.log.push(m);},
   drawTool(S){
@@ -291,9 +285,10 @@ const Engine = {
       S.toolDeck=shuffle(S.toolDiscard); S.toolDiscard=[]; }
     return S.toolDeck.pop();
   },
-  keepOrders(S,pi,idxs){
+  keepOrders(S,pi,idxs){ // v0.4: 残りは注文山の底へ戻す(非公開)
     const p=S.players[pi];
     p.orders=idxs.map(i=>p.dealt[i]).filter(Boolean);
+    p.dealt.forEach((o,i)=>{ if(idxs.indexOf(i)<0)S.orderDeck.unshift(o); });
     p.dealt=[];
   },
   totalDigs(S){ return S.mine.length+S.hist.length; },
@@ -347,6 +342,25 @@ const Engine = {
     S.actionStats.reveal++;
     Engine.log(S,'📜 '+p.name+'が注文「'+o.nm+'」を公開して確定!(+'+o.base+'点保証'+(b?'、早出し+'+b:'')+')');
     return true;
+  },
+  canRefill(S,pi){ // v0.4: 公開で手札が減っていて注文山が残っていれば1枚補充できる
+    return !S.over && S.orderDeck.length>0 && S.players[pi].orders.length<S.cfg.keepN;
+  },
+  refill(S,pi){
+    if(!Engine.canRefill(S,pi))return false;
+    const p=S.players[pi];
+    const o=S.orderDeck.pop();
+    (p.refilledIds||(p.refilledIds=[])).push(o.id);
+    p.orders.push(o);
+    S.actionStats.refill++;
+    Engine.log(S,'📥 '+p.name+'が注文を1枚補充した(新しい秘密の目標)');
+    return true;
+  },
+  cpuMaybeRefill(S,pi){
+    const p=S.players[pi];
+    if(!Engine.canRefill(S,pi))return;
+    const pr=p.policy==='random'?0.5:(S.mine.length>=4?0.9:0.25);
+    if(Math.random()<pr)Engine.refill(S,pi);
   },
   useTool(S,pi,ti,choice){
     const p=S.players[pi];
@@ -447,6 +461,7 @@ const Engine = {
   },
   cpuKeep(S,pi){
     const p=S.players[pi];
+    if(!p.dealt.length)Engine.dealTo(S,pi); // v0.4: 順番ドラフト
     const scored=p.dealt.map((o,i)=>({i,score:o.base*Engine.estimateP(S,o,40)+Math.random()*0.5}));
     scored.sort((a,b)=>b.score-a.score);
     Engine.keepOrders(S,pi,scored.slice(0,S.cfg.keepN).map(x=>x.i));
@@ -457,7 +472,7 @@ const Engine = {
     for(let oi=p.orders.length-1;oi>=0;oi--){
       if(Engine.statusOf(S,p.orders[oi])==='met'){
         const pr=rndPolicy?0.5:0.75;
-        if(Math.random()<pr)Engine.reveal(S,pi,oi);
+        if(Math.random()<pr){ Engine.reveal(S,pi,oi); Engine.cpuMaybeRefill(S,pi); }
       }
     }
     if(!rndPolicy&&p.tools.length){
@@ -470,7 +485,7 @@ const Engine = {
       const vi=p.tools.findIndex(t=>t.fx==='survey');
       if(li>=0&&Math.random()<0.6)Engine.useTool(S,pi,li,{});
       else if(ti2>=0&&Math.random()<0.4)Engine.useTool(S,pi,ti2,{swap:Math.random()<0.5});
-      else if(vi>=0&&p.orders.some(o=>o.id===7||o.id===8)&&Math.random()<0.8)Engine.useTool(S,pi,vi,{});
+      else if(vi>=0&&Math.random()<(p.orders.some(o=>o.id===7)?0.8:0.25))Engine.useTool(S,pi,vi,{});
       else if(ri>=0&&S.hist.length&&Math.random()<0.35){
         const before=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
         const g=S.hist[S.hist.length-1];
@@ -536,7 +551,7 @@ const Engine = {
       Engine.prep(S,pi,swapIdx);
     }
     for(let oi=p.orders.length-1;oi>=0;oi--){
-      if(Engine.statusOf(S,p.orders[oi])==='met'&&Math.random()<(rndPolicy?0.4:0.7))Engine.reveal(S,pi,oi);
+      if(Engine.statusOf(S,p.orders[oi])==='met'&&Math.random()<(rndPolicy?0.4:0.7)){ Engine.reveal(S,pi,oi); Engine.cpuMaybeRefill(S,pi); }
     }
     if(S.roadblock&&!canDig)S.roadblock=false;
     Engine.endTurn(S);
@@ -581,7 +596,7 @@ function renderMyPanel(){
   $('myPanel').innerHTML=h;
 }
 function renderRef(){
-  let h='<details><summary style="cursor:pointer;font-weight:700">📜 注文カード 18種(各1枚)</summary><table class="rules" style="margin-top:8px">';
+  let h='<details><summary style="cursor:pointer;font-weight:700">📜 注文カード '+ORDERS.length+'種(各1枚)</summary><table class="rules" style="margin-top:8px">';
   ORDERS.forEach(o=>{ h+='<tr><td style="white-space:nowrap">'+o.nm+'</td><td style="text-align:center">'+o.base+'点</td><td>'+o.txt+'</td></tr>'; });
   h+='</table></details>';
   h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🛠️ 道具カード 7種(計16枚)</summary><table class="rules" style="margin-top:8px">';
@@ -656,6 +671,15 @@ function renderTurn(data,send){
       };
     });
     $('keepBtn').onclick=()=>send({type:'keep',idxs:sel.slice()});
+    return;
+  }
+  if(data.phase==='refill'){
+    $('turnTitle').textContent=data.myName+' ― 注文を補充しますか?';
+    setAction('<h3>📥 新しい注文を1枚引けます(秘密の目標。終了時に不成立なら'+data.failPen+'点)</h3>'
+      +'<div class="row"><button id="rfYes">補充する(注文山'+data.deckLeft+'枚)</button>'
+      +'<button id="rfNo" class="ghost">補充しない</button></div><div id="targetArea"></div>');
+    $('rfYes').onclick=()=>send({type:'refill',take:true});
+    $('rfNo').onclick=()=>send({type:'refill',take:false});
     return;
   }
   if(data.phase==='tview'){
@@ -790,12 +814,15 @@ function onGuestLeave(conn){
     const seat=rec.seat;
     S.players[seat].isCPU=true;
     Engine.log(S,'⚠️ '+rec.name+' が切断 → CPUが代わりに打ちます');
-    if(Flow&&Flow.phase==='keep'&&Flow.pendingKeep.indexOf(seat)>=0){
-      Engine.cpuKeep(S,seat);
-      Flow.pendingKeep=Flow.pendingKeep.filter(x=>x!==seat);
-      sync();
-      maybeStartTurns();
+    if(Flow&&Flow.phase==='keep'){
+      if(Flow.pendingKeep.indexOf(seat)>=0){
+        Engine.cpuKeep(S,seat);
+        Flow.pendingKeep=[]; Flow.keepQueue.shift();
+        sync();
+        hostStepKeep();
+      }else sync(); // まだ順番が来ていない: isCPU化だけで、順番が来たらCPUが選ぶ
     }else if(Flow&&Flow.waiting===seat){
+      if(Flow.refillPending===seat){ Flow.refillPending=null; Engine.cpuMaybeRefill(S,seat); }
       if(Flow.phase==='afterAct'){
         const p=S.players[seat];
         for(let oi=p.orders.length-1;oi>=0;oi--){ if(Engine.statusOf(S,p.orders[oi])==='met')Engine.reveal(S,seat,oi); }
@@ -894,24 +921,34 @@ function hostStart(){
   $('log').innerHTML='';
   show('game');
   renderRef();
-  // キープフェイズ
-  Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[]};
-  S.players.forEach((p,pi)=>{
-    if(p.isCPU){ Engine.cpuKeep(S,pi); }
-    else Flow.pendingKeep.push(pi);
-  });
+  // キープフェイズ(v0.4: 席順に引いてキープする順番ドラフト)
+  startKeepFlow();
+}
+function startKeepFlow(){
+  Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[],keepQueue:S.players.map((_,i)=>i),refillPending:null};
   sync();
-  // 人間にキープUIを配る
-  S.players.forEach((p,pi)=>{
-    if(p.isCPU)return;
+  hostStepKeep();
+}
+function hostStepKeep(){
+  if(!Flow||Flow.phase!=='keep')return;
+  while(Flow.keepQueue.length){
+    const pi=Flow.keepQueue[0];
+    const p=S.players[pi];
+    if(p.isCPU){ Engine.cpuKeep(S,pi); Flow.keepQueue.shift(); sync(); continue; }
+    Engine.dealTo(S,pi);
+    Flow.pendingKeep=[pi];
+    sync();
     const data={phase:'keep',myName:p.name,keepN:S.cfg.keepN,
       dealt:p.dealt.map(o=>({nm:o.nm,txt:o.txt,base:o.base}))};
     if(pi===mySeat){ myTurn={phase:'keep',data}; renderMyTurn(); }
     else sendTo(pi,{t:'turn',data});
-  });
+    return;
+  }
+  Flow.pendingKeep=[];
+  maybeStartTurns();
 }
 function maybeStartTurns(){
-  if(Flow.phase!=='keep'||Flow.pendingKeep.length)return;
+  if(Flow.phase!=='keep'||Flow.pendingKeep.length||(Flow.keepQueue&&Flow.keepQueue.length))return;
   Flow={phase:'turn',waiting:null,toolUsed:false,pendingKeep:[]};
   Engine.log(S,'全員のキープ完了。採掘開始!');
   stepTurn();
@@ -953,26 +990,48 @@ function hostApplyAct(pi,a){
   const p=S.players[pi];
   if(a.type==='keep'){
     if(Flow.phase!=='keep'||Flow.pendingKeep.indexOf(pi)<0)return;
-    const idxs=(a.idxs||[]).filter(i=>i>=0&&i<p.dealt.length).slice(0,S.cfg.keepN);
+    const idxs=Array.from(new Set((a.idxs||[]).filter(i=>i>=0&&i<p.dealt.length))).slice(0,S.cfg.keepN);
     if(idxs.length!==S.cfg.keepN)return;
     Engine.keepOrders(S,pi,idxs);
-    Flow.pendingKeep=Flow.pendingKeep.filter(x=>x!==pi);
+    Flow.pendingKeep=[]; Flow.keepQueue.shift();
     if(pi===mySeat)myTurn=null;
     sync();
-    maybeStartTurns();
+    hostStepKeep();
     return;
   }
   if(Flow.waiting!==pi)return;
+  if(Flow.refillPending!=null){
+    if(a.type!=='refill'||Flow.refillPending!==pi)return;
+    Flow.refillPending=null;
+    if(a.take)Engine.refill(S,pi);
+    sync();
+    if(Flow.phase==='afterAct'){
+      const data=buildAfterActData(pi);
+      if(!data.mets.length){ doEndTurn(); return; }
+      if(pi===mySeat){ myTurn={phase:'afterAct',data}; renderMyTurn(); }
+      else sendTo(pi,{t:'turn',data});
+    }else{
+      if(pi===mySeat){ myTurn={phase:'turn',data:buildTurnData(pi)}; renderMyTurn(); }
+      else sendTo(pi,{t:'turn',data:buildTurnData(pi)});
+    }
+    return;
+  }
   if(a.type==='reveal'){
     if(Engine.reveal(S,pi,a.oi)){
+      sync();
+      if(Engine.canRefill(S,pi)){ // v0.4: 公開後の補充プロンプト(本人にだけ)
+        Flow.refillPending=pi;
+        const data={phase:'refill',myName:p.name,deckLeft:S.orderDeck.length,failPen:S.cfg.failPen};
+        if(pi===mySeat){ myTurn={phase:'refill',data}; renderMyTurn(); }
+        else sendTo(pi,{t:'turn',data});
+        return;
+      }
       if(Flow.phase==='afterAct'){
-        sync();
         const data=buildAfterActData(pi);
         if(!data.mets.length){ doEndTurn(); return; }
         if(pi===mySeat){ myTurn={phase:'afterAct',data}; renderMyTurn(); }
         else sendTo(pi,{t:'turn',data});
       }else{
-        sync();
         if(pi===mySeat){ myTurn={phase:'turn',data:buildTurnData(pi)}; renderMyTurn(); }
         else sendTo(pi,{t:'turn',data:buildTurnData(pi)});
       }
@@ -1103,16 +1162,7 @@ function renderResult(d){
       hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
       $('log').innerHTML=''; log('もう1戦!');
       show('game');
-      Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[]};
-      S.players.forEach((p,pi)=>{ if(p.isCPU)Engine.cpuKeep(S,pi); else Flow.pendingKeep.push(pi); });
-      sync();
-      S.players.forEach((p,pi)=>{
-        if(p.isCPU)return;
-        const data={phase:'keep',myName:p.name,keepN:S.cfg.keepN,
-          dealt:p.dealt.map(o=>({nm:o.nm,txt:o.txt,base:o.base}))};
-        if(pi===mySeat){ myTurn={phase:'keep',data}; renderMyTurn(); }
-        else sendTo(pi,{t:'turn',data});
-      });
+      startKeepFlow();
     };
   }
 }
@@ -1125,7 +1175,6 @@ $('startBtn').onclick=hostStart;
 window.__engine=Engine;
 window.__state=()=>({role,roomId,mySeat,S,curSnap,Flow});
 </script>
-
-<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.3)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.4)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
 </body>
 </html>
