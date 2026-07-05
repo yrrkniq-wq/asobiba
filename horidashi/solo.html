@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ほりだしもの ― 開発プロトタイプ v0.3</title>
+<meta property="og:title" content="ほりだしもの(仮) ひとり用CPU対戦">
+<meta property="og:description" content="秘密の注文をこっそり当てにいく発掘カードゲーム(開発中)。CPU相手にひとりで遊べます(2〜5人)。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yrrkniq-wq.github.io/asobiba/horidashi/solo.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  ほりだしもの(仮) v0.2 ― 秘匿注文×掘る主導権。ゲームID: horidashi
+  v0.1(予想市場型)はkaiyo体感NGにより構造改訂。ルール正本: ルール_ほりだしもの_v0.2.md
+  スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+    --ruby:#d96b6b; --sapp:#5b8fd9; --emer:#4faf7a; --diam:#9a8fc7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .gem{display:inline-block;width:34px;height:44px;border-radius:8px;color:#fff;font-weight:800;
+       text-align:center;line-height:44px;font-size:16px;box-shadow:var(--shadow);margin:1px}
+  .gem.R{background:var(--ruby)} .gem.S{background:var(--sapp)} .gem.E{background:var(--emer)} .gem.D{background:var(--diam)}
+  .gem.back{background:#b9ad97;color:#fffdf7}
+  .ocard{display:flex;flex-direction:column;width:215px;border-radius:12px;background:#fff;
+         border:2px solid var(--line);padding:8px 10px;font-size:12px;box-shadow:var(--shadow)}
+  .ocard .nm{font-weight:700;font-size:13px}
+  .ocard .cond{font-size:11px;color:var(--sub);line-height:1.4}
+  .ocard .base{font-weight:800;color:var(--accent)}
+  .ocard.met{border-color:var(--good);background:#f2f9f3}
+  .ocard.failed{border-color:var(--bad);background:#fbf1f1;opacity:.85}
+  .ocard.locked{border-color:var(--accent);background:#fdf6e8}
+  .tcard{display:inline-block;width:150px;border-radius:12px;background:#fff;border:2px solid #cfe3ee;
+         padding:6px 8px;font-size:11px;box-shadow:var(--shadow);vertical-align:top}
+  .tcard .nm{font-weight:700;font-size:12px}
+  .tcard.pick{cursor:pointer} .tcard.pick:hover{transform:translateY(-3px)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;font-size:12px}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:20px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f7f0fb);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>⛏️ ほりだしもの</h1>
+  <span class="tag">開発プロトタイプ v0.3(袋点+秘匿注文)</span>
+  <span class="tag">検証: 操縦リフト / 死に択ゼロ / 腕の差・接戦度</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <h2>セットアップ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="5" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="5" value="3"></label>
+      <span class="hint">合計2〜5人。人間2人以上はパス&プレイ、人間0で観戦デモ</span>
+    </div>
+    <h3>調整レバー(ルールノートの表と1対1)</h3>
+    <div class="grid">
+      <label>配り枚数 <input id="dealN" class="num" type="number" min="2" max="4" value="3"></label>
+      <label>キープ枚数 <input id="keepN" class="num" type="number" min="1" max="3" value="2"></label>
+      <label>崩落(抜き)枚数 <input id="nRemove" class="num" type="number" min="0" max="6" value="3"></label>
+      <label>不成立ペナルティ <input id="failPen" class="num" type="number" min="-6" max="0" value="-1"></label>
+      <label>しびれ閾値(連続準備) <input id="stallMax" class="num" type="number" min="1" max="8" value="3"></label>
+      <label>手札道具上限 <input id="toolMax" class="num" type="number" min="1" max="6" value="3"></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="900"></label>
+    </div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>準備</td><td>鉱山14枚(公開構成)から3枚を見ずに抜く(崩落)。注文3枚配り→2枚秘密でキープ</td></tr>
+      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→その宝石は自分の袋へ(R/S=1点 E=2点 D=3点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定)</td></tr>
+      <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩されることがある。公開すれば確定だが狙いがバレる。掘るが3手番なければ次は掘る強制</td></tr>
+      <tr><td>終了</td><td>山が尽きたら崩落3枚を公開→手札一斉公開。公開済/成立=基礎点、不成立=-1点</td></tr>
+    </table>
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>鉱山 <span class="hint" id="drawInfo"></span></h2>
+      <div id="mine"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function softmaxPick(opts,temp){
+  if(!opts.length)return null;
+  const t=temp||1;
+  const mx=Math.max(...opts.map(o=>o.score));
+  const ws=opts.map(o=>Math.exp((o.score-mx)/t));
+  let r=Math.random()*ws.reduce((a,b)=>a+b,0);
+  for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0)return opts[i]; }
+  return opts[opts.length-1];
+}
+
+/* ===== カードデータ(ルール_ほりだしもの_v0.2。条件はv0.1調律値を継承) ===== */
+const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:2},D:{nm:'ダイヤ',n:2,val:3}};
+const GEMKEYS=['R','S','E','D'];
+function cnt(hist,g){ let c=0; for(const x of hist)if(x===g)c++; return c; }
+/* judge(h,rm,tot,over) → 'met'|'failed'|'open'。埋め戻しでhistが縮むと再評価される(隠し注文のリスク) */
+const ORDERS=[
+ {id:1, nm:'ルビーラッシュ', base:5, txt:'8枚目までにルビーが4枚掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,8); if(cnt(w,'R')>=4)return 'met';
+     if(h.length>=8||over)return 'failed'; return 'open';}},
+ {id:2, nm:'サファイア鉱脈', base:5, txt:'サファイアが4枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'S')>=4?'met':(over?'failed':'open')},
+ {id:3, nm:'みどりの鉱脈', base:5, txt:'エメラルドが3枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'E')>=3?'met':(over?'failed':'open')},
+ {id:4, nm:'かけこみダイヤ', base:3, txt:'4枚目までにダイヤが掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,4); if(cnt(w,'D')>=1)return 'met';
+     if(h.length>=4||over)return 'failed'; return 'open';}},
+ {id:5, nm:'ダブルダイヤ', base:5, txt:'9枚目までにダイヤが2枚とも掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,9); if(cnt(w,'D')>=2)return 'met';
+     if(h.length>=9||over)return 'failed'; return 'open';}},
+ {id:6, nm:'眠れるダイヤ', base:4, txt:'6枚目までダイヤが1枚も掘られなければ成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6); if(cnt(w,'D')>=1)return 'failed';
+     if(h.length>=6)return 'met'; if(over)return 'met'; return 'open';}},
+ {id:7, nm:'埋もれた宝', base:5, txt:'崩落の3枚にダイヤが含まれていたら成立(最後に公開)',
+   judge:(h,rm,tot,over)=>rm? (rm.indexOf('D')>=0?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
+ {id:8, nm:'崩落は空振り', base:6, txt:'崩落の3枚がすべてルビーかサファイアなら成立(最後に公開)',
+   judge:(h,rm,tot,over)=>rm? (rm.every(g=>g==='R'||g==='S')?'met':'failed') : 'open'},
+ {id:9, nm:'赤の時代', base:5, txt:'終了時、ルビーがサファイアより2枚以上多く掘られていたら成立',
+   judge:(h,rm,tot,over)=>over? (cnt(h,'R')-cnt(h,'S')>=2?'met':'failed') : 'open'},
+ {id:10, nm:'青の逆襲', base:5, txt:'終了時、サファイアがルビー以上掘られていたら成立',
+   judge:(h,rm,tot,over)=>over? (cnt(h,'S')>=cnt(h,'R')?'met':'failed') : 'open'},
+ {id:11, nm:'青の先行', base:3, txt:'サファイアの3枚目がルビーの4枚目より先に掘られたら成立',
+   judge:(h,rm,tot,over)=>{
+   let sc=0,rc=0; for(const x of h){ if(x==='S')sc++; if(x==='R')rc++; if(sc>=3)return 'met'; if(rc>=4)return 'failed'; }
+   return over?'failed':'open';}},
+ {id:12, nm:'緑の先駆け', base:5, txt:'エメラルドの3枚目がルビーの4枚目より先に掘られたら成立',
+   judge:(h,rm,tot,over)=>{
+   let e=0,r=0; for(const x of h){ if(x==='E')e++; if(x==='R')r++; if(e>=3)return 'met'; if(r>=4)return 'failed'; }
+   return over?'failed':'open';}},
+ {id:13, nm:'とどめのダイヤ', base:6, txt:'山札の最後の1枚がダイヤなら成立',
+   judge:(h,rm,tot,over)=>over? (h[h.length-1]==='D'?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
+ {id:14, nm:'希少ペア', base:5, txt:'エメラルドまたはダイヤが同じ種類2枚連続で掘られたら成立(1度でも)',
+   judge:(h,rm,tot,over)=>{ for(let i=1;i<h.length;i++)if(h[i]===h[i-1]&&(h[i]==='E'||h[i]==='D'))return 'met'; return over?'failed':'open';}},
+ {id:15, nm:'四色ならび', base:4, txt:'連続する4枚が4種類すべてになったら成立(1度でも)',
+   judge:(h,rm,tot,over)=>{ for(let i=3;i<h.length;i++){ const w=[h[i-3],h[i-2],h[i-1],h[i]];
+     let uniq=true; for(let a=0;a<4;a++)for(let b=a+1;b<4;b++)if(w[a]===w[b])uniq=false;
+     if(uniq)return 'met'; } return over?'failed':'open';}},
+ {id:16, nm:'大山盛り', base:4, txt:'6枚目までに4種類すべてが掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6);
+     if(GEMKEYS.every(g=>cnt(w,g)>=1))return 'met';
+     if(h.length>=6||over)return 'failed'; return 'open';}},
+ {id:17, nm:'赤の独占', base:6, txt:'ルビーが5枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'R')>=5?'met':(over?'failed':'open')},
+ {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立',
+   judge:(h,rm,tot,over)=>(cnt(h,'E')+cnt(h,'D'))>=4?'failed':(over?'met':'open')},
+];
+const TOOLS=[
+ {fx:'loupe', nm:'ルーペ', txt:'山の一番上をこっそり見る', n:3},
+ {fx:'trial', nm:'試掘', txt:'山の上2枚を見て、好きな順で戻す', n:3},
+ {fx:'dyna', nm:'ダイナマイト', txt:'このターン「掘る」を選んだら2枚掘る', n:2},
+ {fx:'block', nm:'通行止め', txt:'次のプレイヤーは「掘る」を選べない', n:2},
+ {fx:'rebury', nm:'埋め戻し', txt:'直前に掘られた1枚を山に戻してシャッフルする', n:2},
+ {fx:'spy', nm:'のぞき見', txt:'相手1人の手札の注文をランダムに1枚見る', n:2},
+ {fx:'survey', nm:'崩落調査', txt:'崩落の1枚をこっそり見る', n:2},
+];
+
+/* ===== Engine(純ロジック。DOMを触らない) ===== */
+const Engine = {
+  newGame(cfg){
+    const np=cfg.nHuman+cfg.nCpu;
+    let mine=[]; GEMKEYS.forEach(g=>{for(let i=0;i<GEMS[g].n;i++)mine.push(g);});
+    shuffle(mine);
+    const removed=mine.slice(0,cfg.nRemove);
+    mine=mine.slice(cfg.nRemove);
+    const orderDeck=shuffle(ORDERS.slice());
+    const toolDeck=[]; TOOLS.forEach(t=>{for(let i=0;i<t.n;i++)toolDeck.push(t);});
+    shuffle(toolDeck);
+    const S={cfg,np,mine,removed,removedOpen:false,hist:[],orderDeck,toolDeck,toolDiscard:[],
+      turnIdx:rnd(np),over:false,log:[],noDigStreak:0,roadblock:false,
+      flags:{},players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0},toolStats:{}};
+    for(let i=0;i<np;i++){
+      // ドラフト: dealN枚からkeepN枚(CPUは確率見積りで選ぶが、開始時は全て同条件なのでランダム+後述cpuKeepで選定)
+      S.players.push({idx:i,human:i<cfg.nHuman,policy:'smart',
+        name:i<cfg.nHuman?'プレイヤー'+(i+1):['あかり','つばさ','ひなた','そら','かんな'][i-cfg.nHuman]+'(CPU)',
+        orders:[],revealed:[],tools:[Engine.drawTool(S)].filter(Boolean),
+        peek:null,peekRemoved:null,spied:[],dealt:[],revealBonus:0,bag:[]});
+    }
+    // 配る(キープ選択はUI/CPUが行う。playAuto/CPUは即時選択)
+    S.players.forEach(p=>{ for(let i=0;i<cfg.dealN&&S.orderDeck.length;i++)p.dealt.push(S.orderDeck.pop()); });
+    Engine.log(S,'開山! 鉱山'+S.mine.length+'枚('+cfg.nRemove+'枚は崩落で埋まった)。注文を'+cfg.dealN+'枚から'+cfg.keepN+'枚選んで秘密にキープ');
+    return S;
+  },
+  log(S,m){S.log.push(m);},
+  drawTool(S){
+    if(!S.toolDeck.length){ if(!S.toolDiscard.length)return null;
+      S.toolDeck=shuffle(S.toolDiscard); S.toolDiscard=[]; }
+    return S.toolDeck.pop();
+  },
+  keepOrders(S,pi,idxs){ // dealtからidxsをキープ、残りは箱へ
+    const p=S.players[pi];
+    p.orders=idxs.map(i=>p.dealt[i]);
+    p.dealt=[];
+  },
+  totalDigs(S){ return S.mine.length+S.hist.length; },
+  statusOf(S,o){ return o.judge(S.hist,S.removedOpen?S.removed:null,Engine.totalDigs(S),S.over); },
+
+  /* --- アクション --- */
+  canDig(S,pi){ return !S.roadblock && S.mine.length>0; },
+  mustDig(S,pi){ return !S.roadblock && S.noDigStreak>=S.cfg.stallMax && S.mine.length>0; },
+  dig(S,pi,viaDyna){
+    const p=S.players[pi];
+    const n=(p._dyna?2:1);
+    for(let i=0;i<n&&S.mine.length;i++){
+      const g=S.mine.pop(); S.hist.push(g);
+      p.bag.push(g);
+      S.lastDig={pi,g};
+      Engine.log(S,'⛏️ '+p.name+'が掘った → '+GEMS[g].nm+'('+S.hist.length+'枚目)を袋へ(+'+GEMS[g].val+'点)');
+    }
+    p._dyna=false;
+    S.noDigStreak=0;
+    S.players.forEach(q=>{q.peek=null;});
+    S.actionStats.dig++;
+    if(!S.mine.length){ S.over=true; S.removedOpen=true;
+      Engine.log(S,'山が尽きた! 崩落の'+S.removed.length+'枚を公開: '+S.removed.map(g=>GEMS[g].nm).join('・')); }
+  },
+  prep(S,pi,swapIdx){ // 道具1枚引く+任意で注文入れ替え(swapIdx=入れ替える手札注文のindex、nullでスキップ)
+    const p=S.players[pi];
+    const t=Engine.drawTool(S);
+    if(t){ p.tools.push(t);
+      while(p.tools.length>S.cfg.toolMax){const d=p.tools.splice(rnd(p.tools.length),1)[0];S.toolDiscard.push(d);} }
+    let msg=p.name+'は準備した(道具を1枚引いた)';
+    if(swapIdx!=null&&p.orders[swapIdx]&&S.orderDeck.length){
+      const out=p.orders[swapIdx];
+      const inn=S.orderDeck.pop();
+      p.orders[swapIdx]=inn;
+      // 捨てた注文は箱へ(戻さない)
+      msg+='。注文を1枚入れ替えた';
+      S.actionStats.swap++;
+    }
+    S.noDigStreak++;
+    S.actionStats.prep++;
+    Engine.log(S,msg);
+  },
+  revealBonus(S){ return S.mine.length>=7?2:S.mine.length>=4?1:0; },
+  reveal(S,pi,oi){ // 成立している手札注文を公開して確定。早出しほどボーナス
+    const p=S.players[pi];
+    const o=p.orders[oi];
+    if(!o)return false;
+    if(Engine.statusOf(S,o)!=='met')return false;
+    const b=Engine.revealBonus(S);
+    p.orders.splice(oi,1);
+    p.revealed.push(o);
+    p.revealBonus=(p.revealBonus||0)+b;
+    S.actionStats.reveal++;
+    Engine.log(S,'📜 '+p.name+'が注文「'+o.nm+'」を公開して確定!(+'+o.base+'点保証'+(b?'、早出し+'+b:'')+')');
+    return true;
+  },
+  useTool(S,pi,ti,choice){
+    const p=S.players[pi];
+    const t=p.tools[ti];
+    if(!t)return false;
+    p.tools.splice(ti,1); S.toolDiscard.push(t);
+    S.toolStats[t.fx]=(S.toolStats[t.fx]||0)+1;
+    switch(t.fx){
+      case 'loupe': p.peek=S.mine.length?[S.mine[S.mine.length-1]]:[];
+        Engine.log(S,p.name+'が「ルーペ」: 山の上をこっそり見た'); break;
+      case 'trial':{
+        if(choice&&choice.swap&&S.mine.length>=2){
+          const a=S.mine.pop(), b=S.mine.pop();
+          S.mine.push(a); S.mine.push(b);
+        }
+        p.peek=S.mine.slice(-2).reverse();
+        Engine.log(S,p.name+'が「試掘」: 山の上2枚を見て'+(choice&&choice.swap?'入れ替えた':'そのまま戻した')); break; }
+      case 'dyna': p._dyna=true;
+        Engine.log(S,p.name+'が「ダイナマイト」: このターン掘るなら2枚!'); break;
+      case 'block': S.roadblock=true;
+        Engine.log(S,p.name+'が「通行止め」: 次のプレイヤーは掘れない'); break;
+      case 'rebury':{
+        if(S.hist.length){
+          const g=S.hist.pop();
+          S.mine.push(g); shuffle(S.mine);
+          if(S.lastDig&&S.lastDig.g===g){
+            const q=S.players[S.lastDig.pi];
+            const bi=q.bag.lastIndexOf(g);
+            if(bi>=0)q.bag.splice(bi,1);
+            Engine.log(S,'⏪ '+p.name+'が「埋め戻し」: '+q.name+'の袋から'+GEMS[g].nm+'が山に戻った(隠れ成立も崩れたかも…)');
+          }else{
+            Engine.log(S,'⏪ '+p.name+'が「埋め戻し」: '+GEMS[g].nm+'が山に戻ってシャッフルされた');
+          }
+          S.lastDig=null;
+        } break; }
+      case 'spy':{
+        const t2=(choice&&choice.tPi!=null)?S.players[choice.tPi]:null;
+        if(t2&&t2.orders.length){
+          const o=t2.orders[rnd(t2.orders.length)];
+          p.spied.push({who:t2.name,nm:o.nm});
+          Engine.log(S,p.name+'が「のぞき見」: '+t2.name+'の注文を1枚見た');
+        } break; }
+      case 'survey':{
+        if(S.removed.length&&!S.removedOpen){
+          p.peekRemoved=S.removed[rnd(S.removed.length)];
+          Engine.log(S,p.name+'が「崩落調査」: 崩落の1枚をこっそり見た');
+        } break; }
+    }
+    return true;
+  },
+  endTurn(S){
+    if(S.roadblock&&S._roadblockUsed)S.roadblock=false;
+    S.turnIdx=(S.turnIdx+1)%S.np;
+  },
+
+  /* --- 精算 --- */
+  finalScore(S){
+    const res=S.players.map(p=>{
+      const r={pts:0,notes:[]};
+      const bagPts=p.bag.reduce((a,g)=>a+GEMS[g].val,0);
+      if(bagPts){ r.pts+=bagPts; r.notes.push('袋の宝石 +'+bagPts+'('+p.bag.map(g=>GEMS[g].nm[0]).join('')+')'); }
+      p.revealed.forEach(o=>{ r.pts+=o.base; r.notes.push('公開済「'+o.nm+'」+'+o.base); });
+      if(p.revealBonus){ r.pts+=p.revealBonus; r.notes.push('早出しボーナス+'+p.revealBonus); }
+      p.orders.forEach(o=>{
+        const st=Engine.statusOf(S,o);
+        if(st==='met'){ r.pts+=o.base; r.notes.push('隠し成立「'+o.nm+'」+'+o.base); }
+        else { r.pts+=S.cfg.failPen; r.notes.push('不成立「'+o.nm+'」'+S.cfg.failPen); }
+      });
+      r.total=r.pts;
+      return r;
+    });
+    const rank=S.players.map((p,i)=>({i,total:res[i].total,tb:Math.random()})).sort((a,b)=>b.total-a.total||b.tb-a.tb);
+    return {res,rank};
+  },
+
+  /* --- 確率見積り(モンテカルロ・ラウンドキャッシュ) --- */
+  estimateP(S,o,trials){
+    S._pcache=S._pcache||{};
+    const key=o.id+':'+S.hist.join('')+':'+S.mine.length;
+    if(key in S._pcache)return S._pcache[key];
+    const T=trials||50;
+    const remain=[];
+    GEMKEYS.forEach(g=>{ for(let i=0;i<GEMS[g].n-cnt(S.hist,g);i++)remain.push(g); });
+    let met=0;
+    for(let t=0;t<T;t++){
+      const r=shuffle(remain.slice());
+      const rm=S.removedOpen?S.removed:r.slice(0,S.cfg.nRemove);
+      const fut=S.removedOpen?shuffle(S.mine.slice()):r.slice(S.cfg.nRemove);
+      const h=S.hist.slice();
+      let st=o.judge(h,null,h.length+fut.length,false);
+      for(let i=fut.length-1;i>=0&&st==='open';i--){
+        h.push(fut[i]);
+        const over=h.length>=S.hist.length+fut.length;
+        st=o.judge(h,over?rm:null,S.hist.length+fut.length,over);
+      }
+      if(st==='open')st=o.judge(h,rm,h.length,true);
+      if(st==='met')met++;
+    }
+    const v=met/T;
+    S._pcache[key]=v;
+    return v;
+  },
+
+  /* --- CPU --- */
+  cpuKeep(S,pi){ // dealtからkeepN枚選ぶ: 単純に「基礎点×初期成立見込み」の高い順+ノイズ
+    const p=S.players[pi];
+    const scored=p.dealt.map((o,i)=>({i,score:o.base*Engine.estimateP(S,o,40)+Math.random()*0.5}));
+    scored.sort((a,b)=>b.score-a.score);
+    Engine.keepOrders(S,pi,scored.slice(0,S.cfg.keepN).map(x=>x.i));
+  },
+  cpuTurn(S,pi){ // 道具(副作用)→アクション実行まで全部やる
+    const p=S.players[pi];
+    const rndPolicy=p.policy==='random';
+    // 公開判断: 成立している隠し注文は高確率で確定(埋め戻しリスク回避)
+    for(let oi=p.orders.length-1;oi>=0;oi--){
+      if(Engine.statusOf(S,p.orders[oi])==='met'){
+        const pr=rndPolicy?0.5:0.75;
+        if(Math.random()<pr)Engine.reveal(S,pi,oi);
+      }
+    }
+    // 道具
+    if(!rndPolicy&&p.tools.length){
+      const myPs=p.orders.map(o=>Engine.estimateP(S,o,40));
+      const li=p.tools.findIndex(t=>t.fx==='loupe');
+      const ti2=p.tools.findIndex(t=>t.fx==='trial');
+      const di=p.tools.findIndex(t=>t.fx==='dyna');
+      const bi=p.tools.findIndex(t=>t.fx==='block');
+      const ri=p.tools.findIndex(t=>t.fx==='rebury');
+      const si=p.tools.findIndex(t=>t.fx==='spy');
+      const vi=p.tools.findIndex(t=>t.fx==='survey');
+      if(li>=0&&Math.random()<0.6)Engine.useTool(S,pi,li,{});
+      else if(ti2>=0&&Math.random()<0.4)Engine.useTool(S,pi,ti2,{swap:Math.random()<0.5});
+      else if(vi>=0&&p.orders.some(o=>o.id===7||o.id===8)&&Math.random()<0.8)Engine.useTool(S,pi,vi,{});
+      else if(ri>=0&&S.hist.length&&Math.random()<0.35){
+        // 直前の1枚が自分の注文にマイナスだったら埋め戻す(粗い判定: 戻したらP合計が上がるか)
+        const before=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
+        const g=S.hist[S.hist.length-1];
+        S.hist.pop(); S._pcache={};
+        const after=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
+        S.hist.push(g); S._pcache={};
+        if(after>before+0.12)Engine.useTool(S,pi,ri,{});
+      }
+      else if(di>=0&&Math.random()<0.4)Engine.useTool(S,pi,di,{});
+      else if(bi>=0&&Math.random()<0.25)Engine.useTool(S,pi,bi,{});
+      else if(si>=0&&Math.random()<0.3){
+        const cands=S.players.filter(q=>q.idx!==pi&&q.orders.length);
+        if(cands.length)Engine.useTool(S,pi,si,{tPi:cands[rnd(cands.length)].idx});
+      }
+    }else if(rndPolicy&&p.tools.length&&Math.random()<0.4){
+      const ti3=rnd(p.tools.length);
+      const t=p.tools[ti3];
+      const ch=t.fx==='spy'?{tPi:(pi+1)%S.np}:t.fx==='trial'?{swap:Math.random()<0.5}:{};
+      Engine.useTool(S,pi,ti3,ch);
+    }
+    // アクション: 掘る or 準備
+    const canDig=Engine.canDig(S,pi);
+    const must=Engine.mustDig(S,pi);
+    let doDig;
+    if(!canDig)doDig=false;
+    else if(must)doDig=true;
+    else if(rndPolicy)doDig=Math.random()<0.6;
+    else{
+      // 掘るスコア: 自分の未成立注文のP改善見込み(peek込みの粗い評価)
+      let digScore=0.5;
+      {
+        const remainAll=[];
+        GEMKEYS.forEach(g=>{ for(let i=0;i<GEMS[g].n-cnt(S.hist,g);i++)remainAll.push(GEMS[g].val); });
+        const evGem=remainAll.length?remainAll.reduce((a,b)=>a+b,0)/remainAll.length:0;
+        digScore+=(p.peek&&p.peek.length)?GEMS[p.peek[0]].val*0.5:evGem*0.5;
+      }
+      p.orders.forEach(o=>{
+        const st=Engine.statusOf(S,o);
+        if(st!=='open')return;
+        const P=Engine.estimateP(S,o,40);
+        if(P>0.25&&P<0.95)digScore+=0.5; // 進行が必要な注文を持っている
+      });
+      if(p.peek&&p.peek.length){
+        // 上の1枚を掘ったと仮定してPが上がるなら掘る
+        const g=p.peek[0];
+        const before=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.hist.push(g); const mtop=S.mine.pop(); S._pcache={};
+        const after=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.mine.push(mtop); S.hist.pop(); S._pcache={};
+        digScore+=(after-before)*3;
+      }
+      let prepScore=0.6+(p.tools.length===0?0.5:0);
+      const dead=p.orders.findIndex(o=>Engine.statusOf(S,o)==='failed'||Engine.estimateP(S,o,40)<0.1);
+      if(dead>=0&&S.orderDeck.length)prepScore+=1.2;
+      const pick=softmaxPick([{v:'dig',score:digScore},{v:'prep',score:prepScore}],0.5);
+      doDig=pick.v==='dig';
+    }
+    if(doDig){ Engine.dig(S,pi); }
+    else{
+      let swapIdx=null;
+      if(S.orderDeck.length){
+        const dead=p.orders.findIndex(o=>Engine.statusOf(S,o)==='failed'||(p.policy!=='random'&&Engine.estimateP(S,o,40)<0.1));
+        if(dead>=0)swapIdx=dead;
+        else if(rndPolicy&&Math.random()<0.2&&p.orders.length)swapIdx=rnd(p.orders.length);
+      }
+      Engine.prep(S,pi,swapIdx);
+    }
+    // 掘った/準備した後にも成立していれば公開チャンス(このターンで成立した分)
+    for(let oi=p.orders.length-1;oi>=0;oi--){
+      if(Engine.statusOf(S,p.orders[oi])==='met'&&Math.random()<(rndPolicy?0.4:0.7))Engine.reveal(S,pi,oi);
+    }
+    if(S.roadblock&&!canDig)S.roadblock=false; // 通行止めはこの手番で消費
+    Engine.endTurn(S);
+  },
+
+  playAuto(cfg,policies){
+    const S=Engine.newGame(cfg);
+    if(policies)S.players.forEach((p,i)=>{p.policy=policies[i]||'smart';});
+    S.players.forEach((p,pi)=>Engine.cpuKeep(S,pi));
+    let guard=0;
+    while(!S.over&&guard++<300){
+      Engine.cpuTurn(S,S.turnIdx);
+    }
+    S.final=Engine.finalScore(S);
+    return S;
+  }
+};
+
+/* ===== UI(Engineを呼ぶだけ) ===== */
+let S=null;
+let UI={actor:-1,logPtr:0,toolUsed:false,acted:false,phase:'keep',keepSel:[]};
+
+function readCfg(){
+  const c={};
+  ['nHuman','nCpu','dealN','keepN','nRemove','failPen','stallMax','toolMax','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  return c;
+}
+function schedule(fn){ if(S.cfg.cpuThink>0)setTimeout(fn,S.cfg.cpuThink); else fn(); }
+function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('actionBody').innerHTML=html; }
+function flushLog(){ const el=$('log'); let h='';
+  for(;UI.logPtr<S.log.length;UI.logPtr++)h+='<div>'+S.log[UI.logPtr]+'</div>';
+  if(h){el.innerHTML+=h; el.scrollTop=el.scrollHeight;} }
+function gemHTML(g){ return '<span class="gem '+g+'">'+GEMS[g].nm[0]+'</span>'; }
+function orderHTML(o,cls,id,extra){
+  return '<div '+(id?'id="'+id+'" ':'')+'class="ocard '+(cls||'')+'"><div class="nm">'+o.nm
+    +' <span class="base">'+o.base+'点</span></div><div class="cond">'+o.txt+'</div>'+(extra||'')+'</div>';
+}
+function renderBoard(){
+  $('drawInfo').textContent='山 残り'+S.mine.length+'枚 / 注文山'+S.orderDeck.length+'枚 / 道具山'+S.toolDeck.length+'枚'
+    +(S.roadblock?' / 🚧通行止め中':'')
+    +(S.noDigStreak>=S.cfg.stallMax?' / 😠現場監督が怒っている(掘る強制)':S.noDigStreak>0?' / 連続準備'+S.noDigStreak:'');
+  let h='<div class="row"><span class="hint">掘られた列:</span> '+(S.hist.map(gemHTML).join('')||'(まだ)')
+    +' <span class="hint" style="margin-left:10px">崩落:</span> '
+    +(S.removedOpen?S.removed.map(gemHTML).join(''):S.removed.map(()=>'<span class="gem back">?</span>').join(''))+'</div>';
+  h+='<div class="hint" style="margin-top:4px">残り構成(崩落含む): '
+    +GEMKEYS.map(g=>GEMS[g].nm+' '+(GEMS[g].n-cnt(S.hist,g))+'枚').join(' / ')+'</div>';
+  $('mine').innerHTML=h;
+  let ph='';
+  S.players.forEach((p,pi)=>{
+    ph+='<div class="pl'+(UI.actor===pi?' turn':'')+'"><div class="name"><span>'+p.name
+      +(p.human?'':' <span class="badge bot">CPU</span>')
+      +'</span><span class="score">'+(p.bag.reduce((a,g)=>a+GEMS[g].val,0)+p.revealed.reduce((a,o)=>a+o.base,0)+(p.revealBonus||0))+'点確定</span></div>'
+      +'<div class="mini">袋: '+(p.bag.length?p.bag.map(gemHTML).join('')+' = '+p.bag.reduce((a,g)=>a+GEMS[g].val,0)+'点':'なし')+'</div>'
+      +'<div class="mini">公開済: '+(p.revealed.map(o=>o.nm+'(+'+o.base+')').join(' / ')||'なし')+'</div>'
+      +'<div class="mini">手札: 注文'+p.orders.length+'枚(秘密) / 道具'+p.tools.length+'枚</div></div>';
+  });
+  $('players').innerHTML=ph;
+  $('banner').textContent='手番: '+S.players[UI.actor>=0?UI.actor:S.turnIdx].name+'(掘られた'+S.hist.length+'枚 / 山残り'+S.mine.length+'枚)';
+  flushLog();
+}
+function withMask(pi,fn){
+  const p=S.players[pi];
+  if(S.cfg.nHuman<=1){fn();return;}
+  $('turnTitle').textContent='交代';
+  setAction('<div class="mask"><p><b>'+p.name+'</b>さんに画面をわたしてください</p><button id="maskBtn">じゅんびOK</button></div>');
+  $('maskBtn').onclick=fn;
+}
+
+/* --- キープ選択(人間) --- */
+function startKeepPhase(){
+  UI.phase='keep';
+  UI.keepQueue=[];
+  S.players.forEach((p,pi)=>{ if(p.human)UI.keepQueue.push(pi); else Engine.cpuKeep(S,pi); });
+  stepKeep();
+}
+function stepKeep(){
+  renderBoard();
+  if(!UI.keepQueue.length){ UI.phase='turn'; stepTurn(); return; }
+  const pi=UI.keepQueue.shift(); UI.actor=pi;
+  withMask(pi,()=>renderKeep(pi));
+}
+function renderKeep(pi){
+  const p=S.players[pi];
+  UI.keepSel=[];
+  $('turnTitle').textContent=p.name+' ― 注文を'+S.cfg.keepN+'枚えらんでキープ(秘密の目標になる)';
+  let h='<div class="row">';
+  p.dealt.forEach((o,i)=>{ h+=orderHTML(o,'pick','kp'+i); });
+  h+='</div><div class="row" style="margin-top:10px"><button id="keepBtn" disabled>この'+S.cfg.keepN+'枚にする</button></div><div id="targetArea"></div>';
+  setAction(h);
+  p.dealt.forEach((o,i)=>{
+    $('kp'+i).onclick=()=>{
+      const at=UI.keepSel.indexOf(i);
+      if(at>=0)UI.keepSel.splice(at,1);
+      else{ if(UI.keepSel.length>=S.cfg.keepN)UI.keepSel.shift(); UI.keepSel.push(i); }
+      p.dealt.forEach((_,j)=>{ $('kp'+j).classList.toggle('met',UI.keepSel.indexOf(j)>=0); });
+      $('keepBtn').disabled=(UI.keepSel.length!==S.cfg.keepN);
+    };
+  });
+  $('keepBtn').onclick=()=>{ Engine.keepOrders(S,pi,UI.keepSel.slice()); stepKeep(); };
+}
+
+/* --- 手番 --- */
+function stepTurn(){
+  renderBoard();
+  if(S.over){ showResult(); return; }
+  const pi=S.turnIdx; UI.actor=pi; UI.toolUsed=false; UI.acted=false;
+  const p=S.players[pi];
+  renderBoard();
+  if(!p.human){
+    $('turnTitle').textContent=p.name+' の番…';
+    setAction('<span class="hint">考え中…</span><div id="targetArea"></div>');
+    schedule(()=>{ Engine.cpuTurn(S,pi); stepTurn(); });
+  }else{
+    withMask(pi,()=>renderHumanTurn(pi));
+  }
+}
+function renderHumanTurn(pi){
+  const p=S.players[pi];
+  const must=Engine.mustDig(S,pi);
+  $('turnTitle').textContent=p.name+' の番'+(S.roadblock?'(🚧通行止め: 掘れない)':must?'(😠掘る強制)':'');
+  let h='';
+  if(p.peek&&p.peek.length)h+='<div class="banner">🔍 山の上: '+p.peek.map(g=>GEMS[g].nm).join(' → ')+'(あなただけの情報)</div>';
+  if(p.peekRemoved)h+='<div class="banner">🕳️ 崩落調査: 崩落のうち1枚は '+GEMS[p.peekRemoved].nm+'(あなただけの情報)</div>';
+  if(p.spied.length)h+='<div class="hint">のぞき見メモ: '+p.spied.map(s=>s.who+'「'+s.nm+'」').join(' / ')+'</div>';
+  h+='<h3>あなたの注文(秘密)</h3><div class="row">';
+  p.orders.forEach((o,oi)=>{
+    const st=Engine.statusOf(S,o);
+    const cls=st==='met'?'met':st==='failed'?'failed':'';
+    const extra=st==='met'?'<div class="row" style="margin-top:4px"><button id="rv'+oi+'" class="small">📜 公開して確定(+'+o.base+(Engine.revealBonus(S)?' 早出し+'+Engine.revealBonus(S):'')+')</button></div>'
+      :st==='failed'?'<div class="hint">不成立確定…(準備で入れ替え可)</div>':'';
+    h+=orderHTML(o,cls,null,extra);
+  });
+  h+='</div>';
+  if(!UI.toolUsed&&p.tools.length){
+    h+='<h3>道具(任意・1枚)</h3><div class="row">';
+    p.tools.forEach((t,ti)=>{h+='<div id="tl'+ti+'" class="tcard pick"><div class="nm">'+t.nm+'</div><div>'+t.txt+'</div></div>';});
+    h+='</div>';
+  }
+  h+='<h3>アクション</h3><div class="row">'
+    +'<button id="digBtn"'+(Engine.canDig(S,pi)?'':' disabled')+'>⛏️ 掘る'+(p._dyna?'(ダイナマイトで2枚!)':'')+'</button>'
+    +'<button id="prepBtn" class="ghost"'+(must?' disabled':'')+'>🎒 準備(道具1枚+入れ替え可)</button>'
+    +'</div><div id="targetArea"></div>';
+  setAction(h);
+  p.orders.forEach((o,oi)=>{
+    const el=$('rv'+oi);
+    if(el)el.onclick=()=>{ Engine.reveal(S,pi,oi); renderBoard(); renderHumanTurn(pi); };
+  });
+  if(!UI.toolUsed)p.tools.forEach((t,ti)=>{
+    const el=$('tl'+ti); if(el)el.onclick=()=>humanTool(pi,ti);
+  });
+  $('digBtn').onclick=()=>{ Engine.dig(S,pi); finishHumanTurn(pi); };
+  $('prepBtn').onclick=()=>{
+    if(S.orderDeck.length&&p.orders.length){
+      let th='<h3>準備: 注文を入れ替える?(任意)</h3><div class="row">';
+      p.orders.forEach((o,oi)=>{ th+='<button id="sw'+oi+'" class="ghost small">「'+o.nm+'」を捨てて引き直す</button>'; });
+      th+='<button id="swSkip" class="small">入れ替えない</button></div>';
+      $('targetArea').innerHTML=th;
+      p.orders.forEach((o,oi)=>{
+        $('sw'+oi).onclick=()=>{ Engine.prep(S,pi,oi); finishHumanTurn(pi); };
+      });
+      $('swSkip').onclick=()=>{ Engine.prep(S,pi,null); finishHumanTurn(pi); };
+    }else{ Engine.prep(S,pi,null); finishHumanTurn(pi); }
+  };
+}
+function finishHumanTurn(pi){
+  const p=S.players[pi];
+  renderBoard();
+  if(S.over){ Engine.endTurn(S); stepTurn(); return; }
+  // アクション後の公開チャンス(このターンで成立したものを確定できる)
+  const mets=p.orders.map((o,oi)=>({o,oi,st:Engine.statusOf(S,o)})).filter(x=>x.st==='met');
+  if(mets.length){
+    let h='<h3>成立中の注文があります。公開して確定しますか?</h3><div class="row">';
+    mets.forEach((x,i)=>{ h+='<button id="rv'+x.oi+'" class="small">📜「'+x.o.nm+'」を確定(+'+x.o.base+')</button>'; });
+    h+='<button id="holdBtn" class="ghost small">隠したまま次へ(埋め戻しに注意)</button></div>';
+    setAction(h+'<div id="targetArea"></div>');
+    mets.forEach(x=>{
+      $('rv'+x.oi).onclick=()=>{ Engine.reveal(S,pi,x.oi); finishHumanTurn(pi); };
+    });
+    $('holdBtn').onclick=()=>{ if(S.roadblock)S.roadblock=false; Engine.endTurn(S); stepTurn(); };
+    return;
+  }
+  if(S.roadblock)S.roadblock=false;
+  Engine.endTurn(S);
+  stepTurn();
+}
+function humanTool(pi,ti){
+  const p=S.players[pi]; const t=p.tools[ti];
+  if(t.fx==='trial'){
+    if(!S.mine.length){alert('山がありません');return;}
+    const top=S.mine.slice(-2).reverse();
+    let h='<div class="banner">🔍 山の上: '+top.map(g=>GEMS[g].nm).join(' → ')+'</div><div class="row">'
+      +'<button id="tg0" class="ghost small">そのまま戻す</button>'
+      +(S.mine.length>=2?'<button id="tg1" class="ghost small">入れ替えて戻す</button>':'')+'</div>';
+    $('targetArea').innerHTML=h;
+    $('tg0').onclick=()=>{Engine.useTool(S,pi,ti,{swap:false});UI.toolUsed=true;renderBoard();renderHumanTurn(pi);};
+    if($('tg1'))$('tg1').onclick=()=>{Engine.useTool(S,pi,ti,{swap:true});UI.toolUsed=true;renderBoard();renderHumanTurn(pi);};
+  }else if(t.fx==='spy'){
+    const cands=S.players.filter(q=>q.idx!==pi&&q.orders.length);
+    if(!cands.length){alert('のぞける相手がいません');return;}
+    let h='<h3>だれをのぞく?</h3><div class="row">';
+    cands.forEach((q,i)=>{h+='<button id="tg'+i+'" class="ghost small">'+q.name+'</button>';});
+    $('targetArea').innerHTML=h+'</div>';
+    cands.forEach((q,i)=>{
+      $('tg'+i).onclick=()=>{Engine.useTool(S,pi,ti,{tPi:q.idx});UI.toolUsed=true;renderBoard();renderHumanTurn(pi);};
+    });
+  }else if(t.fx==='rebury'){
+    if(!S.hist.length){alert('掘られた宝石がありません');return;}
+    Engine.useTool(S,pi,ti,{});
+    UI.toolUsed=true;renderBoard();renderHumanTurn(pi);
+  }else if(t.fx==='survey'){
+    if(S.removedOpen){alert('もう崩落は公開されています');return;}
+    Engine.useTool(S,pi,ti,{});
+    UI.toolUsed=true;renderBoard();renderHumanTurn(pi);
+  }else{
+    Engine.useTool(S,pi,ti,{});
+    UI.toolUsed=true;renderBoard();renderHumanTurn(pi);
+  }
+}
+
+/* --- 結果 --- */
+function showResult(){
+  const f=Engine.finalScore(S);
+  renderBoard();
+  $('game').classList.add('hidden');
+  const r=$('result'); r.classList.remove('hidden');
+  let h='<h2>💎 閉山 ― 一斉公開!</h2>'
+    +'<div class="row" style="margin-bottom:8px"><span class="hint">崩落の中身:</span> '+S.removed.map(gemHTML).join('')
+    +'<span class="hint" style="margin-left:10px">掘られた列:</span> '+S.hist.map(gemHTML).join('')+'</div>'
+    +'<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>合計</th><th>内訳</th></tr>';
+  f.rank.forEach((rk,i)=>{
+    const p=S.players[rk.i]; const rs=f.res[rk.i];
+    h+='<tr><td>'+(i+1)+'</td><td>'+p.name+'</td><td><b>'+rs.total+'</b></td><td class="hint">'+rs.notes.join(' / ')+'</td></tr>';
+  });
+  h+='</table>';
+  h+='<div class="foot">接戦度(1位-2位)='+(f.rank[0].total-f.rank[1].total)
+    +' / アクション: 掘る'+S.actionStats.dig+' 準備'+S.actionStats.prep+' 公開'+S.actionStats.reveal+' 入れ替え'+S.actionStats.swap+'</div>';
+  h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1回</button><button class="ghost" id="setupBtn2">設定に戻る</button></div>';
+  r.innerHTML=h;
+  $('againBtn').onclick=()=>{ r.classList.add('hidden'); startGame(); };
+  $('setupBtn2').onclick=()=>{ r.classList.add('hidden'); $('setup').classList.remove('hidden'); };
+}
+function startGame(){
+  const cfg=readCfg();
+  const np=cfg.nHuman+cfg.nCpu;
+  if(np<2||np>5){ alert('合計人数は2〜5人にしてください'); return; }
+  if(cfg.dealN*np>ORDERS.length){ alert('配り枚数×人数が注文18種を超えています'); return; }
+  S=Engine.newGame(cfg);
+  UI={actor:-1,logPtr:0,toolUsed:false,acted:false,phase:'keep',keepSel:[],keepQueue:[]};
+  $('log').innerHTML='';
+  $('setup').classList.add('hidden'); $('result').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  if(cfg.nHuman===0){
+    // 観戦: playAutoと同じ流れをUI付きで
+    S.players.forEach((p,pi)=>Engine.cpuKeep(S,pi));
+    UI.phase='turn';
+    stepTurn();
+  }else{
+    startKeepPhase();
+  }
+}
+
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:3,dealN:3,keepN:2,nRemove:3,failPen:-1,stallMax:3,toolMax:3,cpuThink:900};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);};
+
+window.__engine=Engine;
+window.__orders=ORDERS;
+window.__state=()=>S;
+</script>
+
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.3)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>

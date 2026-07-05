@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ほりだしもの ― オンライン対戦</title>
+<meta property="og:title" content="ほりだしもの(仮) オンライン対戦">
+<meta property="og:description" content="秘密の注文をこっそり当てにいく発掘カードゲーム(開発中)。部屋コードを送るだけで友だちとリモート対戦できます(2〜5人)。">
+<meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yrrkniq-wq.github.io/asobiba/horidashi/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@yrr_iq">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  オンライン対戦版 v0.3(ルールはローカル版 ほりだしもの_プロトタイプ.html と同一)
+  PeerJSホスト権威型。逐次手番+秘密手札(注文・道具)なので、手番プレイヤーにだけ
+  秘密情報つき手番メッセージを送る。手番UIはmyTurn状態として保持しスナップ再描画から復元
+  (教訓_逐次手番オンラインでは手番UIを状態として持つ)。切断者はCPUが代打ち。
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+    --ruby:#d96b6b; --sapp:#5b8fd9; --emer:#4faf7a; --diam:#9a8fc7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  .txt{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .err{color:var(--bad);font-size:13px;font-weight:700}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;background:#fdf3e2;border:1px dashed var(--accent);
+        border-radius:10px;padding:6px 18px;display:inline-block}
+  .gem{display:inline-block;width:34px;height:44px;border-radius:8px;color:#fff;font-weight:800;
+       text-align:center;line-height:44px;font-size:16px;box-shadow:var(--shadow);margin:1px}
+  .gem.R{background:var(--ruby)} .gem.S{background:var(--sapp)} .gem.E{background:var(--emer)} .gem.D{background:var(--diam)}
+  .gem.back{background:#b9ad97;color:#fffdf7}
+  .gem.mini{width:22px;height:28px;line-height:28px;font-size:12px}
+  .ocard{display:flex;flex-direction:column;width:215px;border-radius:12px;background:#fff;
+         border:2px solid var(--line);padding:8px 10px;font-size:12px;box-shadow:var(--shadow)}
+  .ocard .nm{font-weight:700;font-size:13px}
+  .ocard .cond{font-size:11px;color:var(--sub);line-height:1.4}
+  .ocard .base{font-weight:800;color:var(--accent)}
+  .ocard.met{border-color:var(--good);background:#f2f9f3}
+  .ocard.failed{border-color:var(--bad);background:#fbf1f1;opacity:.85}
+  .ocard.pick{cursor:pointer}
+  .tcard{display:inline-block;width:150px;border-radius:12px;background:#fff;border:2px solid #cfe3ee;
+         padding:6px 8px;font-size:11px;box-shadow:var(--shadow);vertical-align:top}
+  .tcard .nm{font-weight:700;font-size:12px}
+  .tcard.pick{cursor:pointer} .tcard.pick:hover{transform:translateY(-3px)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;font-size:12px}
+  .pl.me{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl.turn{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(111,174,122,.3)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:20px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .ok{background:#eaf3ec;color:#3f7a4e;font-weight:700}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f7f0fb);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>⛏️ ほりだしもの</h1>
+  <span class="tag">オンライン対戦 v0.3</span>
+  <span class="tag">部屋コードで友だちと(2〜5人)</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ===== HOME ===== -->
+  <div id="home" class="card-panel">
+    <h2>はじめる</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>なまえ <input id="nameInput" class="txt" type="text" maxlength="8" value=""></label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="createBtn">🏠 部屋を作る(ホスト)</button>
+    </div>
+    <div class="row">
+      <input id="roomInput" class="txt" type="text" placeholder="部屋コード(例: hori-xxxxx)">
+      <button class="ghost" id="joinBtn">🚪 部屋に入る</button>
+    </div>
+    <div id="homeErr" class="err"></div>
+    <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線(スマホ回線など)を試してください。</div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>準備</td><td>鉱山14枚(ルビー5/サファイア4/エメラルド3/ダイヤ2・公開構成)から3枚を見ずに抜く(崩落)。注文3枚配り→2枚秘密でキープ</td></tr>
+      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石は自分の袋へ(R/S=1点 E=2点 D=3点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定+早出しボーナス)</td></tr>
+      <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩される(袋からも没収)。掘るが3手番なければ次は掘る強制</td></tr>
+      <tr><td>終了</td><td>山が尽きたら崩落3枚を公開→手札一斉公開。袋+注文(成立=基礎点/不成立=-1)の合計勝負</td></tr>
+    </table>
+  </div>
+
+  <!-- ===== LOBBY ===== -->
+  <div id="lobby" class="card-panel hidden">
+    <h2>ロビー <span class="hint" id="roleTag"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <span>部屋コード: <span class="code" id="roomCodeView">...</span></span>
+      <span class="hint">← これを共有して入ってもらう</span>
+    </div>
+    <h3>参加者</h3>
+    <div id="lobbyPlayers" class="players"></div>
+    <div id="hostCfg">
+      <h3>調整レバー(ホストのみ)</h3>
+      <div class="grid">
+        <label>CPUの数 <input id="nCpu" class="num" type="number" min="0" max="4" value="0"></label>
+        <label>崩落(抜き)枚数 <input id="nRemove" class="num" type="number" min="0" max="6" value="3"></label>
+        <label>CPUの間(ms) <input id="cpuThink" class="num" type="number" value="700"></label>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="startBtn">▶ ゲーム開始(合計2〜5人)</button>
+      </div>
+    </div>
+    <div id="lobbyErr" class="err"></div>
+    <div class="foot" id="lobbyHint"></div>
+  </div>
+
+  <!-- ===== GAME ===== -->
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>鉱山 <span class="hint" id="drawInfo"></span></h2>
+      <div id="mine"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== RESULT ===== -->
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function softmaxPick(opts,temp){
+  if(!opts.length)return null;
+  const t=temp||1;
+  const mx=Math.max(...opts.map(o=>o.score));
+  const ws=opts.map(o=>Math.exp((o.score-mx)/t));
+  let r=Math.random()*ws.reduce((a,b)=>a+b,0);
+  for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0)return opts[i]; }
+  return opts[opts.length-1];
+}
+
+/* ===== カードデータ(ローカル版v0.3と同一) ===== */
+const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:2},D:{nm:'ダイヤ',n:2,val:3}};
+const GEMKEYS=['R','S','E','D'];
+function cnt(hist,g){ let c=0; for(const x of hist)if(x===g)c++; return c; }
+const ORDERS=[
+ {id:1, nm:'ルビーラッシュ', base:5, txt:'8枚目までにルビーが4枚掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,8); if(cnt(w,'R')>=4)return 'met';
+     if(h.length>=8||over)return 'failed'; return 'open';}},
+ {id:2, nm:'サファイア鉱脈', base:5, txt:'サファイアが4枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'S')>=4?'met':(over?'failed':'open')},
+ {id:3, nm:'みどりの鉱脈', base:5, txt:'エメラルドが3枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'E')>=3?'met':(over?'failed':'open')},
+ {id:4, nm:'かけこみダイヤ', base:3, txt:'4枚目までにダイヤが掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,4); if(cnt(w,'D')>=1)return 'met';
+     if(h.length>=4||over)return 'failed'; return 'open';}},
+ {id:5, nm:'ダブルダイヤ', base:5, txt:'9枚目までにダイヤが2枚とも掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,9); if(cnt(w,'D')>=2)return 'met';
+     if(h.length>=9||over)return 'failed'; return 'open';}},
+ {id:6, nm:'眠れるダイヤ', base:4, txt:'6枚目までダイヤが1枚も掘られなければ成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6); if(cnt(w,'D')>=1)return 'failed';
+     if(h.length>=6)return 'met'; if(over)return 'met'; return 'open';}},
+ {id:7, nm:'埋もれた宝', base:5, txt:'崩落の3枚にダイヤが含まれていたら成立(最後に公開)',
+   judge:(h,rm,tot,over)=>rm? (rm.indexOf('D')>=0?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
+ {id:8, nm:'崩落は空振り', base:6, txt:'崩落の3枚がすべてルビーかサファイアなら成立(最後に公開)',
+   judge:(h,rm,tot,over)=>rm? (rm.every(g=>g==='R'||g==='S')?'met':'failed') : 'open'},
+ {id:9, nm:'赤の時代', base:5, txt:'終了時、ルビーがサファイアより2枚以上多く掘られていたら成立',
+   judge:(h,rm,tot,over)=>over? (cnt(h,'R')-cnt(h,'S')>=2?'met':'failed') : 'open'},
+ {id:10, nm:'青の逆襲', base:5, txt:'終了時、サファイアがルビー以上掘られていたら成立',
+   judge:(h,rm,tot,over)=>over? (cnt(h,'S')>=cnt(h,'R')?'met':'failed') : 'open'},
+ {id:11, nm:'青の先行', base:3, txt:'サファイアの3枚目がルビーの4枚目より先に掘られたら成立',
+   judge:(h,rm,tot,over)=>{
+   let sc=0,rc=0; for(const x of h){ if(x==='S')sc++; if(x==='R')rc++; if(sc>=3)return 'met'; if(rc>=4)return 'failed'; }
+   return over?'failed':'open';}},
+ {id:12, nm:'緑の先駆け', base:5, txt:'エメラルドの3枚目がルビーの4枚目より先に掘られたら成立',
+   judge:(h,rm,tot,over)=>{
+   let e=0,r=0; for(const x of h){ if(x==='E')e++; if(x==='R')r++; if(e>=3)return 'met'; if(r>=4)return 'failed'; }
+   return over?'failed':'open';}},
+ {id:13, nm:'とどめのダイヤ', base:6, txt:'山札の最後の1枚がダイヤなら成立',
+   judge:(h,rm,tot,over)=>over? (h[h.length-1]==='D'?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
+ {id:14, nm:'希少ペア', base:5, txt:'エメラルドまたはダイヤが同じ種類2枚連続で掘られたら成立(1度でも)',
+   judge:(h,rm,tot,over)=>{ for(let i=1;i<h.length;i++)if(h[i]===h[i-1]&&(h[i]==='E'||h[i]==='D'))return 'met'; return over?'failed':'open';}},
+ {id:15, nm:'四色ならび', base:4, txt:'連続する4枚が4種類すべてになったら成立(1度でも)',
+   judge:(h,rm,tot,over)=>{ for(let i=3;i<h.length;i++){ const w=[h[i-3],h[i-2],h[i-1],h[i]];
+     let uniq=true; for(let a=0;a<4;a++)for(let b=a+1;b<4;b++)if(w[a]===w[b])uniq=false;
+     if(uniq)return 'met'; } return over?'failed':'open';}},
+ {id:16, nm:'大山盛り', base:4, txt:'6枚目までに4種類すべてが掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6);
+     if(GEMKEYS.every(g=>cnt(w,g)>=1))return 'met';
+     if(h.length>=6||over)return 'failed'; return 'open';}},
+ {id:17, nm:'赤の独占', base:6, txt:'ルビーが5枚すべて掘られたら成立',
+   judge:(h,rm,tot,over)=>cnt(h,'R')>=5?'met':(over?'failed':'open')},
+ {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立',
+   judge:(h,rm,tot,over)=>(cnt(h,'E')+cnt(h,'D'))>=4?'failed':(over?'met':'open')},
+];
+const TOOLS=[
+ {fx:'loupe', nm:'ルーペ', txt:'山の一番上をこっそり見る', n:3},
+ {fx:'trial', nm:'試掘', txt:'山の上2枚を見て、好きな順で戻す', n:3},
+ {fx:'dyna', nm:'ダイナマイト', txt:'このターン「掘る」を選んだら2枚掘る', n:2},
+ {fx:'block', nm:'通行止め', txt:'次のプレイヤーは「掘る」を選べない', n:2},
+ {fx:'rebury', nm:'埋め戻し', txt:'直前に掘られた1枚を山に戻してシャッフルする(袋からも没収)', n:2},
+ {fx:'spy', nm:'のぞき見', txt:'相手1人の手札の注文をランダムに1枚見る', n:2},
+ {fx:'survey', nm:'崩落調査', txt:'崩落の1枚をこっそり見る', n:2},
+];
+
+/* ===== Engine(ローカル版v0.3と同一ロジック。newGameはspecs式) ===== */
+const Engine = {
+  newGame(cfg,specs){
+    const np=specs.length;
+    let mine=[]; GEMKEYS.forEach(g=>{for(let i=0;i<GEMS[g].n;i++)mine.push(g);});
+    shuffle(mine);
+    const removed=mine.slice(0,cfg.nRemove);
+    mine=mine.slice(cfg.nRemove);
+    const orderDeck=shuffle(ORDERS.slice());
+    const toolDeck=[]; TOOLS.forEach(t=>{for(let i=0;i<t.n;i++)toolDeck.push(t);});
+    shuffle(toolDeck);
+    const S={cfg,np,mine,removed,removedOpen:false,hist:[],orderDeck,toolDeck,toolDiscard:[],
+      turnIdx:rnd(np),over:false,log:[],noDigStreak:0,roadblock:false,lastDig:null,
+      players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0},toolStats:{}};
+    specs.forEach((sp,i)=>{
+      S.players.push({idx:i,isCPU:!!sp.isCPU,policy:'smart',name:sp.name,
+        orders:[],revealed:[],tools:[Engine.drawTool(S)].filter(Boolean),
+        peek:null,peekRemoved:null,spied:[],dealt:[],revealBonus:0,bag:[]});
+    });
+    S.players.forEach(p=>{ for(let i=0;i<cfg.dealN&&S.orderDeck.length;i++)p.dealt.push(S.orderDeck.pop()); });
+    Engine.log(S,'開山! 鉱山'+S.mine.length+'枚('+cfg.nRemove+'枚は崩落で埋まった)。注文を'+cfg.dealN+'枚から'+cfg.keepN+'枚選んで秘密にキープ');
+    return S;
+  },
+  log(S,m){S.log.push(m);},
+  drawTool(S){
+    if(!S.toolDeck.length){ if(!S.toolDiscard.length)return null;
+      S.toolDeck=shuffle(S.toolDiscard); S.toolDiscard=[]; }
+    return S.toolDeck.pop();
+  },
+  keepOrders(S,pi,idxs){
+    const p=S.players[pi];
+    p.orders=idxs.map(i=>p.dealt[i]).filter(Boolean);
+    p.dealt=[];
+  },
+  totalDigs(S){ return S.mine.length+S.hist.length; },
+  statusOf(S,o){ return o.judge(S.hist,S.removedOpen?S.removed:null,Engine.totalDigs(S),S.over); },
+  canDig(S,pi){ return !S.roadblock && S.mine.length>0; },
+  mustDig(S,pi){ return !S.roadblock && S.noDigStreak>=S.cfg.stallMax && S.mine.length>0; },
+  dig(S,pi){
+    const p=S.players[pi];
+    const n=(p._dyna?2:1);
+    for(let i=0;i<n&&S.mine.length;i++){
+      const g=S.mine.pop(); S.hist.push(g);
+      p.bag.push(g);
+      S.lastDig={pi,g};
+      Engine.log(S,'⛏️ '+p.name+'が掘った → '+GEMS[g].nm+'('+S.hist.length+'枚目)を袋へ(+'+GEMS[g].val+'点)');
+    }
+    p._dyna=false;
+    S.noDigStreak=0;
+    S.players.forEach(q=>{q.peek=null;});
+    S.actionStats.dig++;
+    if(!S.mine.length){ S.over=true; S.removedOpen=true;
+      Engine.log(S,'山が尽きた! 崩落の'+S.removed.length+'枚を公開: '+S.removed.map(g=>GEMS[g].nm).join('・')); }
+  },
+  prep(S,pi,swapIdx){
+    const p=S.players[pi];
+    const t=Engine.drawTool(S);
+    if(t){ p.tools.push(t);
+      while(p.tools.length>S.cfg.toolMax){const d=p.tools.splice(rnd(p.tools.length),1)[0];S.toolDiscard.push(d);} }
+    let msg=p.name+'は準備した(道具を1枚引いた)';
+    if(swapIdx!=null&&p.orders[swapIdx]&&S.orderDeck.length){
+      const inn=S.orderDeck.pop();
+      p.orders[swapIdx]=inn;
+      msg+='。注文を1枚入れ替えた';
+      S.actionStats.swap++;
+    }
+    S.noDigStreak++;
+    S.actionStats.prep++;
+    Engine.log(S,msg);
+  },
+  revealBonus(S){ return S.mine.length>=7?2:S.mine.length>=4?1:0; },
+  reveal(S,pi,oi){
+    const p=S.players[pi];
+    const o=p.orders[oi];
+    if(!o)return false;
+    if(Engine.statusOf(S,o)!=='met')return false;
+    const b=Engine.revealBonus(S);
+    p.orders.splice(oi,1);
+    p.revealed.push(o);
+    p.revealBonus=(p.revealBonus||0)+b;
+    S.actionStats.reveal++;
+    Engine.log(S,'📜 '+p.name+'が注文「'+o.nm+'」を公開して確定!(+'+o.base+'点保証'+(b?'、早出し+'+b:'')+')');
+    return true;
+  },
+  useTool(S,pi,ti,choice){
+    const p=S.players[pi];
+    const t=p.tools[ti];
+    if(!t)return false;
+    p.tools.splice(ti,1); S.toolDiscard.push(t);
+    S.toolStats[t.fx]=(S.toolStats[t.fx]||0)+1;
+    switch(t.fx){
+      case 'loupe': p.peek=S.mine.length?[S.mine[S.mine.length-1]]:[];
+        Engine.log(S,p.name+'が「ルーペ」: 山の上をこっそり見た'); break;
+      case 'trial':{
+        if(choice&&choice.swap&&S.mine.length>=2){
+          const a=S.mine.pop(), b=S.mine.pop();
+          S.mine.push(a); S.mine.push(b);
+        }
+        p.peek=S.mine.slice(-2).reverse();
+        Engine.log(S,p.name+'が「試掘」: 山の上2枚を見て'+(choice&&choice.swap?'入れ替えた':'そのまま戻した')); break; }
+      case 'dyna': p._dyna=true;
+        Engine.log(S,p.name+'が「ダイナマイト」: このターン掘るなら2枚!'); break;
+      case 'block': S.roadblock=true;
+        Engine.log(S,p.name+'が「通行止め」: 次のプレイヤーは掘れない'); break;
+      case 'rebury':{
+        if(S.hist.length){
+          const g=S.hist.pop();
+          S.mine.push(g); shuffle(S.mine);
+          if(S.lastDig&&S.lastDig.g===g){
+            const q=S.players[S.lastDig.pi];
+            const bi=q.bag.lastIndexOf(g);
+            if(bi>=0)q.bag.splice(bi,1);
+            Engine.log(S,'⏪ '+p.name+'が「埋め戻し」: '+q.name+'の袋から'+GEMS[g].nm+'が山に戻った(隠れ成立も崩れたかも…)');
+          }else{
+            Engine.log(S,'⏪ '+p.name+'が「埋め戻し」: '+GEMS[g].nm+'が山に戻ってシャッフルされた');
+          }
+          S.lastDig=null;
+        } break; }
+      case 'spy':{
+        const t2=(choice&&choice.tPi!=null)?S.players[choice.tPi]:null;
+        if(t2&&t2.orders.length){
+          const o=t2.orders[rnd(t2.orders.length)];
+          p.spied.push({who:t2.name,nm:o.nm});
+          Engine.log(S,p.name+'が「のぞき見」: '+t2.name+'の注文を1枚見た');
+        } break; }
+      case 'survey':{
+        if(S.removed.length&&!S.removedOpen){
+          p.peekRemoved=S.removed[rnd(S.removed.length)];
+          Engine.log(S,p.name+'が「崩落調査」: 崩落の1枚をこっそり見た');
+        } break; }
+    }
+    return true;
+  },
+  endTurn(S){
+    if(S.roadblock&&S._roadblockUsed){S.roadblock=false;S._roadblockUsed=false;}
+    S.turnIdx=(S.turnIdx+1)%S.np;
+  },
+  finalScore(S){
+    const res=S.players.map(p=>{
+      const r={pts:0,notes:[]};
+      const bagPts=p.bag.reduce((a,g)=>a+GEMS[g].val,0);
+      if(bagPts){ r.pts+=bagPts; r.notes.push('袋の宝石 +'+bagPts+'('+p.bag.map(g=>GEMS[g].nm[0]).join('')+')'); }
+      p.revealed.forEach(o=>{ r.pts+=o.base; r.notes.push('公開済「'+o.nm+'」+'+o.base); });
+      if(p.revealBonus){ r.pts+=p.revealBonus; r.notes.push('早出しボーナス+'+p.revealBonus); }
+      p.orders.forEach(o=>{
+        const st=Engine.statusOf(S,o);
+        if(st==='met'){ r.pts+=o.base; r.notes.push('隠し成立「'+o.nm+'」+'+o.base); }
+        else { r.pts+=S.cfg.failPen; r.notes.push('不成立「'+o.nm+'」'+S.cfg.failPen); }
+      });
+      r.total=r.pts;
+      return r;
+    });
+    const rank=S.players.map((p,i)=>({i,total:res[i].total,tb:Math.random()})).sort((a,b)=>b.total-a.total||b.tb-a.tb);
+    return {res,rank};
+  },
+  estimateP(S,o,trials){
+    S._pcache=S._pcache||{};
+    const key=o.id+':'+S.hist.join('')+':'+S.mine.length;
+    if(key in S._pcache)return S._pcache[key];
+    const T=trials||50;
+    const remain=[];
+    GEMKEYS.forEach(g=>{ for(let i=0;i<GEMS[g].n-cnt(S.hist,g);i++)remain.push(g); });
+    let met=0;
+    for(let t=0;t<T;t++){
+      const r=shuffle(remain.slice());
+      const rm=S.removedOpen?S.removed:r.slice(0,S.cfg.nRemove);
+      const fut=S.removedOpen?shuffle(S.mine.slice()):r.slice(S.cfg.nRemove);
+      const h=S.hist.slice();
+      let st=o.judge(h,null,h.length+fut.length,false);
+      for(let i=fut.length-1;i>=0&&st==='open';i--){
+        h.push(fut[i]);
+        const over=h.length>=S.hist.length+fut.length;
+        st=o.judge(h,over?rm:null,S.hist.length+fut.length,over);
+      }
+      if(st==='open')st=o.judge(h,rm,h.length,true);
+      if(st==='met')met++;
+    }
+    const v=met/T;
+    S._pcache[key]=v;
+    return v;
+  },
+  cpuKeep(S,pi){
+    const p=S.players[pi];
+    const scored=p.dealt.map((o,i)=>({i,score:o.base*Engine.estimateP(S,o,40)+Math.random()*0.5}));
+    scored.sort((a,b)=>b.score-a.score);
+    Engine.keepOrders(S,pi,scored.slice(0,S.cfg.keepN).map(x=>x.i));
+  },
+  cpuTurn(S,pi){
+    const p=S.players[pi];
+    const rndPolicy=p.policy==='random';
+    for(let oi=p.orders.length-1;oi>=0;oi--){
+      if(Engine.statusOf(S,p.orders[oi])==='met'){
+        const pr=rndPolicy?0.5:0.75;
+        if(Math.random()<pr)Engine.reveal(S,pi,oi);
+      }
+    }
+    if(!rndPolicy&&p.tools.length){
+      const li=p.tools.findIndex(t=>t.fx==='loupe');
+      const ti2=p.tools.findIndex(t=>t.fx==='trial');
+      const di=p.tools.findIndex(t=>t.fx==='dyna');
+      const bi=p.tools.findIndex(t=>t.fx==='block');
+      const ri=p.tools.findIndex(t=>t.fx==='rebury');
+      const si=p.tools.findIndex(t=>t.fx==='spy');
+      const vi=p.tools.findIndex(t=>t.fx==='survey');
+      if(li>=0&&Math.random()<0.6)Engine.useTool(S,pi,li,{});
+      else if(ti2>=0&&Math.random()<0.4)Engine.useTool(S,pi,ti2,{swap:Math.random()<0.5});
+      else if(vi>=0&&p.orders.some(o=>o.id===7||o.id===8)&&Math.random()<0.8)Engine.useTool(S,pi,vi,{});
+      else if(ri>=0&&S.hist.length&&Math.random()<0.35){
+        const before=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
+        const g=S.hist[S.hist.length-1];
+        S.hist.pop(); S._pcache={};
+        const after=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
+        S.hist.push(g); S._pcache={};
+        if(after>before+0.12)Engine.useTool(S,pi,ri,{});
+      }
+      else if(di>=0&&Math.random()<0.4)Engine.useTool(S,pi,di,{});
+      else if(bi>=0&&Math.random()<0.25)Engine.useTool(S,pi,bi,{});
+      else if(si>=0&&Math.random()<0.3){
+        const cands=S.players.filter(q=>q.idx!==pi&&q.orders.length);
+        if(cands.length)Engine.useTool(S,pi,si,{tPi:cands[rnd(cands.length)].idx});
+      }
+    }else if(rndPolicy&&p.tools.length&&Math.random()<0.4){
+      const ti3=rnd(p.tools.length);
+      const t=p.tools[ti3];
+      const ch=t.fx==='spy'?{tPi:(pi+1)%S.np}:t.fx==='trial'?{swap:Math.random()<0.5}:{};
+      Engine.useTool(S,pi,ti3,ch);
+    }
+    const canDig=Engine.canDig(S,pi);
+    const must=Engine.mustDig(S,pi);
+    let doDig;
+    if(!canDig)doDig=false;
+    else if(must)doDig=true;
+    else if(rndPolicy)doDig=Math.random()<0.6;
+    else{
+      let digScore=0.5;
+      {
+        const remainAll=[];
+        GEMKEYS.forEach(g=>{ for(let i=0;i<GEMS[g].n-cnt(S.hist,g);i++)remainAll.push(GEMS[g].val); });
+        const evGem=remainAll.length?remainAll.reduce((a,b)=>a+b,0)/remainAll.length:0;
+        digScore+=(p.peek&&p.peek.length)?GEMS[p.peek[0]].val*0.5:evGem*0.5;
+      }
+      p.orders.forEach(o=>{
+        const st=Engine.statusOf(S,o);
+        if(st!=='open')return;
+        const P=Engine.estimateP(S,o,40);
+        if(P>0.25&&P<0.95)digScore+=0.5;
+      });
+      if(p.peek&&p.peek.length){
+        const g=p.peek[0];
+        const before=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.hist.push(g); const mtop=S.mine.pop(); S._pcache={};
+        const after=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.mine.push(mtop); S.hist.pop(); S._pcache={};
+        digScore+=(after-before)*3;
+      }
+      let prepScore=0.6+(p.tools.length===0?0.5:0);
+      const dead=p.orders.findIndex(o=>Engine.statusOf(S,o)==='failed'||Engine.estimateP(S,o,40)<0.1);
+      if(dead>=0&&S.orderDeck.length)prepScore+=1.2;
+      const pick=softmaxPick([{v:'dig',score:digScore},{v:'prep',score:prepScore}],0.5);
+      doDig=pick.v==='dig';
+    }
+    if(doDig){ Engine.dig(S,pi); }
+    else{
+      let swapIdx=null;
+      if(S.orderDeck.length){
+        const dead=p.orders.findIndex(o=>Engine.statusOf(S,o)==='failed'||(p.policy!=='random'&&Engine.estimateP(S,o,40)<0.1));
+        if(dead>=0)swapIdx=dead;
+        else if(rndPolicy&&Math.random()<0.2&&p.orders.length)swapIdx=rnd(p.orders.length);
+      }
+      Engine.prep(S,pi,swapIdx);
+    }
+    for(let oi=p.orders.length-1;oi>=0;oi--){
+      if(Engine.statusOf(S,p.orders[oi])==='met'&&Math.random()<(rndPolicy?0.4:0.7))Engine.reveal(S,pi,oi);
+    }
+    if(S.roadblock&&!canDig)S.roadblock=false;
+    Engine.endTurn(S);
+  }
+};
+
+/* ================= 通信・進行 ================= */
+let role=null, myName='', roomId='';
+let peer=null, hostConns=[], guestConn=null;
+let S=null;             // hostのみ
+let Flow=null;          // hostのみ: {phase:'keep'|'turn'|'afterAct', waiting, toolUsed, pendingKeep:[]}
+let sentLog=0;
+let mySeat=-1, curSnap=null;
+let myTurn=null;        // 自分の未消化UI状態 {phase:'keep'|'turn'|'afterAct'|'tview', data}
+
+function log(msg){ const el=$('log'); el.innerHTML+='<div>'+msg+'</div>'; el.scrollTop=el.scrollHeight; }
+function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
+function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('actionBody').innerHTML=html; }
+function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'hori-'+r; }
+function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
+function gemHTML(g,mini){ return '<span class="gem '+g+(mini?' mini':'')+'">'+GEMS[g].nm[0]+'</span>'; }
+function orderHTML(o,cls,id,extra){
+  return '<div '+(id?'id="'+id+'" ':'')+'class="ocard '+(cls||'')+'"><div class="nm">'+o.nm
+    +' <span class="base">'+o.base+'点</span></div><div class="cond">'+o.txt+'</div>'+(extra||'')+'</div>';
+}
+
+/* ---------- 共通描画(snapから) ---------- */
+function applySnap(snap,lines){
+  curSnap=snap;
+  (lines||[]).forEach(l=>log(l));
+  $('drawInfo').textContent='山 残り'+snap.mineLeft+'枚 / 注文山'+snap.orderDeckLeft+'枚 / 道具山'+snap.toolDeckLeft+'枚'
+    +(snap.roadblock?' / 🚧通行止め中':'')
+    +(snap.noDigStreak>=snap.stallMax?' / 😠掘る強制':snap.noDigStreak>0?' / 連続準備'+snap.noDigStreak:'');
+  let h='<div class="row"><span class="hint">掘られた列:</span> '+(snap.hist.map(g=>gemHTML(g)).join('')||'(まだ)')
+    +' <span class="hint" style="margin-left:10px">崩落:</span> '
+    +(snap.removedOpen?snap.removed.map(g=>gemHTML(g)).join(''):Array(snap.nRemove).fill('<span class="gem back">?</span>').join(''))+'</div>';
+  h+='<div class="hint" style="margin-top:4px">残り構成(崩落含む): '
+    +GEMKEYS.map(g=>GEMS[g].nm+' '+(GEMS[g].n-cnt(snap.hist,g))+'枚').join(' / ')+'</div>';
+  $('mine').innerHTML=h;
+  let ph='';
+  snap.players.forEach((p,pi)=>{
+    ph+='<div class="pl'+(pi===mySeat?' me':'')+(pi===snap.turnIdx&&!snap.over?' turn':'')+'"><div class="name"><span>'+p.name
+      +(p.isCPU?' <span class="badge bot">CPU</span>':'')
+      +'</span><span class="score">'+p.fixedPts+'点確定</span></div>'
+      +'<div class="mini">袋: '+(p.bag.length?p.bag.map(g=>gemHTML(g,true)).join(''):'なし')+'</div>'
+      +'<div class="mini">公開済: '+(p.revealed.map(o=>o.nm+'(+'+o.base+')').join(' / ')||'なし')+'</div>'
+      +'<div class="mini">手札: 注文'+p.ordersCount+'枚(秘密) / 道具'+p.toolsCount+'枚</div></div>';
+  });
+  $('players').innerHTML=ph;
+  $('banner').textContent=snap.over?'閉山!':(snap.phase==='keep'?'注文をえらんでいます…':'手番: '+snap.players[snap.turnIdx].name+'(掘られた'+snap.hist.length+'枚 / 山残り'+snap.mineLeft+'枚)');
+  // 手番でない側の待機表示。自分の未消化UI(myTurn)は必ず復元
+  if(snap.phase==='keep'){
+    if(myTurn&&myTurn.phase==='keep'){ renderMyTurn(); }
+    else{ $('turnTitle').textContent='キープ待ち'; setAction('<span class="hint">全員が注文をえらぶのを待っています…</span><div id="targetArea"></div>'); }
+  }else if(snap.actor>=0&&snap.actor!==mySeat){
+    myTurn=null;
+    $('turnTitle').textContent=snap.players[snap.actor].name+' の番…';
+    setAction('<span class="hint">待っています…</span><div id="targetArea"></div>');
+  }else if(snap.actor===mySeat){
+    if(myTurn)renderMyTurn();
+    else{ $('turnTitle').textContent='あなたの番です'; setAction('<span class="hint">…</span><div id="targetArea"></div>'); }
+  }
+}
+function sendAct(a){ if(role==='host')hostApplyAct(mySeat,a); else guestConn.send({t:'act',a}); }
+function renderMyTurn(){ if(!myTurn)return; renderTurn(myTurn.data,sendAct); }
+
+/* ---------- 手番UI(ホスト自席もゲストも同じ描画) ---------- */
+function renderTurn(data,send){
+  if(data.phase==='keep'){
+    $('turnTitle').textContent=data.myName+' ― 注文を'+data.keepN+'枚えらんでキープ(秘密の目標になる)';
+    let h='<div class="row">';
+    data.dealt.forEach((o,i)=>{ h+=orderHTML(o,'pick','kp'+i); });
+    h+='</div><div class="row" style="margin-top:10px"><button id="keepBtn" disabled>この'+data.keepN+'枚にする</button></div><div id="targetArea"></div>';
+    setAction(h);
+    const sel=[];
+    data.dealt.forEach((o,i)=>{
+      $('kp'+i).onclick=()=>{
+        const at=sel.indexOf(i);
+        if(at>=0)sel.splice(at,1);
+        else{ if(sel.length>=data.keepN)sel.shift(); sel.push(i); }
+        data.dealt.forEach((_,j)=>{ $('kp'+j).classList.toggle('met',sel.indexOf(j)>=0); });
+        $('keepBtn').disabled=(sel.length!==data.keepN);
+      };
+    });
+    $('keepBtn').onclick=()=>send({type:'keep',idxs:sel.slice()});
+    return;
+  }
+  if(data.phase==='tview'){
+    $('turnTitle').textContent=data.myName+' ― 試掘';
+    setAction('<div class="banner">🔍 山の上: '+data.view.map(g=>GEMS[g].nm).join(' → ')+'</div><div class="row">'
+      +'<button id="tg0" class="ghost small">そのまま戻す</button>'
+      +(data.view.length>=2?'<button id="tg1" class="ghost small">入れ替えて戻す</button>':'')
+      +'</div><div id="targetArea"></div>');
+    $('tg0').onclick=()=>send({type:'tool',ti:data.ti,choice:{swap:false}});
+    if($('tg1'))$('tg1').onclick=()=>send({type:'tool',ti:data.ti,choice:{swap:true}});
+    return;
+  }
+  if(data.phase==='afterAct'){
+    $('turnTitle').textContent=data.myName+' ― 成立中の注文があります。公開して確定しますか?';
+    let h='<div class="row">';
+    data.mets.forEach(m=>{ h+='<button id="rv'+m.oi+'" class="small">📜「'+m.nm+'」を確定(+'+m.base+(data.revealBonus?' 早出し+'+data.revealBonus:'')+')</button>'; });
+    h+='<button id="holdBtn" class="ghost small">隠したまま次へ(埋め戻しに注意)</button></div><div id="targetArea"></div>';
+    setAction(h);
+    data.mets.forEach(m=>{ $('rv'+m.oi).onclick=()=>send({type:'reveal',oi:m.oi}); });
+    $('holdBtn').onclick=()=>send({type:'endTurn'});
+    return;
+  }
+  // phase==='turn'
+  $('turnTitle').textContent=data.myName+' の番'+(data.roadblock?'(🚧通行止め: 掘れない)':data.mustDig?'(😠掘る強制)':'');
+  let h='';
+  if(data.peek&&data.peek.length)h+='<div class="banner">🔍 山の上: '+data.peek.map(g=>GEMS[g].nm).join(' → ')+'(あなただけの情報)</div>';
+  if(data.peekRemoved)h+='<div class="banner">🕳️ 崩落調査: 崩落のうち1枚は '+GEMS[data.peekRemoved].nm+'(あなただけの情報)</div>';
+  if(data.spied&&data.spied.length)h+='<div class="hint">のぞき見メモ: '+data.spied.map(s=>s.who+'「'+s.nm+'」').join(' / ')+'</div>';
+  h+='<h3>あなたの注文(秘密)</h3><div class="row">';
+  data.orders.forEach(o=>{
+    const cls=o.st==='met'?'met':o.st==='failed'?'failed':'';
+    const extra=o.st==='met'?'<div class="row" style="margin-top:4px"><button id="rv'+o.oi+'" class="small">📜 公開して確定(+'+o.base+(data.revealBonus?' 早出し+'+data.revealBonus:'')+')</button></div>'
+      :o.st==='failed'?'<div class="hint">不成立確定…(準備で入れ替え可)</div>':'';
+    h+=orderHTML(o,cls,null,extra);
+  });
+  h+='</div>';
+  if(data.tools.length){
+    h+='<h3>道具(任意・1枚)</h3><div class="row">';
+    data.tools.forEach(t=>{h+='<div id="tl'+t.ti+'" class="tcard pick"><div class="nm">'+t.nm+'</div><div>'+t.txt+'</div></div>';});
+    h+='</div>';
+  }
+  h+='<h3>アクション</h3><div class="row">'
+    +'<button id="digBtn"'+(data.canDig?'':' disabled')+'>⛏️ 掘る'+(data.dyna?'(ダイナマイトで2枚!)':'')+'</button>'
+    +'<button id="prepBtn" class="ghost"'+(data.mustDig?' disabled':'')+'>🎒 準備(道具1枚+入れ替え可)</button>'
+    +'</div><div id="targetArea"></div>';
+  setAction(h);
+  data.orders.forEach(o=>{
+    const el=$('rv'+o.oi);
+    if(el)el.onclick=()=>send({type:'reveal',oi:o.oi});
+  });
+  data.tools.forEach(t=>{
+    const el=$('tl'+t.ti);
+    if(!el)return;
+    el.onclick=()=>{
+      if(t.fx==='trial'){ send({type:'tview',ti:t.ti}); return; }
+      if(t.fx==='spy'){
+        if(!data.spyTargets.length){ alert('のぞける相手がいません'); return; }
+        let th='<h3>だれをのぞく?</h3><div class="row">';
+        data.spyTargets.forEach((s,i)=>{th+='<button id="tg'+i+'" class="ghost small">'+s.label+'</button>';});
+        $('targetArea').innerHTML=th+'</div>';
+        data.spyTargets.forEach((s,i)=>{ $('tg'+i).onclick=()=>send({type:'tool',ti:t.ti,choice:{tPi:s.tPi}}); });
+        return;
+      }
+      send({type:'tool',ti:t.ti,choice:{}});
+    };
+  });
+  $('digBtn').onclick=()=>send({type:'dig'});
+  $('prepBtn').onclick=()=>{
+    if(data.canSwap&&data.orders.length){
+      let th='<h3>準備: 注文を入れ替える?(任意)</h3><div class="row">';
+      data.orders.forEach(o=>{ th+='<button id="sw'+o.oi+'" class="ghost small">「'+o.nm+'」を捨てて引き直す</button>'; });
+      th+='<button id="swSkip" class="small">入れ替えない</button></div>';
+      $('targetArea').innerHTML=th;
+      data.orders.forEach(o=>{ $('sw'+o.oi).onclick=()=>send({type:'prep',swapOi:o.oi}); });
+      $('swSkip').onclick=()=>send({type:'prep',swapOi:null});
+    }else send({type:'prep',swapOi:null});
+  };
+}
+
+/* ---------- ホスト ---------- */
+function createRoom(){
+  myName=($('nameInput').value||'ホスト').trim()||'ホスト';
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='host'; roomId=randCode();
+  $('homeErr').textContent='';
+  peer=new window.Peer(roomId);
+  peer.on('open',()=>{
+    show('lobby');
+    $('roleTag').textContent='あなたがホスト(進行役)です';
+    $('roomCodeView').textContent=roomId;
+    $('hostCfg').classList.remove('hidden');
+    $('lobbyHint').textContent='全員が入ったら「ゲーム開始」。CPUを足して人数を埋めることもできます。';
+    renderLobby();
+  });
+  peer.on('connection',conn=>{
+    conn.on('data',d=>onHostData(conn,d));
+    conn.on('close',()=>onGuestLeave(conn));
+  });
+  peer.on('error',e=>{
+    if(String(e&&e.type)==='unavailable-id'){ roomId=randCode(); peer=null; createRoom(); return; }
+    $('homeErr').textContent='接続エラー: '+(e&&e.type?e.type:e);
+  });
+}
+function lobbyNames(){
+  const names=[{name:myName+'(ホスト)',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach(c=>names.push({name:c.name,isCPU:false}));
+  const ncpu=+$('nCpu').value;
+  for(let i=0;i<ncpu;i++) names.push({name:'CPU'+(i+1),isCPU:true});
+  return names;
+}
+function onHostData(conn,d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='hello'){
+    if(S){ conn.send({t:'busy'}); return; }
+    let nm=String(d.name||'ゲスト').slice(0,8);
+    const exist=lobbyNames().map(x=>x.name);
+    if(exist.includes(nm)) nm=nm+'2';
+    hostConns.push({conn,seat:-1,name:nm,alive:true});
+    broadcastLobby();
+  }
+  if(d.t==='act'){
+    const rec=hostConns.find(c=>c.conn===conn&&c.alive);
+    if(!rec||rec.seat<0) return;
+    hostApplyAct(rec.seat,d.a||{});
+  }
+}
+function onGuestLeave(conn){
+  const rec=hostConns.find(c=>c.conn===conn);
+  if(!rec||!rec.alive) return;
+  rec.alive=false;
+  if(S&&rec.seat>=0){
+    const seat=rec.seat;
+    S.players[seat].isCPU=true;
+    Engine.log(S,'⚠️ '+rec.name+' が切断 → CPUが代わりに打ちます');
+    if(Flow&&Flow.phase==='keep'&&Flow.pendingKeep.indexOf(seat)>=0){
+      Engine.cpuKeep(S,seat);
+      Flow.pendingKeep=Flow.pendingKeep.filter(x=>x!==seat);
+      sync();
+      maybeStartTurns();
+    }else if(Flow&&Flow.waiting===seat){
+      if(Flow.phase==='afterAct'){
+        const p=S.players[seat];
+        for(let oi=p.orders.length-1;oi>=0;oi--){ if(Engine.statusOf(S,p.orders[oi])==='met')Engine.reveal(S,seat,oi); }
+        sync(); doEndTurn();
+      }else{
+        Flow.waiting=null; Flow.phase='turn';
+        Engine.cpuTurn(S,seat);
+        sync(); stepTurn();
+      }
+    }else sync();
+  } else {
+    broadcastLobby();
+  }
+}
+function hostBroadcast(msg){ hostConns.filter(c=>c.alive).forEach(c=>{ try{ c.conn.send(msg); }catch(e){} }); }
+function sendTo(seat,msg){ const rec=hostConns.find(c=>c.alive&&c.seat===seat); if(rec){ try{ rec.conn.send(msg); }catch(e){} } }
+function broadcastLobby(){ hostBroadcast({t:'lobby',names:lobbyNames()}); renderLobby(); }
+function renderLobby(){
+  const box=$('lobbyPlayers'); box.innerHTML='';
+  const names=(role==='host')?lobbyNames():(curSnap&&curSnap.lobbyNames)||[];
+  names.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='pl';
+    d.innerHTML='<div class="name"><span>'+n.name+(n.isCPU?' <span class="badge bot">BOT</span>':'')+'</span><span class="badge ok">参加中</span></div>';
+    box.appendChild(d);
+  });
+}
+function buildSnap(){
+  return {
+    phase:Flow?Flow.phase:'', actor:(Flow&&Flow.waiting!=null)?Flow.waiting:-1,
+    over:S.over, turnIdx:S.turnIdx, mineLeft:S.mine.length,
+    orderDeckLeft:S.orderDeck.length, toolDeckLeft:S.toolDeck.length,
+    roadblock:S.roadblock, noDigStreak:S.noDigStreak, stallMax:S.cfg.stallMax,
+    hist:S.hist.slice(), removedOpen:S.removedOpen,
+    removed:S.removedOpen?S.removed.slice():[], nRemove:S.cfg.nRemove,
+    players:S.players.map(p=>({
+      name:p.name,isCPU:p.isCPU,bag:p.bag.slice(),
+      fixedPts:p.bag.reduce((a,g)=>a+GEMS[g].val,0)+p.revealed.reduce((a,o)=>a+o.base,0)+(p.revealBonus||0),
+      revealed:p.revealed.map(o=>({nm:o.nm,base:o.base})),
+      ordersCount:p.orders.length,toolsCount:p.tools.length
+    }))
+  };
+}
+function sync(){
+  const snap=buildSnap();
+  const lines=S.log.slice(sentLog); sentLog=S.log.length;
+  hostBroadcast({t:'snap',snap,log:lines});
+  applySnap(snap,lines);
+}
+function buildTurnData(pi){
+  const p=S.players[pi];
+  return {
+    phase:'turn', myName:p.name,
+    canDig:Engine.canDig(S,pi), mustDig:Engine.mustDig(S,pi),
+    roadblock:S.roadblock, dyna:!!p._dyna,
+    orders:p.orders.map((o,oi)=>({oi,nm:o.nm,txt:o.txt,base:o.base,st:Engine.statusOf(S,o)})),
+    tools:Flow.toolUsed?[]:p.tools.map((t,ti)=>({ti,nm:t.nm,txt:t.txt,fx:t.fx})),
+    peek:p.peek, peekRemoved:p.peekRemoved, spied:p.spied,
+    canSwap:S.orderDeck.length>0, revealBonus:Engine.revealBonus(S),
+    spyTargets:S.players.filter(q=>q.idx!==pi&&q.orders.length).map(q=>({tPi:q.idx,label:q.name}))
+  };
+}
+function buildAfterActData(pi){
+  const p=S.players[pi];
+  return {
+    phase:'afterAct', myName:p.name, revealBonus:Engine.revealBonus(S),
+    mets:p.orders.map((o,oi)=>({oi,nm:o.nm,base:o.base,st:Engine.statusOf(S,o)})).filter(x=>x.st==='met')
+  };
+}
+function hostStart(){
+  const humans=1+hostConns.filter(c=>c.alive).length;
+  const ncpu=+$('nCpu').value;
+  const total=humans+ncpu;
+  if(total<2||total>5){ $('lobbyErr').textContent='合計2〜5人にしてください(今: 人間'+humans+'+CPU'+ncpu+')'; return; }
+  $('lobbyErr').textContent='';
+  const cfg={dealN:3,keepN:2,nRemove:+$('nRemove').value,failPen:-1,stallMax:3,toolMax:3};
+  const specs=[{name:myName+'(ホスト)',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach((c,i)=>{ c.seat=i+1; specs.push({name:c.name,isCPU:false}); });
+  for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true});
+  S=Engine.newGame(cfg,specs);
+  mySeat=0; sentLog=0; myTurn=null;
+  hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+  $('log').innerHTML='';
+  show('game');
+  // キープフェイズ
+  Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[]};
+  S.players.forEach((p,pi)=>{
+    if(p.isCPU){ Engine.cpuKeep(S,pi); }
+    else Flow.pendingKeep.push(pi);
+  });
+  sync();
+  // 人間にキープUIを配る
+  S.players.forEach((p,pi)=>{
+    if(p.isCPU)return;
+    const data={phase:'keep',myName:p.name,keepN:S.cfg.keepN,
+      dealt:p.dealt.map(o=>({nm:o.nm,txt:o.txt,base:o.base}))};
+    if(pi===mySeat){ myTurn={phase:'keep',data}; renderMyTurn(); }
+    else sendTo(pi,{t:'turn',data});
+  });
+}
+function maybeStartTurns(){
+  if(Flow.phase!=='keep'||Flow.pendingKeep.length)return;
+  Flow={phase:'turn',waiting:null,toolUsed:false,pendingKeep:[]};
+  Engine.log(S,'全員のキープ完了。採掘開始!');
+  stepTurn();
+}
+function stepTurn(){
+  if(!S)return;
+  if(S.over){ hostFinish(); return; }
+  const pi=S.turnIdx;
+  const p=S.players[pi];
+  Flow.phase='turn'; Flow.waiting=pi; Flow.toolUsed=false;
+  if(S.roadblock)S._roadblockUsed=true;
+  if(p.isCPU){
+    Flow.waiting=null;
+    sync();
+    setTimeout(()=>{ if(!S||S.over&&false)return; Engine.cpuTurn(S,pi); sync(); stepTurn(); },cpuMs());
+    return;
+  }
+  if(pi===mySeat){ myTurn={phase:'turn',data:buildTurnData(pi)}; sync(); }
+  else{ sync(); sendTo(pi,{t:'turn',data:buildTurnData(pi)}); }
+}
+function afterAction(pi){
+  sync();
+  if(S.over){ doEndTurn(); return; }
+  const data=buildAfterActData(pi);
+  if(!data.mets.length){ doEndTurn(); return; }
+  Flow.phase='afterAct';
+  if(pi===mySeat){ myTurn={phase:'afterAct',data}; renderMyTurn(); }
+  else sendTo(pi,{t:'turn',data});
+}
+function doEndTurn(){
+  myTurn=null;
+  Engine.endTurn(S);
+  Flow.phase='turn'; Flow.waiting=null;
+  sync();
+  stepTurn();
+}
+function hostApplyAct(pi,a){
+  if(!Flow)return;
+  const p=S.players[pi];
+  if(a.type==='keep'){
+    if(Flow.phase!=='keep'||Flow.pendingKeep.indexOf(pi)<0)return;
+    const idxs=(a.idxs||[]).filter(i=>i>=0&&i<p.dealt.length).slice(0,S.cfg.keepN);
+    if(idxs.length!==S.cfg.keepN)return;
+    Engine.keepOrders(S,pi,idxs);
+    Flow.pendingKeep=Flow.pendingKeep.filter(x=>x!==pi);
+    if(pi===mySeat)myTurn=null;
+    sync();
+    maybeStartTurns();
+    return;
+  }
+  if(Flow.waiting!==pi)return;
+  if(a.type==='reveal'){
+    if(Engine.reveal(S,pi,a.oi)){
+      if(Flow.phase==='afterAct'){
+        sync();
+        const data=buildAfterActData(pi);
+        if(!data.mets.length){ doEndTurn(); return; }
+        if(pi===mySeat){ myTurn={phase:'afterAct',data}; renderMyTurn(); }
+        else sendTo(pi,{t:'turn',data});
+      }else{
+        sync();
+        if(pi===mySeat){ myTurn={phase:'turn',data:buildTurnData(pi)}; renderMyTurn(); }
+        else sendTo(pi,{t:'turn',data:buildTurnData(pi)});
+      }
+    }
+    return;
+  }
+  if(Flow.phase==='afterAct'){
+    if(a.type==='endTurn')doEndTurn();
+    return;
+  }
+  // phase 'turn'
+  if(a.type==='tview'){
+    const t=p.tools[a.ti];
+    if(!t||t.fx!=='trial'||Flow.toolUsed)return;
+    const view=S.mine.slice(-2).reverse();
+    if(!view.length)return;
+    if(pi===mySeat){ myTurn={phase:'tview',data:{phase:'tview',myName:p.name,ti:a.ti,view}}; renderMyTurn(); }
+    else sendTo(pi,{t:'turn',data:{phase:'tview',myName:p.name,ti:a.ti,view}});
+    return;
+  }
+  if(a.type==='tool'){
+    if(Flow.toolUsed)return;
+    const t=p.tools[a.ti];
+    if(!t)return;
+    Engine.useTool(S,pi,a.ti,a.choice||{});
+    Flow.toolUsed=true;
+    sync();
+    if(pi===mySeat){ myTurn={phase:'turn',data:buildTurnData(pi)}; renderMyTurn(); }
+    else sendTo(pi,{t:'turn',data:buildTurnData(pi)});
+    return;
+  }
+  if(a.type==='dig'){
+    if(!Engine.canDig(S,pi))return;
+    Engine.dig(S,pi);
+    myTurn=(pi===mySeat)?null:myTurn;
+    afterAction(pi);
+    return;
+  }
+  if(a.type==='prep'){
+    if(Engine.mustDig(S,pi))return;
+    const swapOi=(a.swapOi!=null&&p.orders[a.swapOi])?a.swapOi:null;
+    Engine.prep(S,pi,swapOi);
+    myTurn=(pi===mySeat)?null:myTurn;
+    afterAction(pi);
+    return;
+  }
+}
+function hostFinish(){
+  const f=Engine.finalScore(S);
+  sync();
+  const rows=f.rank.map((rk,i)=>{
+    const p=S.players[rk.i]; const rs=f.res[rk.i];
+    return {pos:i+1,name:p.name,isCPU:p.isCPU,total:rs.total,notes:rs.notes};
+  });
+  const data={rows,gap:f.rank[0].total-f.rank[1].total,
+    removed:S.removed.slice(),hist:S.hist.slice()};
+  hostBroadcast({t:'result',data});
+  renderResult(data);
+}
+
+/* ---------- ゲスト ---------- */
+function joinRoom(){
+  myName=($('nameInput').value||'ゲスト').trim()||'ゲスト';
+  const code=($('roomInput').value||'').trim();
+  if(!code){ $('homeErr').textContent='部屋コードを入れてください。'; return; }
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='guest';
+  $('homeErr').textContent='接続中…';
+  peer=new window.Peer();
+  peer.on('open',()=>{
+    guestConn=peer.connect(code,{reliable:true});
+    guestConn.on('open',()=>{ guestConn.send({t:'hello',name:myName}); });
+    guestConn.on('data',onGuestData);
+    guestConn.on('close',()=>{
+      $('banner')&&($('banner').textContent='⚠️ ホストとの接続が切れました(部屋終了)');
+      $('homeErr').textContent='ホストとの接続が切れました。';
+    });
+  });
+  peer.on('error',e=>{
+    const t=e&&e.type?String(e.type):'';
+    $('homeErr').textContent=(t==='peer-unavailable')?'その部屋コードが見つかりません。':('接続エラー: '+(t||e));
+  });
+}
+function onGuestData(d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='busy'){ $('homeErr').textContent='この部屋はすでにゲーム中です。'; return; }
+  if(d.t==='lobby'){
+    curSnap={lobbyNames:d.names};
+    show('lobby');
+    $('roleTag').textContent='ホストの開始待ち';
+    $('roomCodeView').textContent=($('roomInput').value||'').trim();
+    $('hostCfg').classList.add('hidden');
+    $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
+    renderLobby();
+  }
+  if(d.t==='start'){ mySeat=d.seat; myTurn=null; $('log').innerHTML=''; log('ゲーム開始!'); show('game'); }
+  if(d.t==='snap'){ applySnap(d.snap,d.log); }
+  if(d.t==='pnote'){ log(d.msg); }
+  if(d.t==='turn'){ myTurn={phase:d.data.phase,data:d.data}; renderTurn(d.data,sendAct); }
+  if(d.t==='result'){ renderResult(d.data); }
+}
+
+/* ---------- 結果(共通) ---------- */
+function renderResult(d){
+  show('result');
+  let h='<h2>💎 閉山 ― 一斉公開!</h2>'
+    +'<div class="row" style="margin-bottom:8px"><span class="hint">崩落の中身:</span> '+d.removed.map(g=>gemHTML(g)).join('')
+    +'<span class="hint" style="margin-left:10px">掘られた列:</span> '+d.hist.map(g=>gemHTML(g,true)).join('')+'</div>'
+    +'<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>合計</th><th>内訳</th></tr>';
+  d.rows.forEach(r=>{
+    h+='<tr><td>'+r.pos+'</td><td>'+r.name+(r.isCPU?' 🤖':'')+'</td><td><b>'+r.total+'</b></td><td class="hint">'+r.notes.join(' / ')+'</td></tr>';
+  });
+  h+='</table>';
+  h+='<div class="foot">接戦度(1位-2位)='+d.gap+'</div>';
+  if(role==='host'){
+    h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>';
+  }else{
+    h+='<div class="foot" style="margin-top:14px">ホストが「もう1戦」を押すと再開します。</div>';
+  }
+  $('result').innerHTML=h;
+  if(role==='host'){
+    $('againBtn').onclick=()=>{
+      const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU}));
+      const cfg=S.cfg;
+      S=Engine.newGame(cfg,specs);
+      sentLog=0; myTurn=null;
+      hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
+      $('log').innerHTML=''; log('もう1戦!');
+      show('game');
+      Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[]};
+      S.players.forEach((p,pi)=>{ if(p.isCPU)Engine.cpuKeep(S,pi); else Flow.pendingKeep.push(pi); });
+      sync();
+      S.players.forEach((p,pi)=>{
+        if(p.isCPU)return;
+        const data={phase:'keep',myName:p.name,keepN:S.cfg.keepN,
+          dealt:p.dealt.map(o=>({nm:o.nm,txt:o.txt,base:o.base}))};
+        if(pi===mySeat){ myTurn={phase:'keep',data}; renderMyTurn(); }
+        else sendTo(pi,{t:'turn',data});
+      });
+    };
+  }
+}
+
+/* ---------- ボタン配線 ---------- */
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('startBtn').onclick=hostStart;
+
+window.__engine=Engine;
+window.__state=()=>({role,roomId,mySeat,S,curSnap,Flow});
+</script>
+
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.3)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>
