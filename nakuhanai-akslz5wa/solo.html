@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>なくはない ― テストプレイ版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  なくはない（仮）v0.3 開発プロトタイプ（ゲームID: nakuhanai）
+  ルール正本: Resources/ルール_なくはない_v0.3.md
+  ルールに明記がなく仮置きした解釈（実機テストで要確認）:
+   - お題交換は1手番に1回まで
+   - 「実質同じ答え」の自動判定は完全一致（清音正規化後）のみ。表記ゆれ・類義は人間判定に委ねる
+   - 伸ばし棒「ー」は無視して照合（らーめん=らめん）。カタカナはひらがなに正規化
+   - 答えは2文字以上
+   - すきま・少数派・パスの引きで山が尽きたら捨て札を混ぜ直して山にする（市場はリセット）
+   - CPUはお題との意味的な適合を判定できない（辞書語を出す/構造で投票する）。
+     「なくはない」の笑い・判定の面白さは人間テスト専用。CPUはテンポと収束の検証用
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .topicBox{font-size:22px;font-weight:800;padding:14px 18px;background:#fff;border:2px solid var(--accent);
+            border-radius:14px;display:inline-block}
+  .chipL{display:inline-block;min-width:34px;text-align:center;padding:6px 8px;margin:2px;background:#fff;
+         border:2px solid var(--line);border-radius:10px;font-size:17px;font-weight:700;box-shadow:var(--shadow)}
+  .chipL.mine{border-color:var(--accent2)}
+  .chipD{display:inline-block;min-width:30px;text-align:center;padding:4px 7px;margin:2px;background:#fbf6e8;
+         border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700}
+  .ansTag{display:inline-block;padding:2px 10px;margin:2px;background:#eef6ef;border:1px solid #cfe3d2;
+          border-radius:14px;font-size:13px}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:22px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f4fbf5);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+  input.txt{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:16px;width:230px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🙆‍♀️ なくはない</h1>
+  <span class="tag">開発プロトタイプ v0.3</span>
+  <span class="tag">検証: 枯渇の傾斜・すきま・判定割れ</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <h2>セットアップ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="5" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="5" value="3"></label>
+      <span class="hint">合計3〜5人。人間0で観戦デモ／人間2以上はパス&プレイ</span>
+    </div>
+    <h3>調整レバー（ルールノートv0.3と1対1）</h3>
+    <div class="grid">
+      <label>初期手札 <input id="handSize" class="num" type="number" min="4" max="15" value="10"></label>
+      <label>すきま上限 <input id="gapMax" class="num" type="number" min="0" max="4" value="2"></label>
+      <label>すきまコスト(枚) <input id="gapCost" class="num" type="number" min="0" max="3" value="1"></label>
+      <label>お題交換コスト(枚) <input id="swapCost" class="num" type="number" min="0" max="3" value="1"></label>
+      <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="900"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
+      <label><input id="recentOnly" type="checkbox"> 🧪 パス拾いは「直前に通った答えの文字」だけ</label>
+    </div>
+    <div class="foot">既定値＝v0.3。検証したい問い: ①同じお題の後半ほど判定が割れるか ②お題交換・捨て札拾いが使われるか ③パス率25%以下・すきま0回答40%以上</div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>手番</td><td>（任意:お題交換=山1枚引く）→ 手札を並べてお題に答える or パス（山1枚 or 捨て札から1枚）</td></tr>
+      <tr><td>答え</td><td>手札の文字で作る。無い文字は「すきま」（1つ=山1枚引く・2つまで）。既に通った答えはダメ</td></tr>
+      <tr><td>判定</td><td>回答者以外が同時に あり/ないでしょ。過半数あり=正解→使った手札を捨てられる。少数派は山1枚引く</td></tr>
+      <tr><td>勝ち</td><td>手札を出し切ったら勝ち</td></tr>
+    </table>
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>お題 <span class="hint" id="drawInfo"></span></h2>
+      <div class="row"><span class="topicBox" id="topicBox"></span></div>
+      <h3>捨て札（ここから拾える）</h3>
+      <div id="discardRow"></div>
+      <h3>通った答え（同じ答えはもう出せない）</h3>
+      <div id="usedRow"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー（残り手札が少ないほど勝ちに近い）</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* ===== データ ===== */
+const DICT_WORDS = "あお,あか,あき,あさ,あし,あせ,あな,あに,あね,あめ,あわ,あゆ,いき,いけ,いし,いす,いた,いと,いぬ,いね,いま,いも,いろ,いわ,いか,うし,うた,うち,うて,うま,うみ,うめ,うら,えさ,えた,えひ,えん,えいか,おく,おと,おに,おひ,おや,かお,かき,かさ,かし,かす,かせ,かた,かち,かに,かわ,かみ,かめ,かも,かん,きた,きち,きり,きん,きく,くさ,くし,くせ,くち,くつ,くに,くひ,くま,くも,くり,けさ,けん,こえ,こし,こと,こな,こま,こめ,さき,さけ,さち,さら,さる,さめ,しか,しき,した,しま,しも,しる,しろ,すす,すそ,すな,すみ,せん,そこ,そて,そら,たか,たき,たけ,たな,たに,たね,たは,たま,たこ,ちち,ちす,ちり,つき,つち,つな,つの,つみ,つめ,つゆ,つり,つる,てん,とき,とし,とら,とり,なす,なつ,なわ,なみ,にし,にわ,ぬの,ねこ,ねつ,のり,はか,はこ,はし,はす,はた,はち,はな,はね,はは,はま,はら,はり,はる,はれ,ひま,ひめ,ひる,ひけ,ひさ,ふく,ふし,ふた,ふち,ふて,ふね,ふゆ,ふろ,ふな,ほお,ほし,ほね,ほん,まき,まく,まこ,まち,まつ,まと,まめ,まゆ,まり,まる,みせ,みそ,みち,みつ,みね,みみ,みや,みす,むし,むね,むら,むれ,もし,もち,もと,もの,もも,もり,もん,やみ,ゆか,ゆき,ゆひ,ゆめ,ゆり,よる,りく,りす,るす,れい,わき,わく,わた,わな,わん,わし,あくひ,あさひ,あすき,あそひ,あたま,あひる,あふら,あんこ,あおい,いちこ,いなか,いのち,いるか,うちわ,うつわ,うとん,うなき,うわき,うてわ,えほん,おかね,おしろ,おちや,おとこ,おとな,おなか,おはけ,おふろ,おやつ,おんな,かかし,かかみ,かきね,かたち,かはん,かひん,からす,からた,かるた,かもめ,かたな,きこり,きしや,きせつ,きつね,きのこ,きのう,きもち,きもの,きやく,きりん,くすり,くもり,くらけ,くるま,けむり,けもの,こおり,こころ,ことし,ことは,ことり,ことも,こねこ,このは,こひと,こむき,ころも,こんや,こたつ,さかな,さくら,さしみ,さとう,さはく,さんま,しかく,しくみ,しけん,しこと,しつほ,しはい,しゆみ,しるし,すきま,すすき,すすめ,すもう,せなか,せんろ,そうこ,たから,たきひ,たたみ,たぬき,たまこ,たより,ちよう,つほみ,つみき,つらら,てすり,てんき,てんし,とかけ,とけい,ところ,とたな,となり,とひら,とんほ,なかみ,なまえ,なみた,にんき,ねいろ,ねかい,ねすみ,ねほう,のはら,はかせ,はかり,はさみ,はしこ,はしら,はたけ,はなし,はなひ,はなみ,はやし,はんこ,ひたい,ひつし,ひとみ,ひみつ,ひもの,ひよこ,ひるね,ふきん,ふくろ,ふすま,ふたこ,ふとん,ふもと,へちま,ほくろ,ほこり,ほたる,ほとけ,ほのお,まつり,みかん,みこし,みさき,みとり,みなと,みなみ,みのり,みみす,みやけ,みらい,むすこ,むすめ,めたか,めまい,めいろ,もみし,もよう,やかん,やさい,やしき,やたい,やちん,ゆうひ,ゆかた,ゆひわ,よてい,りゆう,れきし,わかめ,あしあと,いなすま,うちゆう,えんそく,えんひつ,おおかみ,おしいれ,おみくし,おりかみ,おんかく,かいしや,かなつち,かねもち,かみなり,からあけ,きつつき,きゆうり,きんきよ,くちひる,くつした,くうこう,けいさつ,こうえん,こおろき,こくはん,こしよう,こなゆき,こんいろ,さかなや,さんかく,しまうま,しようゆ,しろくま,しんふん,しやしん,すいとう,せんせい,せんたく,たいふう,たいよう,たけうま,たけのこ,たなはた,たまねき,たんほほ,ちかてつ,ちきゆう,ちよきん,てちよう,てんしや,とうたい,としより,ともたち,なわとひ,にんしん,のみもの,のりもの,はちみつ,はなうた,はなたは,ひこうき,ひまわり,ひようき,ふうとう,ふくろう,ふろしき,ほうたい,ほしそら,ほんたな,まないた,まんけつ,みすうみ,みすたま,みちくさ,みかつき,めくすり,ももいろ,やきそは,やきとり,やきゆう,やくそく,ゆうかた,ゆうはん,ゆきくに,れんこん,ろうそく,わたあめ,わりはし".split(','); // 清音正規化済み 2〜4文字名詞（もじがえしプロト由来483語）
+const DICT_SET = new Set(DICT_WORDS);
+const DECK_DEF = {"か":3,"し":3,"き":3,"た":3,"み":2,"ん":2,"こ":2,"う":2,"く":2,"い":2,"は":2,"な":1,"と":1,"ま":1,"り":1,"つ":1,"ち":1,"す":1,"ひ":1,"も":1,"お":1,"さ":1,"あ":1,"ゆ":1,"や":1,"ふ":1,"ね":1,"わ":1,"け":1,"ろ":1,"ら":1,"の":1,"ほ":1,"め":1,"る":1,"よ":1,"せ":1,"て":1,"そ":1,"え":1,"に":1,"む":1,"れ":1,"ぬ":1,"へ":1}; // 文字→枚数（辞書頻度から60枚）
+const TOPICS = [
+  "冷蔵庫にありがちなもの","学校にあったもの","かばんに入っているもの","コンビニで買えるもの",
+  "旅行に持っていくもの","公園にあるもの","朝にすること・見るもの","お祭りにあるもの",
+  "家にひとつはあるもの","ちょっとうれしいこと・もの","やわらかいもの","音がうるさいもの",
+  "夏っぽいもの","あまいもの","赤いもの","においが強いもの"
+];
+
+/* ===== 正規化 ===== */
+const DAKU={'が':'か','ぎ':'き','ぐ':'く','げ':'け','ご':'こ','ざ':'さ','じ':'し','ず':'す','ぜ':'せ','ぞ':'そ',
+'だ':'た','ぢ':'ち','づ':'つ','で':'て','ど':'と','ば':'は','び':'ひ','ぶ':'ふ','べ':'へ','ぼ':'ほ',
+'ぱ':'は','ぴ':'ひ','ぷ':'ふ','ぺ':'へ','ぽ':'ほ','ゔ':'う'};
+const SMALL={'ぁ':'あ','ぃ':'い','ぅ':'う','ぇ':'え','ぉ':'お','ゃ':'や','ゅ':'ゆ','ょ':'よ','っ':'つ','ゎ':'わ'};
+function normWord(s){
+  let out='';
+  for(let ch of String(s).trim()){
+    const cc=ch.charCodeAt(0);
+    if(cc>=0x30A1&&cc<=0x30F6) ch=String.fromCharCode(cc-0x60); // カタカナ→ひらがな
+    if(ch==='ー'||ch===' '||ch==='　'||ch==='・') continue;
+    ch=DAKU[ch]||SMALL[ch]||ch;
+    if(ch>='ぁ'&&ch<='ん') out+=ch; else return null; // かな以外はエラー
+  }
+  return out;
+}
+
+/* ===== Engine（純ロジック。DOMを触らない） ===== */
+const Engine = {
+  makeDeck(){ const d=[]; Object.keys(DECK_DEF).forEach(c=>{for(let i=0;i<DECK_DEF[c];i++)d.push(c);}); return shuffle(d); },
+
+  newGame(cfg,specs){
+    const S={cfg,players:specs.map(sp=>({name:sp.name,isCPU:!!sp.isCPU,policy:sp.policy||'smart',hand:[]})),
+      deck:Engine.makeDeck(),discard:[],topicDeck:shuffle(TOPICS.slice()),topicDiscard:[],topic:'',topicCycle:0,
+      used:[],cur:0,turnCount:0,swappedThisTurn:false,over:false,winners:[],lastAccepted:[],
+      stats:{answers:0,accepted:0,passes:0,swaps:0,discardPicks:0,gap0:0,gapAns:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
+    S.players.forEach(p=>{for(let i=0;i<cfg.handSize;i++)p.hand.push(Engine.drawRaw(S));});
+    S.topic=S.topicDeck.pop();
+    return S;
+  },
+
+  drawRaw(S){ // 山から1枚（尽きたら捨て札を混ぜ直す）。無ければnull
+    if(S.deck.length===0 && S.discard.length>0){ S.deck=shuffle(S.discard); S.discard=[]; }
+    return S.deck.length? S.deck.pop() : null;
+  },
+  drawTo(S,seat,n){ let got=0; for(let i=0;i<n;i++){const c=Engine.drawRaw(S); if(c!==null){S.players[seat].hand.push(c);got++;}} return got; },
+
+  swapTopic(S,seat){ // 戻り値: 新お題 or null（交換不能=2巡目切れ）
+    if(S.swappedThisTurn) return null;
+    Engine.drawTo(S,seat,S.cfg.swapCost);
+    S.topicDiscard.push(S.topic);
+    if(S.topicDeck.length===0){
+      if(S.topicCycle===0){ S.topicDeck=shuffle(S.topicDiscard); S.topicDiscard=[]; S.topicCycle=1; }
+      else { Engine.finish(S); return null; }
+    }
+    S.topic=S.topicDeck.pop(); Engine.topicSeqUp(S);
+    S.swappedThisTurn=true; S.stats.swaps++;
+    return S.topic;
+  },
+  topicSeqUp(S){ S.stats.topicSeq++; S.stats.perTopicIdx=0; },
+
+  validateAnswer(S,seat,input){
+    const w=normWord(input);
+    if(w===null) return {err:'ひらがな・カタカナで入力してね'};
+    if(w.length<2) return {err:'2文字以上で'};
+    if(S.used.some(u=>u.w===w)) return {err:'「'+w+'」はもう通った答え（同じ答えはダメ）'};
+    const cnt={}; S.players[seat].hand.forEach(c=>cnt[c]=(cnt[c]||0)+1);
+    const use=[]; let gaps=0;
+    for(const ch of w){ if(cnt[ch]>0){cnt[ch]--;use.push(ch);} else gaps++; }
+    if(gaps>S.cfg.gapMax) return {err:'すきまが'+gaps+'個（上限'+S.cfg.gapMax+'）。手札が足りない'};
+    return {w,use,gaps};
+  },
+
+  // votes: 回答者以外の席順の true(あり)/false 配列
+  resolveAnswer(S,seat,val,votes){
+    const p=S.players[seat];
+    // すきまコストは宣言時に引く
+    const gapDraw=Engine.drawTo(S,seat,val.gaps*S.cfg.gapCost);
+    const ari=votes.filter(v=>v).length, nasi=votes.length-ari;
+    const ok = S.cfg.tieWin ? ari>=nasi : ari>nasi;
+    const split = ari>0 && nasi>0;
+    S.stats.answers++; S.stats.perTopicIdx++;
+    if(val.gaps===0)S.stats.gap0++; else S.stats.gapAns++;
+    S.stats.judgeEvents.push({topicSeq:S.stats.topicSeq,idx:S.stats.perTopicIdx,split,ok,gaps:val.gaps});
+    let penalized=[];
+    if(split){
+      const minority = ari<nasi ? true : (nasi<ari ? false : null); // null=同数→ペナルティなし
+      if(minority!==null){
+        let vi=0;
+        for(let i=0;i<S.players.length;i++){
+          if(i===seat)continue;
+          if(votes[vi]=== (minority)){ Engine.drawTo(S,i,S.cfg.minorPen); penalized.push(i); }
+          vi++;
+        }
+      }
+    }
+    if(ok){
+      // 使った文字を手札から除去して捨て札へ
+      for(const ch of val.use){ const k=p.hand.indexOf(ch); p.hand.splice(k,1); S.discard.push(ch); }
+      S.used.push({w:val.w,by:seat});
+      S.lastAccepted=val.use.slice();
+      S.stats.accepted++;
+      if(p.hand.length===0){ S.over=true; S.winners=[seat]; }
+    }
+    return {ok,ari,nasi,split,gapDraw,penalized};
+  },
+
+  passAction(S,seat,src,letter){ // src:'deck'|'discard'
+    S.stats.passes++;
+    if(src==='discard'){
+      const k=S.discard.indexOf(letter);
+      if(k<0) return false;
+      S.discard.splice(k,1); S.players[seat].hand.push(letter); S.stats.discardPicks++;
+    }else{
+      Engine.drawTo(S,seat,1);
+    }
+    return true;
+  },
+
+  discardChoices(S){
+    if(!S.cfg.recentOnly) return S.discard.slice();
+    return S.discard.filter(c=>S.lastAccepted.includes(c));
+  },
+
+  nextTurn(S){
+    if(S.over)return;
+    S.cur=(S.cur+1)%S.players.length; S.turnCount++; S.swappedThisTurn=false;
+    if(S.turnCount>400) Engine.finish(S); // 安全弁
+  },
+  finish(S){
+    if(S.over)return;
+    S.over=true;
+    const min=Math.min(...S.players.map(p=>p.hand.length));
+    S.winners=S.players.map((p,i)=>p.hand.length===min?i:-1).filter(i=>i>=0);
+  },
+
+  /* --- CPU方策（argmax禁止: ノイズ入り。教訓準拠） --- */
+  gauss(){ return (Math.random()+Math.random()+Math.random()-1.5); },
+  cpuCandidates(S,seat){
+    const out=[];
+    for(const w of DICT_WORDS){
+      if(S.used.some(u=>u.w===w))continue;
+      const v=Engine.validateAnswer(S,seat,w);
+      if(!v.err)out.push(v);
+    }
+    return out;
+  },
+  cpuTakeTurn(S,seat){ // 戻り値: {kind:'answer',val,votes,res} | {kind:'pass',src,letter} | {kind:'swap+...'}
+    const p=S.players[seat];
+    let swapped=false;
+    let cands=Engine.cpuCandidates(S,seat);
+    const bestUse=cands.reduce((m,c)=>Math.max(m,c.use.length),0);
+    if(p.policy==='smart' && !S.swappedThisTurn && (cands.length===0||bestUse<=1) && Math.random()<0.6){
+      if(Engine.swapTopic(S,seat)!==null){ swapped=true; cands=Engine.cpuCandidates(S,seat); }
+    }
+    if(cands.length===0){
+      return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
+    }
+    let val;
+    if(p.policy==='smart'){
+      let best=null,bs=-1e9;
+      for(const c of cands){
+        const sc=c.use.length*2 + c.w.length*0.3 - c.gaps*1.2 + Engine.gauss()*1.0;
+        if(sc>bs){bs=sc;best=c;}
+      }
+      val=best;
+    }else{
+      if(Math.random()<0.15) return {kind:'pass',swapped,...Engine.cpuPassPick(S,seat)};
+      val=cands[rnd(cands.length)];
+    }
+    return {kind:'answer',swapped,val};
+  },
+  cpuPassPick(S,seat){
+    const p=S.players[seat];
+    const ch=Engine.discardChoices(S);
+    if(ch.length&&((p.policy==='smart'&&Math.random()<0.65)||(p.policy!=='smart'&&Math.random()<0.4))){
+      let best=ch[0],bs=-1;
+      for(const c of ch){ const f=(DECK_DEF[c]||1)+Math.random()*2; if(f>bs){bs=f;best=c;} }
+      return {src:'discard',letter:p.policy==='smart'?best:ch[rnd(ch.length)]};
+    }
+    return {src:'deck',letter:null};
+  },
+  cpuVote(S,judgeSeat,ansSeat,val){
+    const j=S.players[judgeSeat];
+    let base = DICT_SET.has(val.w)?0.82:0.62;
+    let pr = base - 0.18*val.gaps - (val.w.length<=2?0.18:0) + (val.w.length>=4?0.06:0);
+    if(j.policy!=='smart') pr=0.6;
+    pr=Math.max(0.05,Math.min(0.97,pr+Engine.gauss()*0.12));
+    return Math.random()<pr;
+  },
+
+  /* --- 全CPU自動1ゲーム（シミュ用） --- */
+  playAuto(cfg,specs){
+    const S=Engine.newGame(cfg,specs);
+    let safety=0;
+    while(!S.over && safety++<450){
+      const seat=S.cur;
+      const t=Engine.cpuTakeTurn(S,seat);
+      if(S.over)break;
+      if(t.kind==='answer'){
+        const votes=[];
+        for(let i=0;i<S.players.length;i++){ if(i!==seat)votes.push(Engine.cpuVote(S,i,seat,t.val)); }
+        Engine.resolveAnswer(S,seat,t.val,votes);
+      }else{
+        Engine.passAction(S,seat,t.src,t.letter);
+      }
+      if(!S.over)Engine.nextTurn(S);
+    }
+    if(!S.over)Engine.finish(S);
+    return S;
+  }
+};
+
+/* ===== UI ===== */
+let S=null, uiBusy=false;
+function readCfg(){
+  const c={};
+  ['nHuman','nCpu','handSize','gapMax','gapCost','swapCost','minorPen','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  c.tieWin=$('tieWin').checked; c.recentOnly=$('recentOnly').checked;
+  return c;
+}
+function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
+function setAction(html){ $('actionBody').innerHTML=''; $('actionBody').innerHTML=html; } // 教訓: 先に空にする
+function chipHand(hand,mine){ return hand.map(c=>`<span class="chipL${mine?' mine':''}">${c}</span>`).join(''); }
+
+function renderBoard(){
+  $('topicBox').textContent=S.topic;
+  $('drawInfo').textContent=`お題山 残り${S.topicDeck.length}${S.topicCycle?'（2巡目）':''} ／ 文字の山 残り${S.deck.length}枚`;
+  const dc=Engine.discardChoices(S);
+  $('discardRow').innerHTML = S.discard.length
+    ? S.discard.map(c=>`<span class="chipD"${S.cfg.recentOnly&&!dc.includes(c)?' style="opacity:.35"':''}>${c}</span>`).join('')
+    : '<span class="hint">（まだなし）</span>';
+  $('usedRow').innerHTML = S.used.length
+    ? S.used.map(u=>`<span class="ansTag">${esc(u.w)}</span>`).join('')
+    : '<span class="hint">（まだなし）</span>';
+  $('players').innerHTML=S.players.map((p,i)=>`
+    <div class="pl${i===S.cur&&!S.over?' turn':''}">
+      <div class="name"><span>${esc(p.name)}${p.isCPU?' <span class="badge bot">CPU</span>':''}</span>
+      <span class="score">${p.hand.length}</span></div>
+      <div class="mini"><span>残り手札</span>${i===S.cur&&!S.over?'<span>◀ 手番</span>':''}</div>
+    </div>`).join('');
+}
+
+function startGame(){
+  const cfg=readCfg();
+  const n=cfg.nHuman+cfg.nCpu;
+  if(n<3||n>5){ alert('合計3〜5人にしてください'); return; }
+  const specs=[];
+  for(let i=0;i<cfg.nHuman;i++)specs.push({name:'プレイヤー'+(i+1),isCPU:false});
+  for(let i=0;i<cfg.nCpu;i++)specs.push({name:'CPU'+String.fromCharCode(65+i),isCPU:true,policy:'smart'});
+  shuffle(specs);
+  S=Engine.newGame(cfg,specs);
+  $('setup').classList.add('hidden');$('result').classList.add('hidden');$('game').classList.remove('hidden');
+  $('log').innerHTML='';
+  log(`ゲーム開始（${n}人）。最初のお題「${S.topic}」`);
+  beginTurn();
+}
+
+function beginTurn(){
+  if(S.over){ showResult(); return; }
+  renderBoard();
+  const p=S.players[S.cur];
+  $('banner').textContent=`お題「${S.topic}」 ― ${p.name} の番`;
+  $('turnTitle').textContent=`${p.name} の手番`;
+  if(p.isCPU){ setAction('<span class="hint">考え中…</span>'); setTimeout(cpuTurn,S.cfg.cpuThink); }
+  else renderHumanGate(p);
+}
+
+function renderHumanGate(p){
+  const humans=S.players.filter(q=>!q.isCPU).length;
+  if(humans>=2){
+    setAction(`<div class="mask">端末を <b>${esc(p.name)}</b> に渡してください<br><br><button id="maskBtn">手札を見る</button></div>`);
+    $('maskBtn').onclick=()=>renderHumanTurn(p);
+  }else renderHumanTurn(p);
+}
+
+function renderHumanTurn(p){
+  const seat=S.cur;
+  const swapLeft=!S.swappedThisTurn;
+  setAction(`
+    <div>あなたの手札（${p.hand.length}枚）: ${chipHand(p.hand,true)}</div>
+    <div class="row" style="margin:10px 0">
+      <input id="ansInput" class="txt" placeholder="お題への答え（ひらがな）">
+      <button id="checkBtn" class="ghost small">チェック</button>
+      <button id="declareBtn" disabled>宣言する</button>
+    </div>
+    <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言</div>
+    <div class="row" style="margin-top:12px">
+      <button id="swapBtn" class="ghost small" ${swapLeft?'':'disabled'}>🔄 お題を変える（山から${S.cfg.swapCost}枚引く）</button>
+      <button id="passBtn" class="ghost small">パスする</button>
+    </div>`);
+  let pend=null;
+  $('checkBtn').onclick=()=>{
+    const v=Engine.validateAnswer(S,seat,$('ansInput').value);
+    if(v.err){ pend=null;$('declareBtn').disabled=true;$('ansPreview').textContent='✖ '+v.err; return; }
+    pend=v; $('declareBtn').disabled=false;
+    $('ansPreview').textContent=`○「${v.w}」= 手札${v.use.length}枚（${v.use.join('・')}）＋すきま${v.gaps}${v.gaps?`（山から${v.gaps*S.cfg.gapCost}枚引く）`:''}`;
+  };
+  $('declareBtn').onclick=()=>{ if(pend)startJudging(seat,pend); };
+  $('swapBtn').onclick=()=>{
+    const t=Engine.swapTopic(S,seat);
+    if(t===null){ if(S.over){showResult();return;} return; }
+    log(`${S.players[seat].name} がお題を交換（山から${S.cfg.swapCost}枚）→「${t}」`);
+    renderBoard(); $('banner').textContent=`お題「${S.topic}」 ― ${S.players[seat].name} の番`;
+    renderHumanTurn(S.players[seat]);
+  };
+  $('passBtn').onclick=()=>renderPassMenu(seat);
+}
+
+function renderPassMenu(seat){
+  const ch=Engine.discardChoices(S);
+  setAction(`
+    <div>パス: どちらかを選ぶ</div>
+    <div class="row" style="margin:10px 0"><button id="drawBtn">山から1枚引く</button>
+    <button id="backActBtn" class="ghost small">← 戻る</button></div>
+    <div class="hint">または捨て札から1枚拾う:</div>
+    <div id="dcRow">${ch.length?ch.map((c,i)=>`<button id="dc${i}" class="ghost small" style="margin:2px">${c}</button>`).join(''):'<span class="hint">（拾えるものなし）</span>'}</div>`);
+  $('drawBtn').onclick=()=>{ Engine.passAction(S,seat,'deck',null); log(`${S.players[seat].name} はパス（山から1枚）`); endTurn(); };
+  $('backActBtn').onclick=()=>renderHumanTurn(S.players[seat]);
+  ch.forEach((c,i)=>{ $('dc'+i).onclick=()=>{ Engine.passAction(S,seat,'discard',c); log(`${S.players[seat].name} はパスして捨て札から「${c}」を拾った`); endTurn(); }; });
+}
+
+/* 判定フェーズ: CPUは即時投票、人間の判定者は順番に秘密投票 */
+let J=null;
+function startJudging(seat,val){
+  J={seat,val,votes:[],queue:[]};
+  for(let i=0;i<S.players.length;i++){ if(i!==seat)J.queue.push(i); }
+  log(`${S.players[seat].name} の答え:「${val.w}」（手札${val.use.length}枚＋すきま${val.gaps}）→ みんなの判定へ`);
+  stepJudge();
+}
+function stepJudge(){
+  // queue順に未投票の判定者を探す
+  let target=null;
+  for(const i of J.queue){ if(J['v'+i]===undefined){ target=i; break; } }
+  if(target===null){ finishJudging(); return; }
+  const judge=S.players[target];
+  if(judge.isCPU){
+    J['v'+target]=Engine.cpuVote(S,target,J.seat,J.val);
+    stepJudge(); return;
+  }
+  setAction(`<div class="mask">判定タイム: 端末を <b>${esc(judge.name)}</b> に渡してください<br><br><button id="maskBtn">判定する</button></div>`);
+  $('maskBtn').onclick=()=>{
+    setAction(`<div class="mask"><b>${esc(S.players[J.seat].name)}</b> の答え「<b>${esc(J.val.w)}</b>」（お題: ${esc(S.topic)}）<br>
+      すきま${J.val.gaps}個 ／ これは…<br><br>
+      <button id="voteAri">あり</button>
+      <button id="voteNasi" class="ghost">ないでしょ</button></div>`);
+    $('voteAri').onclick=()=>{ J['v'+target]=true; stepJudge(); };
+    $('voteNasi').onclick=()=>{ J['v'+target]=false; stepJudge(); };
+  };
+}
+function finishJudging(){
+  const votes=J.queue.map(i=>J['v'+i]);
+  const res=Engine.resolveAnswer(S,J.seat,J.val,votes);
+  const names=J.queue.map((i,k)=>`${S.players[i].name}:${votes[k]?'あり':'ない'}`).join(' ');
+  log(`判定 [${names}] → ${res.ok?'✅ それ正解！':'❌ ないでしょ…'}（あり${res.ari}/ない${res.nasi}）`);
+  if(res.gapDraw)log(`　すきまコスト: ${S.players[J.seat].name} が山から${res.gapDraw}枚`);
+  res.penalized.forEach(i=>log(`　少数派ペナルティ: ${S.players[i].name} が山から${S.cfg.minorPen}枚`));
+  if(res.ok&&S.players[J.seat].hand.length===0)log(`🎉 ${S.players[J.seat].name} が出し切って勝利！`);
+  J=null;
+  endTurn();
+}
+
+function cpuTurn(){
+  const seat=S.cur;
+  const t=Engine.cpuTakeTurn(S,seat);
+  if(t.swapped){ log(`${S.players[seat].name} がお題を交換 →「${S.topic}」`); renderBoard(); }
+  if(S.over){ showResult(); return; }
+  if(t.kind==='answer'){ startJudging(seat,t.val); }
+  else{
+    Engine.passAction(S,seat,t.src,t.letter);
+    log(`${S.players[seat].name} はパス（${t.src==='discard'?`捨て札から「${t.letter}」`:'山から1枚'}）`);
+    endTurn();
+  }
+}
+
+function endTurn(){
+  renderBoard();
+  if(S.over){ setTimeout(showResult,Math.min(S.cfg.cpuThink,400)); return; }
+  Engine.nextTurn(S);
+  if(S.over){ setTimeout(showResult,Math.min(S.cfg.cpuThink,400)); return; }
+  setTimeout(beginTurn,Math.min(S.cfg.cpuThink,600));
+}
+
+function showResult(){
+  renderBoard();
+  const st=S.stats;
+  const order=S.players.map((p,i)=>({i,n:p.hand.length})).sort((a,b)=>a.n-b.n);
+  const je=st.judgeEvents;
+  const splitRate=je.length?Math.round(100*je.filter(e=>e.split).length/je.length):0;
+  // 枯渇の傾斜: 各お題の前半/後半で判定割れ率を比較
+  const byTopic={};
+  je.forEach(e=>{(byTopic[e.topicSeq]=byTopic[e.topicSeq]||[]).push(e);});
+  let fh=[0,0],sh=[0,0];
+  Object.values(byTopic).forEach(list=>{
+    if(list.length<2)return;
+    const half=Math.ceil(list.length/2);
+    list.forEach((e,k)=>{ if(k<half){fh[0]+=e.split?1:0;fh[1]++;}else{sh[0]+=e.split?1:0;sh[1]++;} });
+  });
+  const fhR=fh[1]?Math.round(100*fh[0]/fh[1]):0, shR=sh[1]?Math.round(100*sh[0]/sh[1]):0;
+  const totalActs=st.answers+st.passes;
+  $('game').classList.add('hidden');
+  $('result').classList.remove('hidden');
+  $('result').innerHTML=`
+    <h2>結果</h2>
+    <div class="banner">🏆 勝ち: ${S.winners.map(i=>esc(S.players[i].name)).join('・')}</div>
+    <table class="rules">
+      ${order.map((o,k)=>`<tr><td>${k+1}位</td><td>${esc(S.players[o.i].name)}</td><td>残り${o.n}枚</td></tr>`).join('')}
+    </table>
+    <h3>検証指標（出口条件）</h3>
+    <table class="rules">
+      <tr><td>手番数</td><td>${S.turnCount+1}</td><td>回答${st.answers}（成立${st.accepted}）/ パス${st.passes}</td></tr>
+      <tr><td>①枯渇の傾斜</td><td>判定割れ 前半${fhR}% → 後半${shR}%</td><td>全体${splitRate}%（目標30〜60%）</td></tr>
+      <tr><td>②お題交換 / 拾い</td><td>交換${st.swaps}回 / 拾い${st.discardPicks}回</td><td>どちらも1回以上が目標</td></tr>
+      <tr><td>③パス率 / すきま0率</td><td>パス${totalActs?Math.round(100*st.passes/totalActs):0}%（目標25%以下）</td><td>すきま0回答${st.answers?Math.round(100*st.gap0/st.answers):0}%（目標40%以上）</td></tr>
+    </table>
+    <div class="row" style="margin-top:14px">
+      <button id="againBtn">もう1戦（同じ設定）</button>
+      <button id="setupBtn2" class="ghost">設定に戻る</button>
+    </div>`;
+  $('againBtn').onclick=startGame;
+  $('setupBtn2').onclick=()=>{$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+}
+
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:3,handSize:10,gapMax:2,gapCost:1,swapCost:1,minorPen:1,cpuThink:900};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('tieWin').checked=true;$('recentOnly').checked=false;};
+
+window.__engine=Engine;
+window.__state=()=>({S});
+window.__norm=normWord;
+</script>
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br><a href="./" style="color:#5f8f8a">オンライン対戦版（部屋コード式）はこちら</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>
