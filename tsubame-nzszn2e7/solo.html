@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ツバメガエシ ― ひとり用CPU対戦（限定テストページ）</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  ツバメガエシ_master（0311説明書.pdf / card_master）からのHTML再現。ゲームID: tsubame
+  スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
+  デッキ構成はcard_masterの現物28枚（1-6,8,12が2種・7,9,10,11が3種）+スタート8枚=ピラミッド36枚ちょうど。
+  ※説明書セット内容の枚数表記と要照合（kaiyo確認待ち）
+  仮置き解釈（kaiyo確認待ち）:
+   ①連続出しは「その番に出したカードのいずれか」を支えに含むペアの上に出せる（Q&A準拠）
+   ②ウラ手札もツバメガエシの交換札に使える（4つの数から1つ選んで条件判定）
+   ③場のウラカードをツバメガエシで取るとオモテに戻って手札になる（物理的に裏返すため）
+   ④場のウラカードと交換するとき「異なる数」判定は、そのウラの取り得る数のどれとも一致しない値のみ許可（安全側）
+   ⑤パスのウラ返しはオモテ札から選ぶ（全部ウラならパス不可）
+   ⑥×/÷マーカーは×と÷の両方を禁止する
+   ⑦2人デュエルの同数タイブレークのウラ札は4つの数の最小値で合計（Q&Aのアドバンスド準拠）
+  v1.0(2026-07-05): 製品版カード絵柄入り（同フォルダの tsubame_cards.js。無くてもテキストカードで動く）
+-->
+<style>
+  :root{
+    --bg:#eef6fb; --panel:#ffffff; --ink:#28313d; --sub:#7b8794;
+    --line:#d8e4ee; --accent:#2f95d8; --accent2:#e8833d;
+    --good:#3f9d63; --bad:#d96b6b; --shadow:0 2px 8px rgba(40,80,120,.12);
+    --skyband1:#a5d5f2; --skyband2:#dbeefc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:linear-gradient(180deg,var(--skyband1) 0,var(--skyband2) 240px,var(--bg) 520px);
+       background-attachment:fixed;color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:rgba(255,255,255,.85);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#e7f1f9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.warn{background:var(--accent2)}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.mode.on{outline:3px solid rgba(47,149,216,.4)}
+  .hint{font-size:12px;color:var(--sub)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;font-size:12px}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(47,149,216,.3)}
+  .pl.out{opacity:.55}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:20px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .mk{font-size:11px;background:#243a53;color:#fff;padding:1px 8px;border-radius:10px;font-weight:800}
+  .log{height:150px;overflow-y:auto;background:#f4f9fd;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #e2edf5}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#e2f2fe,#fef3e2);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+  /* ==== ピラミッド盤面 ==== */
+  #pyramid{position:relative;margin:6px auto 0;}
+  .cell{position:absolute;width:64px;height:90px;border-radius:6px;font-weight:800;text-align:center}
+  .cell.slot{border:2px dashed #b8cfe2;background:rgba(255,255,255,.45);color:#b8cfe2;font-size:11px;
+             display:flex;align-items:center;justify-content:center}
+  .cell.slot.ok{border-color:var(--accent2);color:var(--accent2);cursor:pointer;background:rgba(255,244,230,.8)}
+  .cell.slot.ok:hover{background:#ffe9d2}
+  .cell.cardF{background:#39a2e0;color:#fff;box-shadow:var(--shadow)}
+  .cell.cardB{background:#f0913a;color:#fff;box-shadow:var(--shadow)}
+  .cell img{width:64px;height:90px;border-radius:6px;display:block;transition:transform .12s}
+  .cell.hasimg{background:transparent}
+  .cell:hover img{transform:scale(2.6);position:relative;z-index:70;box-shadow:0 8px 26px rgba(40,60,90,.4)}
+  .cell .cv{font-size:26px;line-height:44px}
+  .cell .cb4{font-size:10px;line-height:1.2;padding-top:4px}
+  .cell.tgt{outline:3px solid var(--accent2);cursor:pointer}
+  .cell.tgt:hover{filter:brightness(1.12)}
+  .cell.newly{animation:dropIn .4s both}
+  @keyframes dropIn{from{opacity:0;transform:translateY(-26px) scale(.7)}to{opacity:1;transform:none}}
+  .cell .asg{position:absolute;top:-7px;left:-7px;background:#243a53;color:#fff;border-radius:9px;
+             font-size:11px;padding:0 6px;z-index:3}
+  /* ==== 手札 ==== */
+  .hcard{position:relative;display:inline-block;width:86px;height:120px;border-radius:8px;margin:3px;
+         vertical-align:top;font-weight:800;text-align:center;box-shadow:var(--shadow);cursor:default;
+         transition:transform .15s}
+  .hcard.f{background:#39a2e0;color:#fff}
+  .hcard.b{background:#f0913a;color:#fff}
+  .hcard img{width:86px;height:120px;border-radius:8px;display:block}
+  .hcard.hasimg{background:transparent}
+  .hcard.pick{cursor:pointer}
+  .hcard.pick:hover{transform:translateY(-5px) scale(1.06)}
+  .hcard.sel{outline:4px solid var(--accent2);transform:translateY(-5px)}
+  .hcard .cv{font-size:34px;line-height:64px}
+  .hcard .cb4{font-size:12px;line-height:1.3;padding-top:10px}
+  .hcard.dealIn{animation:dealIn .34s both}
+  @keyframes dealIn{from{opacity:0;transform:translateY(-14px) rotate(-2deg)}to{opacity:1;transform:none}}
+  .hcard:hover img{transform:scale(2.2);position:relative;z-index:70;box-shadow:0 8px 26px rgba(40,60,90,.4)}
+  .minicard{display:inline-block;position:relative;margin:1px 2px;vertical-align:middle}
+  .minicard img{width:26px;height:36px;border-radius:3px;display:block;transition:transform .12s}
+  .minicard:hover img{transform:scale(3.6);position:relative;z-index:70}
+  .mktoken{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;
+           background:#243a53;color:#fff;font-weight:800;font-size:15px;margin:0 2px;vertical-align:middle;
+           box-shadow:var(--shadow)}
+  .mktoken.free{opacity:.25}
+  #heroArt{display:flex;gap:8px;align-items:center;margin:0 0 12px}
+  #heroArt img{height:96px;border-radius:6px;box-shadow:var(--shadow)}
+  #heroArt img.tilt1{transform:rotate(-4deg)} #heroArt img.tilt2{transform:rotate(3deg)}
+</style>
+<script src="tsubame_cards.js"></script>
+</head>
+<body>
+<header>
+  <h1>🐦 ツバメガエシ</h1>
+  <span class="tag">製品版ルールのHTML再現 v1.0（カード絵柄入り）</span>
+  <span class="tag">ゲームID: tsubame</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <div id="heroArt"></div>
+    <h2>セットアップ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="5" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="5" value="2"></label>
+      <span class="hint">合計2〜5人。2人はデュエルルール（スタート7枚・配り10枚）。人間0で観戦デモ</span>
+    </div>
+    <h3>調整レバー</h3>
+    <div class="grid">
+      <label>パス回数/人 <input id="passN" class="num" type="number" min="0" max="9" value="1"></label>
+      <label>マーカー(計算禁止)を使う <input id="useMarker" type="checkbox" checked></label>
+      <label>デュエル配り枚数 <input id="duelHand" class="num" type="number" min="5" max="14" value="10"></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="900"></label>
+    </div>
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>目的</td><td>スタート8枚の上にピラミッド状にカードを重ね、いち早くもち札を出し切る（手札は全員公開）</td></tr>
+      <tr><td>出す</td><td>となりあう2枚の間（上段）に、その2枚の数の＋−×÷の答えになるカードを出す。出したカードを支えに含めば同じ番に何枚でも連続で出せる</td></tr>
+      <tr><td>ツバメガエシ</td><td>上にカードが乗っていない場のカード（スタート以外）と手札をいれかえる（下2枚の計算の答え&異なる数のみ）。取ったカードはウラ返して手札へ。マーカーを1つ取り、次の自分の番までその計算を全員禁止</td></tr>
+      <tr><td>ウラ</td><td>ウラのカードは書かれた4つの数のうち1つとしてあつかう（番ごとに1つ・番が終わるとリセット）</td></tr>
+      <tr><td>パス</td><td>もち札を1枚ウラ返してパス（1ゲーム1回）。出す/ツバメガエシ/パスのどれもできないと脱落</td></tr>
+      <tr><td>終了</td><td>出し切ったひとの勝ち。自分以外が全員脱落しても勝ち。2人デュエルは終了時にもち札が少ないほうの勝ち（同数なら数の合計が小さいほう）</td></tr>
+    </table>
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>ツバメの群れ（ピラミッド） <span class="hint" id="drawInfo"></span></h2>
+      <div id="pyramid"></div>
+      <div class="row" style="margin-top:8px"><span class="hint">マーカー:</span><span id="markerBar"></span></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function softmaxPick(opts,temp){
+  if(!opts.length)return null;
+  const t=temp||1;
+  const mx=Math.max(...opts.map(o=>o.score));
+  const ws=opts.map(o=>Math.exp((o.score-mx)/t));
+  let r=Math.random()*ws.reduce((a,b)=>a+b,0);
+  for(let i=0;i<opts.length;i++){ r-=ws[i]; if(r<=0)return opts[i]; }
+  return opts[opts.length-1];
+}
+
+/* ===== カードデータ（card_masterの現物28枚から転記） ===== */
+const CARD_DB=[
+ {id:'1_1',v:1,back:[6,10,15,54]},{id:'1_2',v:1,back:[5,8,12,24]},
+ {id:'2_1',v:2,back:[5,11,16,48]},{id:'2_2',v:2,back:[4,9,10,21]},
+ {id:'3_1',v:3,back:[4,12,14,35]},{id:'3_2',v:3,back:[6,7,11,30]},
+ {id:'4_1',v:4,back:[2,7,18,22]},{id:'4_2',v:4,back:[3,8,10,36]},
+ {id:'5_1',v:5,back:[3,9,17,96]},{id:'5_2',v:5,back:[1,7,12,32]},
+ {id:'6_1',v:6,back:[1,8,13,100]},{id:'6_2',v:6,back:[2,9,11,20]},
+ {id:'7_1',v:7,back:[5,12,13,27]},{id:'7_2',v:7,back:[6,11,16,64]},{id:'7_3',v:7,back:[3,4,10,32]},
+ {id:'8_1',v:8,back:[5,12,16,90]},{id:'8_2',v:8,back:[1,6,11,21]},
+ {id:'9_1',v:9,back:[6,11,15,28]},{id:'9_2',v:9,back:[4,10,14,80]},{id:'9_3',v:9,back:[2,5,12,36]},
+ {id:'10_1',v:10,back:[1,8,17,60]},{id:'10_2',v:10,back:[2,9,18,45]},{id:'10_3',v:10,back:[3,4,7,20]},
+ {id:'11_1',v:11,back:[2,7,13,25]},{id:'11_2',v:11,back:[3,8,17,40]},{id:'11_3',v:11,back:[1,6,9,24]},
+ {id:'12_1',v:12,back:[1,7,15,72]},{id:'12_2',v:12,back:[2,5,8,30]},
+];
+const START_VALS=[1,2,3,4,5,6,8,12];
+const CPU_NAMES=['あかり','つばさ','ひなた','そら','かんな'];
+const OPS=['p','m','x']; // + − ×÷
+const OP_LB={p:'＋',m:'−',x:'×÷'};
+
+/* ===== Engine（純ロジック。DOMを触らない） ===== */
+const Engine={
+  newGame(cfg){
+    const np=cfg.nHuman+cfg.nCpu;
+    const duel=(np===2);
+    const baseN=duel?7:8;
+    // スタート列
+    let sv=shuffle(START_VALS.slice());
+    if(duel)sv=sv.slice(0,7);
+    // 山
+    const deck=shuffle(CARD_DB.map(c=>({id:c.id,v:c.v,back:c.back,face:'F'})));
+    const per=duel?Math.min(cfg.duelHand,14):Math.floor(deck.length/np);
+    const S={cfg,np,duel,baseN,over:false,winner:-1,log:[],turn:0,turnCount:0,
+      rows:[],markers:{p:-1,m:-1,x:-1},assign:{},placedNow:[],
+      firstIdx:0,elimFlagFirst:false,stats:{plays:0,tsubame:0,passes:0,elims:0},
+      players:[]};
+    S.rows=[];
+    for(let r=0;r<baseN;r++){S.rows.push(new Array(baseN-r).fill(null));}
+    sv.forEach((v,i)=>{S.rows[0][i]={cd:{id:'s_'+v,v,start:true},face:'F'};});
+    for(let i=0;i<np;i++){
+      S.players.push({idx:i,human:i<cfg.nHuman,
+        name:i<cfg.nHuman?'プレイヤー'+(i+1):CPU_NAMES[i-cfg.nHuman]+'(CPU)',
+        hand:[],passLeft:cfg.passN,out:false});
+    }
+    for(let k=0;k<per;k++)for(let i=0;i<np;i++){const c=deck.pop(); if(c)S.players[i].hand.push(c);}
+    S.turn=rnd(np); S.firstIdx=S.turn;
+    Engine.log(S,'ゲーム開始! '+(duel?'2人デュエル（スタート7枚・配り'+per+'枚）':np+'人戦（配り'+per+'枚・余りは箱へ）')+'。先手は'+S.players[S.turn].name);
+    return S;
+  },
+  log(S,m){S.log.push(m);},
+  effNums(S,cell){ // 場のカードが取り得る数
+    if(cell.face==='F')return [cell.cd.v];
+    const a=S.assign[cell.cd.id];
+    return a!==undefined?[a]:cell.cd.back;
+  },
+  handNums(S,c){ if(c.face==='F')return [c.v]; const a=S.assign[c.id]; return a!==undefined?[a]:c.back; },
+  opsAllowed(S){ return OPS.filter(o=>S.markers[o]<0 || !S.cfg.useMarker); },
+  calcAnswers(S,va,vb){ // {val:op}
+    const out={};
+    const ops=Engine.opsAllowed(S);
+    if(ops.indexOf('p')>=0)out[va+vb]='＋';
+    if(ops.indexOf('m')>=0&&Math.abs(va-vb)>0)out[Math.abs(va-vb)]=out[Math.abs(va-vb)]||'−';
+    if(ops.indexOf('x')>=0){
+      out[va*vb]=out[va*vb]||'×';
+      if(vb!==0&&va%vb===0)out[va/vb]=out[va/vb]||'÷';
+      if(va!==0&&vb%va===0)out[vb/va]=out[vb/va]||'÷';
+    }
+    return out;
+  },
+  // 空きスポット一覧（支え2枚あり）
+  openSpots(S){
+    const out=[];
+    for(let r=1;r<S.rows.length;r++)for(let i=0;i<S.rows[r].length;i++){
+      if(S.rows[r][i])continue;
+      const a=S.rows[r-1][i],b=S.rows[r-1][i+1];
+      if(a&&b)out.push({r,i,a,b});
+    }
+    return out;
+  },
+  genPlays(S,pi){ // {r,i,hi,val,va,vb,op}
+    const p=S.players[pi];
+    const chain=S.placedNow.length>0;
+    const out=[];
+    Engine.openSpots(S).forEach(sp=>{
+      if(chain){
+        const ok=S.placedNow.indexOf(sp.a.cd.id)>=0||S.placedNow.indexOf(sp.b.cd.id)>=0;
+        if(!ok)return;
+      }
+      Engine.effNums(S,sp.a).forEach(va=>{
+        Engine.effNums(S,sp.b).forEach(vb=>{
+          const ans=Engine.calcAnswers(S,va,vb);
+          p.hand.forEach((c,hi)=>{
+            Engine.handNums(S,c).forEach(val=>{
+              if(ans[val])out.push({r:sp.r,i:sp.i,hi,val,va,vb,op:ans[val]});
+            });
+          });
+        });
+      });
+    });
+    return out;
+  },
+  genTsubame(S,pi){ // {r,i,hi,val,va,vb,op} 対象=rows[r][i]
+    const p=S.players[pi];
+    if(S.placedNow.length)return []; // 番の最初の行動としてのみ
+    const out=[];
+    for(let r=1;r<S.rows.length;r++)for(let i=0;i<S.rows[r].length;i++){
+      const t=S.rows[r][i]; if(!t)continue;
+      // 上にカードが乗っていない
+      const up=S.rows[r+1];
+      if(up&&((i-1>=0&&up[i-1])||(i<up.length&&up[i])))continue;
+      const a=S.rows[r-1][i],b=S.rows[r-1][i+1];
+      const tNums=Engine.effNums(S,t); // 異なる数チェックは取り得る数すべてと不一致（仮置き④）
+      Engine.effNums(S,a).forEach(va=>{
+        Engine.effNums(S,b).forEach(vb=>{
+          const ans=Engine.calcAnswers(S,va,vb);
+          p.hand.forEach((c,hi)=>{
+            Engine.handNums(S,c).forEach(val=>{
+              if(ans[val]&&tNums.indexOf(val)<0)out.push({r,i,hi,val,va,vb,op:ans[val]});
+            });
+          });
+        });
+      });
+    }
+    return out;
+  },
+  canPass(S,pi){ const p=S.players[pi]; return S.placedNow.length===0&&p.passLeft>0&&p.hand.some(c=>c.face==='F'); },
+  lockAssign(S,cell,v){ if(cell.face==='B'&&S.assign[cell.cd.id]===undefined&&cell.cd.back.indexOf(v)>=0)S.assign[cell.cd.id]=v; },
+  applyPlay(S,pi,a){
+    const p=S.players[pi];
+    const spA=S.rows[a.r-1][a.i],spB=S.rows[a.r-1][a.i+1];
+    Engine.lockAssign(S,spA,a.va); Engine.lockAssign(S,spB,a.vb);
+    const c=p.hand.splice(a.hi,1)[0];
+    if(c.face==='B')S.assign[c.id]=a.val;
+    S.rows[a.r][a.i]={cd:c,face:c.face};
+    S.placedNow.push(c.id);
+    S.stats.plays++;
+    Engine.log(S,p.name+'が「'+a.va+' '+a.op+' '+a.vb+' = '+a.val+'」で'+(c.face==='B'?'ウラ':'')+'カードを出した（残り'+p.hand.length+'枚）');
+    if(!p.hand.length){S.over=true;S.winner=pi;Engine.log(S,'🎉 '+p.name+'がもち札を出し切った!');}
+  },
+  applyTsubame(S,pi,a,markerOp){
+    const p=S.players[pi];
+    const spA=S.rows[a.r-1][a.i],spB=S.rows[a.r-1][a.i+1];
+    Engine.lockAssign(S,spA,a.va); Engine.lockAssign(S,spB,a.vb);
+    const t=S.rows[a.r][a.i];
+    const c=p.hand.splice(a.hi,1)[0];
+    if(c.face==='B')S.assign[c.id]=a.val;
+    S.rows[a.r][a.i]={cd:c,face:c.face};
+    // 取ったカードは裏返して手札へ
+    const newFace=t.face==='F'?'B':'F';
+    delete S.assign[t.cd.id];
+    p.hand.push({id:t.cd.id,v:t.cd.v,back:t.cd.back,face:newFace});
+    S.stats.tsubame++;
+    let mtxt='';
+    if(S.cfg.useMarker&&markerOp){
+      const prev=S.markers[markerOp];
+      OPS.forEach(o=>{if(S.markers[o]===pi)S.markers[o]=-1;}); // 念のため（通常は持っていない）
+      S.markers[markerOp]=pi;
+      mtxt='。マーカー【'+OP_LB[markerOp]+'】を'+(prev>=0?S.players[prev].name+'からうばって':'')+'取った（次の自分の番まで全員'+OP_LB[markerOp]+'禁止）';
+    }
+    Engine.log(S,p.name+'がツバメガエシ! 「'+a.va+' '+a.op+' '+a.vb+' = '+a.val+'」で場の'+t.cd.v+'と交換し、ウラ返して手札にした'+mtxt);
+  },
+  applyPass(S,pi,hi){
+    const p=S.players[pi];
+    const c=p.hand[hi];
+    c.face='B'; delete S.assign[c.id];
+    p.passLeft--; S.stats.passes++;
+    Engine.log(S,p.name+'はパス（'+c.v+'のカードをウラ返した。残りパス'+p.passLeft+'回）');
+  },
+  alive(S){ return S.players.filter(p=>!p.out); },
+  startTurn(S){ // 手番開始処理。脱落判定込み。戻り値: 'play'|'eliminated'|'over'
+    const pi=S.turn,p=S.players[pi];
+    OPS.forEach(o=>{if(S.markers[o]===pi){S.markers[o]=-1;Engine.log(S,p.name+'はマーカー【'+OP_LB[o]+'】を戻した');}});
+    S.assign={}; S.placedNow=[]; S.turnCount++;
+    const can=Engine.genPlays(S,pi).length>0||Engine.genTsubame(S,pi).length>0||Engine.canPass(S,pi);
+    if(!can){
+      p.out=true;S.stats.elims++;
+      Engine.log(S,'💧 '+p.name+'は出す/ツバメガエシ/パスのどれもできず脱落…');
+      if(S.duel){
+        const order=(pi===S.firstIdx)?'first':'second';
+        if(order==='second'){S.over=true;}
+        else{S.elimFlagFirst=true;}
+      }else if(Engine.alive(S).length===1){
+        S.over=true;S.winner=Engine.alive(S)[0].idx;
+        Engine.log(S,'🎉 '+S.players[S.winner].name+'が最後まで残った!');
+      }
+      return S.over?'over':'eliminated';
+    }
+    return 'play';
+  },
+  endTurn(S){ // 手番終了→次へ。デュエル終了条件も見る
+    if(S.over)return;
+    if(S.duel&&S.elimFlagFirst&&S.turn!==S.firstIdx){S.over=true;} // 先攻脱落後の後攻の番が終了
+    if(S.over)return;
+    let n=S.turn;
+    for(let k=0;k<S.np;k++){n=(n+1)%S.np;if(!S.players[n].out)break;}
+    S.turn=n;
+  },
+  duelResult(S){ // {winner,detail} 少ない方→合計小（ウラは最小値）
+    const cnt=S.players.map(p=>p.hand.length);
+    const sum=S.players.map(p=>p.hand.reduce((a,c)=>a+(c.face==='B'?Math.min.apply(null,c.back):c.v),0));
+    let w=-1;
+    if(S.winner>=0)w=S.winner;
+    else if(cnt[0]!==cnt[1])w=cnt[0]<cnt[1]?0:1;
+    else if(sum[0]!==sum[1])w=sum[0]<sum[1]?0:1;
+    return {winner:w,cnt,sum};
+  },
+  /* --- CPU --- */
+  cpuChoose(S,pi){ // 番の最初の行動
+    const plays=Engine.genPlays(S,pi);
+    const tsu=Engine.genTsubame(S,pi);
+    const p=S.players[pi];
+    const opts=[];
+    plays.forEach(a=>{
+      let sc=1.6;
+      if(S.players[pi].hand[a.hi].face==='B')sc+=.2; // ウラを消化
+      sc+=Engine.chainPotential(S,pi,a)*.7;
+      opts.push({type:'play',a,score:sc});
+    });
+    const leaderMin=Math.min.apply(null,S.players.filter(q=>!q.out&&q.idx!==pi).map(q=>q.hand.length).concat([99]));
+    tsu.forEach(a=>{
+      let sc=.55;
+      if(leaderMin<=2)sc+=1.3; // 妨害
+      if(p.hand.length<=2)sc-=.5; // 自分が上がりかけなら出すべき
+      opts.push({type:'tsu',a,score:sc});
+    });
+    if(Engine.canPass(S,pi))opts.push({type:'pass',score:plays.length||tsu.length?0.05:2});
+    return softmaxPick(opts,0.55);
+  },
+  chainPotential(S,pi,a){ // aを出した後さらに出せる見込み（軽い1手先読み）
+    const p=S.players[pi];
+    let n=0;
+    const vals={}; p.hand.forEach((c,hi)=>{if(hi!==a.hi)Engine.handNums(S,c).forEach(v=>vals[v]=1);});
+    // aの左右となりとの計算
+    const r=a.r,i=a.i;
+    [[r,i-1],[r,i+1]].forEach(q=>{
+      const row=S.rows[q[0]];
+      if(!row||q[1]<0||q[1]>=row.length)return;
+      const nb=row[q[1]];
+      if(!nb)return;
+      Engine.effNums(S,nb).forEach(vn=>{
+        const ans=Engine.calcAnswers(S,a.val,vn);
+        Object.keys(ans).forEach(v=>{if(vals[v])n=1;});
+      });
+    });
+    return n;
+  },
+  cpuMarker(S,pi){ // どのマーカーを取るか: 次の相手の選択肢を最も減らす…は重いので加重ランダム
+    return OPS[rnd(3)];
+  },
+  cpuTurn(S){ // 1手番を最後まで（シミュ/観戦用）
+    const pi=S.turn;
+    const st=Engine.startTurn(S);
+    if(st!=='play'){Engine.endTurn(S);return;}
+    let act=Engine.cpuChoose(S,pi);
+    if(!act){Engine.endTurn(S);return;}
+    if(act.type==='pass'){
+      const p=S.players[pi];
+      const hi=p.hand.findIndex(c=>c.face==='F');
+      Engine.applyPass(S,pi,hi);
+    }else if(act.type==='tsu'){
+      Engine.applyTsubame(S,pi,act.a,S.cfg.useMarker?Engine.cpuMarker(S,pi):null);
+    }else{
+      Engine.applyPlay(S,pi,act.a);
+      let guard=0;
+      while(!S.over&&guard++<20){
+        const more=Engine.genPlays(S,pi);
+        if(!more.length)break;
+        if(Math.random()<0.12)break; // たまに温存
+        const pick=softmaxPick(more.map(a=>({a,score:1+Engine.chainPotential(S,pi,a)*.7})),0.6);
+        Engine.applyPlay(S,pi,pick.a);
+      }
+    }
+    Engine.endTurn(S);
+  },
+  playAuto(cfg){
+    const c={};Object.keys(cfg).forEach(k=>c[k]=cfg[k]);c.nHuman=0;
+    const S=Engine.newGame(c);
+    let guard=0;
+    while(!S.over&&guard++<600)Engine.cpuTurn(S);
+    if(S.duel)S.duelRes=Engine.duelResult(S);
+    return S;
+  }
+};
+
+/* ===== UI ===== */
+const ART=(typeof window!=='undefined'&&window.CARD_ART_TSU)?window.CARD_ART_TSU:null;
+function art(k){return ART&&ART[k]?ART[k]:null;}
+let S=null;
+let UI={actor:-1,logPtr:0,mode:'play',selHand:-1,acted:false,pendOpts:null};
+
+function readCfg(){
+  const c={};
+  ['nHuman','nCpu','passN','duelHand','cpuThink'].forEach(i=>c[i]=+$(i).value);
+  c.useMarker=$('useMarker').checked;
+  return c;
+}
+function schedule(fn){ if(S.cfg.cpuThink>0)setTimeout(fn,S.cfg.cpuThink); else fn(); }
+function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('actionBody').innerHTML=html; }
+function flushLog(){ const el=$('log'); let h='';
+  for(;UI.logPtr<S.log.length;UI.logPtr++)h+='<div>'+S.log[UI.logPtr]+'</div>';
+  if(h){el.innerHTML+=h; el.scrollTop=el.scrollHeight;} }
+
+function cellHTML(cell,extra,id){
+  const asg=cell.face==='B'&&S.assign[cell.cd.id]!==undefined?'<span class="asg">='+S.assign[cell.cd.id]+'</span>':'';
+  let inner,cls;
+  const key=cell.cd.start?('s:'+cell.cd.v):((cell.face==='F'?'f:':'b:')+cell.cd.id);
+  const a=art(key);
+  if(a){inner='<img src="'+a+'" draggable="false">';cls='hasimg';}
+  else if(cell.face==='F'){inner='<div class="cv">'+cell.cd.v+'</div>';cls='cardF';}
+  else{inner='<div class="cb4">'+cell.cd.back.join('<br>')+'</div>';cls='cardB';}
+  return '<div '+(id?'id="'+id+'" ':'')+'class="cell '+cls+' '+(extra||'')+'">'+asg+inner+'</div>';
+}
+function handCardHTML(c,cls,id){
+  const key=(c.face==='F'?'f:':'b:')+c.id;
+  const a=art(key);
+  const asg=c.face==='B'&&S.assign[c.id]!==undefined?'<span class="asg">='+S.assign[c.id]+'</span>':'';
+  if(a)return '<div '+(id?'id="'+id+'" ':'')+'class="hcard hasimg '+(cls||'')+'">'+asg+'<img src="'+a+'" draggable="false"></div>';
+  if(c.face==='F')return '<div '+(id?'id="'+id+'" ':'')+'class="hcard f '+(cls||'')+'">'+asg+'<div class="cv">'+c.v+'</div></div>';
+  return '<div '+(id?'id="'+id+'" ':'')+'class="hcard b '+(cls||'')+'">'+asg+'<div class="cb4">'+c.back.join(' ')+'</div></div>';
+}
+function miniHTML(c){
+  const key=(c.face==='F'?'f:':'b:')+c.id;
+  const a=art(key);
+  if(a)return '<span class="minicard" title="'+(c.face==='F'?c.v:'ウラ('+c.back.join(',')+')')+'"><img src="'+a+'"></span>';
+  return '<span>'+(c.face==='F'?c.v:'裏['+c.back.join(',')+']')+'</span>';
+}
+
+const CW=64,CH=90,GX=8,GY=26;
+function renderBoard(){
+  const N=S.baseN;
+  const w=N*(CW+GX);
+  const py=$('pyramid');
+  if(py.style){py.style.width=w+'px'; py.style.height=(N*(CH-GY)+GY+30)+'px';}
+  let h='';
+  const spots={};
+  if(UI.hlSpots)UI.hlSpots.forEach(k=>spots[k]=1);
+  const tgts={};
+  if(UI.hlTgts)UI.hlTgts.forEach(k=>tgts[k]=1);
+  for(let r=0;r<S.rows.length;r++){
+    for(let i=0;i<S.rows[r].length;i++){
+      const x=i*(CW+GX)+r*(CW+GX)/2;
+      const y=(N-1-r)*(CH-GY);
+      const cell=S.rows[r][i];
+      const id='cell_'+r+'_'+i;
+      let html;
+      if(cell){
+        const extra=(tgts[r+'_'+i]?'tgt':'')+(S.placedNow.indexOf(cell.cd.id)>=0?' newly':'');
+        html=cellHTML(cell,extra,id);
+      }else{
+        const a=S.rows[r-1]&&S.rows[r-1][i],b=S.rows[r-1]&&S.rows[r-1][i+1];
+        if(!(a&&b)&&r>0)continue; // 支えなしスポットは描かない
+        html='<div id="'+id+'" class="cell slot'+(spots[r+'_'+i]?' ok':'')+'">'+(spots[r+'_'+i]?'ここに出す':'')+'</div>';
+      }
+      html=html.replace('class="cell','style="left:'+x+'px;top:'+y+'px" class="cell');
+      h+=html;
+    }
+  }
+  py.innerHTML=h;
+  // マーカー
+  let mh='';
+  OPS.forEach(o=>{
+    const holder=S.markers[o];
+    mh+='<span class="mktoken'+(holder<0?' free':'')+'" title="'+(holder<0?'未使用':S.players[holder].name+'が使用中（'+OP_LB[o]+'禁止）')+'">'+OP_LB[o]+'</span>';
+    if(holder>=0)mh+='<span class="hint">'+S.players[holder].name+'が保持（全員'+OP_LB[o]+'禁止）</span> ';
+  });
+  $('markerBar').innerHTML=S.cfg.useMarker?mh:'<span class="hint">マーカーなし（レバーでOFF）</span>';
+  $('drawInfo').textContent='経過ターン'+S.turnCount+(S.duel?' / デュエル':'')+' / 空きスポット'+Engine.openSpots(S).length;
+  // プレイヤー
+  let ph='';
+  S.players.forEach((p,pi)=>{
+    const handH=p.hand.map(c=>miniHTML(c)).join('');
+    ph+='<div class="pl'+(UI.actor===pi?' turn':'')+(p.out?' out':'')+'"><div class="name"><span>'+p.name
+      +(p.out?' <span class="badge">脱落</span>':'')
+      +(p.human?'':' <span class="badge bot">CPU</span>')
+      +'</span><span class="score">'+p.hand.length+'枚</span></div>'
+      +'<div class="mini">'+(handH||'出し切り!')+'</div>'
+      +'<div class="mini">パス残り'+p.passLeft+'回'+OPS.filter(o=>S.markers[o]===pi).map(o=>' / マーカー【'+OP_LB[o]+'】保持').join('')+'</div></div>';
+  });
+  $('players').innerHTML=ph;
+  $('banner').textContent=(S.duel?'2人デュエル':S.np+'人戦')+' ― ターン'+S.turnCount+'（'+(S.players[S.turn]?S.players[S.turn].name:'')+'の番）';
+  flushLog();
+}
+
+function withMask(pi,fn){
+  const p=S.players[pi];
+  if(S.cfg.nHuman<=1){fn();return;}
+  $('turnTitle').textContent='交代';
+  setAction('<div class="mask"><p><b>'+p.name+'</b>さんに画面をわたしてください</p><button id="maskBtn">じゅんびOK</button></div>');
+  $('maskBtn').onclick=fn;
+}
+
+/* --- 手番進行 --- */
+function nextTurn(){
+  if(S.over){showResult();return;}
+  const pi=S.turn;
+  UI.actor=pi;UI.hlSpots=null;UI.hlTgts=null;UI.selHand=-1;UI.mode='play';UI.acted=false;
+  const st=Engine.startTurn(S);
+  renderBoard();
+  if(st!=='play'){
+    Engine.endTurn(S);
+    renderBoard();
+    if(S.over){ if(S.duel&&!S.duelShown){showResult();return;} showResult();return;}
+    schedule(nextTurn);
+    return;
+  }
+  const p=S.players[pi];
+  if(!p.human){
+    $('turnTitle').textContent=p.name+' の番…';
+    setAction('<span class="hint">考え中…</span>');
+    schedule(()=>{
+      // cpuTurnはstartTurn済み前提で行動部分のみ再現
+      const act=Engine.cpuChoose(S,pi);
+      if(act){
+        if(act.type==='pass'){const hi=p.hand.findIndex(c=>c.face==='F');Engine.applyPass(S,pi,hi);}
+        else if(act.type==='tsu')Engine.applyTsubame(S,pi,act.a,S.cfg.useMarker?Engine.cpuMarker(S,pi):null);
+        else{
+          Engine.applyPlay(S,pi,act.a);
+          let guard=0;
+          while(!S.over&&guard++<20){
+            const more=Engine.genPlays(S,pi);
+            if(!more.length)break;
+            if(Math.random()<0.12)break;
+            const pick=softmaxPick(more.map(a=>({a,score:1+Engine.chainPotential(S,pi,a)*.7})),0.6);
+            Engine.applyPlay(S,pi,pick.a);
+          }
+        }
+      }
+      Engine.endTurn(S);
+      renderBoard();
+      if(S.over){showResult();return;}
+      nextTurn();
+    });
+  }else{
+    withMask(pi,()=>renderHumanTurn(pi));
+  }
+}
+
+function renderHumanTurn(pi){
+  const p=S.players[pi];
+  UI.hlSpots=null;UI.hlTgts=null;UI.selHand=-1;
+  renderBoard();
+  const plays=Engine.genPlays(S,pi);
+  const tsu=Engine.genTsubame(S,pi);
+  $('turnTitle').textContent=p.name+' の番'+(UI.acted?'（つづけて出す / 番を終える）':'');
+  let h='<div class="row" style="margin-bottom:6px">'
+    +'<button id="modePlay" class="mode small'+(UI.mode==='play'?' on':'')+'"'+(plays.length?'':' disabled')+'>▶ 出す（'+plays.length+'通り）</button>'
+    +'<button id="modeTsu" class="mode small warn'+(UI.mode==='tsu'?' on':'')+'"'+(tsu.length&&!UI.acted?'':' disabled')+'>🔁 ツバメガエシ（'+tsu.length+'通り）</button>'
+    +'<button id="passBtn" class="mode small ghost"'+(Engine.canPass(S,pi)&&!UI.acted?'':' disabled')+'>⏭ パス（'+p.passLeft+'回・1枚ウラ返す）</button>'
+    +(UI.acted?'<button id="endTurnBtn" class="small">✅ 番を終える</button>':'')
+    +'</div>';
+  h+='<h3>もち札（クリックでえらぶ）</h3><div id="handRow">';
+  p.hand.forEach((c,hi)=>{
+    const usable=(UI.mode==='play'&&plays.some(a=>a.hi===hi))||(UI.mode==='tsu'&&tsu.some(a=>a.hi===hi))||(UI.mode==='pass'&&c.face==='F');
+    h+=handCardHTML(c,(usable?'pick ':'')+(UI.selHand===hi?'sel':''),'hand'+hi);
+  });
+  h+='</div><div id="targetArea"></div>';
+  setAction(h); // targetArea内の動的id(ch0/mk_x等)を確実に失効させる（教訓: 入れ子コンテナの動的idはmini_domで失効しない）
+  const setMode=m=>{UI.mode=m;renderHumanTurn(pi);};
+  if($('modePlay'))$('modePlay').onclick=()=>setMode('play');
+  if($('modeTsu'))$('modeTsu').onclick=()=>setMode('tsu');
+  if($('passBtn'))$('passBtn').onclick=()=>setMode('pass');
+  if($('endTurnBtn'))$('endTurnBtn').onclick=()=>{Engine.endTurn(S);renderBoard();if(S.over){showResult();}else nextTurn();};
+  p.hand.forEach((c,hi)=>{
+    const el=$('hand'+hi);
+    el.onclick=()=>selectHand(pi,hi);
+  });
+}
+
+function selectHand(pi,hi){
+  const p=S.players[pi];
+  UI.selHand=hi;
+  if(UI.mode==='pass'){
+    if(p.hand[hi].face!=='F')return;
+    Engine.applyPass(S,pi,hi);
+    Engine.endTurn(S);renderBoard();
+    if(S.over)showResult();else nextTurn();
+    return;
+  }
+  const src=UI.mode==='play'?Engine.genPlays(S,pi):Engine.genTsubame(S,pi);
+  const mine=src.filter(a=>a.hi===hi);
+  if(!mine.length)return;
+  // 盤面ハイライト
+  if(UI.mode==='play'){UI.hlSpots=mine.map(a=>a.r+'_'+a.i);UI.hlTgts=null;}
+  else{UI.hlTgts=mine.map(a=>a.r+'_'+a.i);UI.hlSpots=null;}
+  renderBoard();
+  // 手札の選択状態を維持したまま再描画されるので、ここでactionBodyは再構築せずセルにハンドラを張る
+  rebindHandSel(pi,hi,mine);
+}
+function rebindHandSel(pi,hi,mine){
+  const p=S.players[pi];
+  // 手札セル選択表示
+  p.hand.forEach((c,i)=>{const el=$('hand'+i);if(el){el.classList.remove('sel');if(i===hi)el.classList.add('sel');}});
+  const done=new Set();
+  mine.forEach(a=>{
+    const key=a.r+'_'+a.i;
+    if(done.has(key))return;
+    done.add(key);
+    const el=$('cell_'+a.r+'_'+a.i);
+    if(!el)return;
+    el.onclick=()=>chooseInterp(pi,hi,mine.filter(x=>x.r===a.r&&x.i===a.i));
+  });
+}
+function chooseInterp(pi,hi,cands){
+  // 同じスポットに複数の解釈（ウラの数の選び方）がある場合はえらばせる
+  if(cands.length===1){execAction(pi,cands[0]);return;}
+  // 重複除去
+  const seen=new Set();const uniq=[];
+  cands.forEach(a=>{const k=a.va+a.op+a.vb+'='+a.val;if(!seen.has(k)){seen.add(k);uniq.push(a);}});
+  if(uniq.length===1){execAction(pi,uniq[0]);return;}
+  let h='<h3>どの計算で出す?</h3><div class="row">';
+  uniq.forEach((a,i)=>{h+='<button class="ghost small" id="ch'+i+'">'+a.va+' '+a.op+' '+a.vb+' = '+a.val+'</button>';});
+  h+='</div>';
+  $('targetArea').innerHTML=h;
+  uniq.forEach((a,i)=>{$('ch'+i).onclick=()=>execAction(pi,a);});
+}
+function execAction(pi,a){
+  if(UI.mode==='play'){
+    Engine.applyPlay(S,pi,a);
+    UI.acted=true;
+    renderBoard();
+    if(S.over){showResult();return;}
+    if(!Engine.genPlays(S,pi).length){ // もう出せない→自動で番を終える
+      Engine.endTurn(S);renderBoard();
+      if(S.over)showResult();else nextTurn();
+      return;
+    }
+    renderHumanTurn(pi);
+  }else{ // ツバメガエシ → マーカー選択
+    if(S.cfg.useMarker){
+      let h='<h3>取るマーカーをえらぶ（次の自分の番まで全員その計算禁止）</h3><div class="row">';
+      OPS.forEach(o=>{h+='<button class="small" id="mk_'+o+'">'+OP_LB[o]+(S.markers[o]>=0?'（'+S.players[S.markers[o]].name+'からうばう）':'')+'</button>';});
+      h+='</div>';
+      $('targetArea').innerHTML=h;
+      OPS.forEach(o=>{$('mk_'+o).onclick=()=>{
+        Engine.applyTsubame(S,pi,a,o);
+        Engine.endTurn(S);renderBoard();
+        if(S.over)showResult();else nextTurn();
+      };});
+    }else{
+      Engine.applyTsubame(S,pi,a,null);
+      Engine.endTurn(S);renderBoard();
+      if(S.over)showResult();else nextTurn();
+    }
+  }
+}
+
+/* --- 結果 --- */
+function showResult(){
+  renderBoard();
+  $('game').classList.add('hidden');
+  const r=$('result');r.classList.remove('hidden');
+  let h='<h2>🐦 ゲーム終了</h2>';
+  if(S.duel){
+    const d=Engine.duelResult(S);
+    S.duelShown=true;
+    h+='<table class="res"><tr><th>プレイヤー</th><th>残り枚数</th><th>残りの数の合計(ウラ=最小値)</th><th>結果</th></tr>';
+    S.players.forEach((p,pi)=>{
+      h+='<tr><td>'+p.name+'</td><td>'+d.cnt[pi]+'</td><td>'+d.sum[pi]+'</td><td>'+(d.winner===pi?'<b>🏆勝ち</b>':(d.winner<0?'引き分け':''))+'</td></tr>';
+    });
+    h+='</table>';
+  }else{
+    h+='<table class="res"><tr><th>プレイヤー</th><th>残り枚数</th><th>状態</th></tr>';
+    S.players.forEach((p,pi)=>{
+      h+='<tr><td>'+p.name+'</td><td>'+p.hand.length+'</td><td>'+(S.winner===pi?'<b>🏆勝ち</b>':(p.out?'脱落':''))+'</td></tr>';
+    });
+    h+='</table>';
+  }
+  const filled=S.rows.reduce((a,row)=>a+row.filter(Boolean).length,0);
+  const total=S.rows.reduce((a,row)=>a+row.length,0);
+  h+='<div class="foot">検証指標: 経過ターン='+S.turnCount+' / 出した枚数='+S.stats.plays+' / ツバメガエシ='+S.stats.tsubame
+    +' / パス='+S.stats.passes+' / 脱落='+S.stats.elims+' / ピラミッド充填率='+Math.round(filled/total*100)+'%（'+filled+'/'+total+'）</div>';
+  h+='<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1回</button><button class="ghost" id="setupBtn2">設定に戻る</button></div>';
+  r.innerHTML=h;
+  $('againBtn').onclick=()=>{r.classList.add('hidden');startGame();};
+  $('setupBtn2').onclick=()=>{r.classList.add('hidden');$('setup').classList.remove('hidden');};
+}
+
+/* --- 開始 --- */
+function startGame(){
+  const cfg=readCfg();
+  const np=cfg.nHuman+cfg.nCpu;
+  if(np<2||np>5){alert('合計人数は2〜5人にしてください');return;}
+  S=Engine.newGame(cfg);
+  UI={actor:-1,logPtr:0,mode:'play',selHand:-1,acted:false};
+  $('log').innerHTML='';
+  $('setup').classList.add('hidden');$('result').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  renderBoard();
+  nextTurn();
+}
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:2,passN:1,duelHand:10,cpuThink:900};
+$('resetDefaults').onclick=()=>{Object.entries(DEF).forEach(([k,v])=>$(k).value=v);$('useMarker').checked=true;};
+
+// セットアップ画面の飾り
+(function(){
+  if(!ART)return;
+  const hero=$('heroArt');if(!hero)return;
+  const picks=[['bk:start',''],['f:7_1','tilt1'],['b:7_1','tilt2'],['f:12_1','tilt1'],['s:8','tilt2']];
+  hero.innerHTML=picks.map(x=>ART[x[0]]?'<img class="'+x[1]+'" src="'+ART[x[0]]+'" draggable="false">':'').join('');
+})();
+
+window.__engine=Engine;
+window.__state=()=>S;
+</script>
+
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#7b8794;text-align:center;line-height:1.8">🔒 『ツバメガエシ』(2024年ゲムマ春・完売作)のWeb再現・限定テストページです。URLの共有・SNSへの投稿はご遠慮ください。<br><a href="index.html" style="color:#5f8f8a">友だちと対戦（部屋コード式）はこちら → index.html</a> ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>
