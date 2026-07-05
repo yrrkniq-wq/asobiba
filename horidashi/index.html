@@ -13,8 +13,8 @@
 <meta name="twitter:site" content="@yrr_iq">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  オンライン対戦版 v0.4(ルールはローカル版 ほりだしもの_プロトタイプ.html と同一)
-  v0.4: 袋点1/1/2・注文12種・順番ドラフト(キープ残りは山底へ)・公開時の注文補充
+  オンライン対戦版 v0.5(ルールはローカル版 ほりだしもの_プロトタイプ.html と同一)
+  v0.5: 早出しボーナス廃止・道具6種13枚に再編(シャベル/横取り/崩落発破/のぞき見全見せ)・山切れでも捨てるだけ可
   PeerJSホスト権威型。逐次手番+秘密手札(注文・道具)なので、手番プレイヤーにだけ
   秘密情報つき手番メッセージを送る。手番UIはmyTurn状態として保持しスナップ再描画から復元
   (教訓_逐次手番オンラインでは手番UIを状態として持つ)。切断者はCPUが代打ち。
@@ -98,7 +98,7 @@
 <body>
 <header>
   <h1>⛏️ ほりだしもの</h1>
-  <span class="tag">オンライン対戦 v0.4</span>
+  <span class="tag">オンライン対戦 v0.5</span>
   <span class="tag">部屋コードで友だちと(2〜5人)</span>
 </header>
 
@@ -122,7 +122,7 @@
     <h3>ルール要約</h3>
     <table class="rules">
       <tr><td>準備</td><td>鉱山14枚(ルビー5/サファイア4/エメラルド3/ダイヤ2・公開構成)から3枚を見ずに抜く(崩落)。席順に注文3枚引き→2枚秘密でキープ(残りは山の底へ)</td></tr>
-      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石は自分の袋へ(R/S/E=1点 D=2点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定+早出しボーナス)。公開したら注文山から1枚補充してよい</td></tr>
+      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石は自分の袋へ(R/S/E=1点 D=2点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定)。公開したら注文山から1枚補充してよい。入れ替えは山切れでも「捨てるだけ」可</td></tr>
       <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩される(袋からも没収)。掘るが3手番なければ次は掘る強制</td></tr>
       <tr><td>終了</td><td>山が尽きたら崩落3枚を公開→手札一斉公開。袋+注文(成立=基礎点/不成立=-1)の合計勝負</td></tr>
     </table>
@@ -242,17 +242,17 @@ const ORDERS=[
  {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立',
    judge:(h,rm,tot,over)=>(cnt(h,'E')+cnt(h,'D'))>=4?'failed':(over?'met':'open')},
 ];
+/* v0.5: 6種13枚に再編。「見るだけ」を全廃し、全道具が山・袋・秘密のどれかに触る */
 const TOOLS=[
- {fx:'loupe', nm:'ルーペ', txt:'山の一番上をこっそり見る', n:3},
- {fx:'trial', nm:'試掘', txt:'山の上2枚を見て、好きな順で戻す', n:3},
+ {fx:'shovel', nm:'先読みシャベル', txt:'山の上2枚を見て、好きな順で戻す か 1枚を山底へ送る', n:3},
  {fx:'dyna', nm:'ダイナマイト', txt:'このターン「掘る」を選んだら2枚掘る', n:2},
- {fx:'block', nm:'通行止め', txt:'次のプレイヤーは「掘る」を選べない', n:2},
+ {fx:'yokodori', nm:'横取り', txt:'直前に掘られた宝石1枚を、掘った人の袋から自分の袋へ移す', n:2},
  {fx:'rebury', nm:'埋め戻し', txt:'直前に掘られた1枚を山に戻してシャッフルする(袋からも没収)', n:2},
- {fx:'spy', nm:'のぞき見', txt:'相手1人の手札の注文をランダムに1枚見る', n:2},
- {fx:'survey', nm:'崩落調査', txt:'崩落の1枚をこっそり見る', n:2},
+ {fx:'spy', nm:'のぞき見', txt:'相手1人の手札の注文をすべて見る', n:2},
+ {fx:'happa', nm:'崩落発破', txt:'崩落の1枚をこっそり見て、山の一番上と入れ替えてもよい', n:2},
 ];
 
-/* ===== Engine(ローカル版v0.4と同一ロジック。newGameはspecs式) ===== */
+/* ===== Engine(ローカル版v0.5と同一ロジック。newGameはspecs式) ===== */
 const Engine = {
   newGame(cfg,specs){
     const np=specs.length;
@@ -317,30 +317,32 @@ const Engine = {
     if(t){ p.tools.push(t);
       while(p.tools.length>S.cfg.toolMax){const d=p.tools.splice(rnd(p.tools.length),1)[0];S.toolDiscard.push(d);} }
     let msg=p.name+'は準備した(道具を1枚引いた)';
-    if(swapIdx!=null&&p.orders[swapIdx]&&S.orderDeck.length){
+    if(swapIdx!=null&&p.orders[swapIdx]){
       const out=p.orders[swapIdx];
-      const inn=S.orderDeck.pop();
-      p.orders[swapIdx]=inn;
-      S.orderDiscard.push(out); // 捨てた注文票は公開される(v0.3.1)
-      msg+='。注文「'+out.nm+'」を捨てて引き直した(捨て札は公開)';
+      if(S.orderDeck.length){
+        p.orders[swapIdx]=S.orderDeck.pop();
+        S.orderDiscard.push(out); // 捨てた注文票は公開される(v0.3.1)
+        msg+='。注文「'+out.nm+'」を捨てて引き直した(捨て札は公開)';
+      }else{ // v0.5: 山切れでも「捨てるだけ」できる
+        p.orders.splice(swapIdx,1);
+        S.orderDiscard.push(out);
+        msg+='。注文「'+out.nm+'」を捨てた(山切れのため引き直しなし)';
+      }
       S.actionStats.swap++;
     }
     S.noDigStreak++;
     S.actionStats.prep++;
     Engine.log(S,msg);
   },
-  revealBonus(S){ return S.mine.length>=7?2:S.mine.length>=4?1:0; },
-  reveal(S,pi,oi){
+  reveal(S,pi,oi){ // v0.5: 早出しボーナス廃止。公開の価値=埋め戻しからの安全
     const p=S.players[pi];
     const o=p.orders[oi];
     if(!o)return false;
     if(Engine.statusOf(S,o)!=='met')return false;
-    const b=Engine.revealBonus(S);
     p.orders.splice(oi,1);
     p.revealed.push(o);
-    p.revealBonus=(p.revealBonus||0)+b;
     S.actionStats.reveal++;
-    Engine.log(S,'📜 '+p.name+'が注文「'+o.nm+'」を公開して確定!(+'+o.base+'点保証'+(b?'、早出し+'+b:'')+')');
+    Engine.log(S,'📜 '+p.name+'が注文「'+o.nm+'」を公開して確定!(+'+o.base+'点保証)');
     return true;
   },
   canRefill(S,pi){ // v0.4: 公開で手札が減っていて注文山が残っていれば1枚補充できる
@@ -369,19 +371,31 @@ const Engine = {
     p.tools.splice(ti,1); S.toolDiscard.push(t);
     S.toolStats[t.fx]=(S.toolStats[t.fx]||0)+1;
     switch(t.fx){
-      case 'loupe': p.peek=S.mine.length?[S.mine[S.mine.length-1]]:[];
-        Engine.log(S,p.name+'が「ルーペ」: 山の上をこっそり見た'); break;
-      case 'trial':{
-        if(choice&&choice.swap&&S.mine.length>=2){
-          const a=S.mine.pop(), b=S.mine.pop();
-          S.mine.push(a); S.mine.push(b);
-        }
-        p.peek=S.mine.slice(-2).reverse();
-        Engine.log(S,p.name+'が「試掘」: 山の上2枚を見て'+(choice&&choice.swap?'入れ替えた':'そのまま戻した')); break; }
+      case 'shovel':{ // v0.5: 上2枚を見て「そのまま/入れ替え/1枚を山底へ」
+        if(S.mine.length){
+          if(choice&&choice.mode==='swap'&&S.mine.length>=2){
+            const a=S.mine.pop(), b=S.mine.pop();
+            S.mine.push(a); S.mine.push(b);
+          }else if(choice&&choice.mode==='bury'&&S.mine.length>=1){
+            const a=S.mine.pop();
+            if(choice.which===1&&S.mine.length){ const b=S.mine.pop(); S.mine.unshift(b); S.mine.push(a); }
+            else S.mine.unshift(a);
+          }
+          p.peek=(choice&&choice.mode==='bury')?S.mine.slice(-1):S.mine.slice(-2).reverse();
+          Engine.log(S,p.name+'が「先読みシャベル」: 山の上2枚を見て'+(choice&&choice.mode==='swap'?'入れ替えた':choice&&choice.mode==='bury'?'1枚を山底へ送った':'そのまま戻した'));
+        } break; }
       case 'dyna': p._dyna=true;
         Engine.log(S,p.name+'が「ダイナマイト」: このターン掘るなら2枚!'); break;
-      case 'block': S.roadblock=true;
-        Engine.log(S,p.name+'が「通行止め」: 次のプレイヤーは掘れない'); break;
+      case 'yokodori':{ // v0.5: 直前の宝石を袋ごと奪う
+        if(S.lastDig&&S.lastDig.pi!==pi){
+          const q=S.players[S.lastDig.pi]; const g=S.lastDig.g;
+          const bi=q.bag.lastIndexOf(g);
+          if(bi>=0){
+            q.bag.splice(bi,1); p.bag.push(g);
+            S.lastDig={pi,g}; // 実物は横取りした人の袋にあるので、以後の埋め戻しはそこから取る
+            Engine.log(S,'🫳 '+p.name+'が「横取り」: '+q.name+'の袋から'+GEMS[g].nm+'を奪った(+'+GEMS[g].val+'点)');
+          }
+        } break; }
       case 'rebury':{
         if(S.hist.length){
           const g=S.hist.pop();
@@ -396,17 +410,26 @@ const Engine = {
           }
           S.lastDig=null;
         } break; }
-      case 'spy':{
+      case 'spy':{ // v0.5: 手札の注文をすべて見る
         const t2=(choice&&choice.tPi!=null)?S.players[choice.tPi]:null;
         if(t2&&t2.orders.length){
-          const o=t2.orders[rnd(t2.orders.length)];
-          p.spied.push({who:t2.name,nm:o.nm});
-          Engine.log(S,p.name+'が「のぞき見」: '+t2.name+'の注文を1枚見た');
+          t2.orders.forEach(o=>p.spied.push({who:t2.name,nm:o.nm}));
+          Engine.log(S,p.name+'が「のぞき見」: '+t2.name+'の手札の注文をすべて見た('+t2.orders.length+'枚)');
         } break; }
-      case 'survey':{
+      case 'happa':{ // v0.5: 崩落の1枚を見て、山の一番上と入れ替えてもよい
         if(S.removed.length&&!S.removedOpen){
-          p.peekRemoved=S.removed[rnd(S.removed.length)];
-          Engine.log(S,p.name+'が「崩落調査」: 崩落の1枚をこっそり見た');
+          const idx=(choice&&choice.idx>=0&&choice.idx<S.removed.length)?choice.idx:rnd(S.removed.length);
+          p.peekRemoved=S.removed[idx];
+          if(choice&&choice.swap&&S.mine.length){
+            const top=S.mine.pop();
+            S.mine.push(S.removed[idx]);
+            S.removed[idx]=top;
+            p.peek=S.mine.slice(-1);
+            p.peekRemoved=null;
+            Engine.log(S,'💥 '+p.name+'が「崩落発破」: 崩落の1枚を見て、山の一番上と入れ替えた!');
+          }else{
+            Engine.log(S,'💥 '+p.name+'が「崩落発破」: 崩落の1枚をこっそり見た');
+          }
         } break; }
     }
     return true;
@@ -421,7 +444,6 @@ const Engine = {
       const bagPts=p.bag.reduce((a,g)=>a+GEMS[g].val,0);
       if(bagPts){ r.pts+=bagPts; r.notes.push('袋の宝石 +'+bagPts+'('+p.bag.map(g=>GEMS[g].nm[0]).join('')+')'); }
       p.revealed.forEach(o=>{ r.pts+=o.base; r.notes.push('公開済「'+o.nm+'」+'+o.base); });
-      if(p.revealBonus){ r.pts+=p.revealBonus; r.notes.push('早出しボーナス+'+p.revealBonus); }
       p.orders.forEach(o=>{
         const st=Engine.statusOf(S,o);
         if(st==='met'){ r.pts+=o.base; r.notes.push('隠し成立「'+o.nm+'」+'+o.base); }
@@ -476,16 +498,30 @@ const Engine = {
       }
     }
     if(!rndPolicy&&p.tools.length){
-      const li=p.tools.findIndex(t=>t.fx==='loupe');
-      const ti2=p.tools.findIndex(t=>t.fx==='trial');
+      const shi=p.tools.findIndex(t=>t.fx==='shovel');
       const di=p.tools.findIndex(t=>t.fx==='dyna');
-      const bi=p.tools.findIndex(t=>t.fx==='block');
+      const yi=p.tools.findIndex(t=>t.fx==='yokodori');
       const ri=p.tools.findIndex(t=>t.fx==='rebury');
       const si=p.tools.findIndex(t=>t.fx==='spy');
-      const vi=p.tools.findIndex(t=>t.fx==='survey');
-      if(li>=0&&Math.random()<0.6)Engine.useTool(S,pi,li,{});
-      else if(ti2>=0&&Math.random()<0.4)Engine.useTool(S,pi,ti2,{swap:Math.random()<0.5});
-      else if(vi>=0&&Math.random()<(p.orders.some(o=>o.id===7)?0.8:0.25))Engine.useTool(S,pi,vi,{});
+      const hi=p.tools.findIndex(t=>t.fx==='happa');
+      if(shi>=0&&S.mine.length&&Math.random()<0.5){
+        let mode='keep';
+        const g=S.mine[S.mine.length-1];
+        const before=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.hist.push(g); const mtop=S.mine.pop(); S._pcache={};
+        const after=p.orders.reduce((a,o)=>a+(Engine.statusOf(S,o)==='open'?Engine.estimateP(S,o,30):0),0);
+        S.mine.push(mtop); S.hist.pop(); S._pcache={};
+        if(after<before-0.05&&S.mine.length>=2)mode='bury';
+        else if(S.mine.length>=2&&Math.random()<0.4)mode='swap';
+        Engine.useTool(S,pi,shi,{mode,which:0});
+      }
+      else if(hi>=0&&!S.removedOpen&&S.removed.length&&Math.random()<(p.orders.some(o=>o.id===7)?0.7:0.15)){
+        const idx=rnd(S.removed.length);
+        const wantD=p.orders.some(o=>o.id===7);
+        const swap=S.mine.length>0&&(wantD?S.removed[idx]!=='D':Math.random()<0.5);
+        Engine.useTool(S,pi,hi,{idx,swap});
+      }
+      else if(yi>=0&&S.lastDig&&S.lastDig.pi!==pi&&Math.random()<(GEMS[S.lastDig.g].val>=2?0.5:0.15))Engine.useTool(S,pi,yi,{});
       else if(ri>=0&&S.hist.length&&Math.random()<0.35){
         const before=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
         const g=S.hist[S.hist.length-1];
@@ -495,7 +531,6 @@ const Engine = {
         if(after>before+0.12)Engine.useTool(S,pi,ri,{});
       }
       else if(di>=0&&Math.random()<0.4)Engine.useTool(S,pi,di,{});
-      else if(bi>=0&&Math.random()<0.25)Engine.useTool(S,pi,bi,{});
       else if(si>=0&&Math.random()<0.3){
         const cands=S.players.filter(q=>q.idx!==pi&&q.orders.length);
         if(cands.length)Engine.useTool(S,pi,si,{tPi:cands[rnd(cands.length)].idx});
@@ -503,7 +538,9 @@ const Engine = {
     }else if(rndPolicy&&p.tools.length&&Math.random()<0.4){
       const ti3=rnd(p.tools.length);
       const t=p.tools[ti3];
-      const ch=t.fx==='spy'?{tPi:(pi+1)%S.np}:t.fx==='trial'?{swap:Math.random()<0.5}:{};
+      const ch=t.fx==='spy'?{tPi:(pi+1)%S.np}
+        :t.fx==='shovel'?{mode:['keep','swap','bury'][rnd(3)],which:0}
+        :t.fx==='happa'?{idx:0,swap:Math.random()<0.5}:{};
       Engine.useTool(S,pi,ti3,ch);
     }
     const canDig=Engine.canDig(S,pi);
@@ -599,7 +636,7 @@ function renderRef(){
   let h='<details><summary style="cursor:pointer;font-weight:700">📜 注文カード '+ORDERS.length+'種(各1枚)</summary><table class="rules" style="margin-top:8px">';
   ORDERS.forEach(o=>{ h+='<tr><td style="white-space:nowrap">'+o.nm+'</td><td style="text-align:center">'+o.base+'点</td><td>'+o.txt+'</td></tr>'; });
   h+='</table></details>';
-  h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🛠️ 道具カード 7種(計16枚)</summary><table class="rules" style="margin-top:8px">';
+  h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🛠️ 道具カード '+TOOLS.length+'種(計'+TOOLS.reduce((a,t)=>a+t.n,0)+'枚)</summary><table class="rules" style="margin-top:8px">';
   TOOLS.forEach(t=>{ h+='<tr><td style="white-space:nowrap">'+t.nm+'</td><td style="text-align:center">×'+t.n+'</td><td>'+t.txt+'</td></tr>'; });
   h+='</table></details>';
   $('refPanel').innerHTML=h;
@@ -682,20 +719,34 @@ function renderTurn(data,send){
     $('rfNo').onclick=()=>send({type:'refill',take:false});
     return;
   }
-  if(data.phase==='tview'){
-    $('turnTitle').textContent=data.myName+' ― 試掘';
+  if(data.phase==='tview'){ // v0.5: 先読みシャベル
+    $('turnTitle').textContent=data.myName+' ― 先読みシャベル';
     setAction('<div class="banner">🔍 山の上: '+data.view.map(g=>GEMS[g].nm).join(' → ')+'</div><div class="row">'
       +'<button id="tg0" class="ghost small">そのまま戻す</button>'
       +(data.view.length>=2?'<button id="tg1" class="ghost small">入れ替えて戻す</button>':'')
+      +'<button id="tg2" class="ghost small">「'+GEMS[data.view[0]].nm+'」を山底へ</button>'
+      +(data.view.length>=2?'<button id="tg3" class="ghost small">「'+GEMS[data.view[1]].nm+'」を山底へ</button>':'')
       +'</div><div id="targetArea"></div>');
-    $('tg0').onclick=()=>send({type:'tool',ti:data.ti,choice:{swap:false}});
-    if($('tg1'))$('tg1').onclick=()=>send({type:'tool',ti:data.ti,choice:{swap:true}});
+    $('tg0').onclick=()=>send({type:'tool',ti:data.ti,choice:{mode:'keep'}});
+    if($('tg1'))$('tg1').onclick=()=>send({type:'tool',ti:data.ti,choice:{mode:'swap'}});
+    $('tg2').onclick=()=>send({type:'tool',ti:data.ti,choice:{mode:'bury',which:0}});
+    if($('tg3'))$('tg3').onclick=()=>send({type:'tool',ti:data.ti,choice:{mode:'bury',which:1}});
+    return;
+  }
+  if(data.phase==='hview'){ // v0.5: 崩落発破
+    $('turnTitle').textContent=data.myName+' ― 崩落発破';
+    setAction('<div class="banner">💥 崩落の1枚: '+GEMS[data.g].nm+'(あなただけの情報)</div><div class="row">'
+      +'<button id="tg0" class="ghost small">そのまま(見るだけ)</button>'
+      +(data.canSwapTop?'<button id="tg1" class="ghost small">山の一番上と入れ替える</button>':'')
+      +'</div><div id="targetArea"></div>');
+    $('tg0').onclick=()=>send({type:'tool',ti:data.ti,choice:{idx:data.idx,swap:false}});
+    if($('tg1'))$('tg1').onclick=()=>send({type:'tool',ti:data.ti,choice:{idx:data.idx,swap:true}});
     return;
   }
   if(data.phase==='afterAct'){
     $('turnTitle').textContent=data.myName+' ― 成立中の注文があります。公開して確定しますか?';
     let h='<div class="row">';
-    data.mets.forEach(m=>{ h+='<button id="rv'+m.oi+'" class="small">📜「'+m.nm+'」を確定(+'+m.base+(data.revealBonus?' 早出し+'+data.revealBonus:'')+')</button>'; });
+    data.mets.forEach(m=>{ h+='<button id="rv'+m.oi+'" class="small">📜「'+m.nm+'」を確定(+'+m.base+')</button>'; });
     h+='<button id="holdBtn" class="ghost small">隠したまま次へ(埋め戻しに注意)</button></div><div id="targetArea"></div>';
     setAction(h);
     data.mets.forEach(m=>{ $('rv'+m.oi).onclick=()=>send({type:'reveal',oi:m.oi}); });
@@ -711,7 +762,7 @@ function renderTurn(data,send){
   h+='<h3>あなたの注文(秘密)</h3><div class="row">';
   data.orders.forEach(o=>{
     const cls=o.st==='met'?'met':o.st==='failed'?'failed':'';
-    const extra=o.st==='met'?'<div class="row" style="margin-top:4px"><button id="rv'+o.oi+'" class="small">📜 公開して確定(+'+o.base+(data.revealBonus?' 早出し+'+data.revealBonus:'')+')</button></div>'
+    const extra=o.st==='met'?'<div class="row" style="margin-top:4px"><button id="rv'+o.oi+'" class="small">📜 公開して確定(+'+o.base+')</button></div>'
       :o.st==='failed'?'<div class="hint">不成立確定…(準備で入れ替え可)</div>':'';
     h+=orderHTML(o,cls,null,extra);
   });
@@ -734,7 +785,8 @@ function renderTurn(data,send){
     const el=$('tl'+t.ti);
     if(!el)return;
     el.onclick=()=>{
-      if(t.fx==='trial'){ send({type:'tview',ti:t.ti}); return; }
+      if(t.fx==='shovel'){ send({type:'tview',ti:t.ti}); return; }
+      if(t.fx==='happa'){ send({type:'hview',ti:t.ti}); return; }
       if(t.fx==='spy'){
         if(!data.spyTargets.length){ alert('のぞける相手がいません'); return; }
         let th='<h3>だれをのぞく?</h3><div class="row">';
@@ -748,10 +800,11 @@ function renderTurn(data,send){
   });
   $('digBtn').onclick=()=>send({type:'dig'});
   $('prepBtn').onclick=()=>{
-    if(data.canSwap&&data.orders.length){
-      let th='<h3>準備: 注文を入れ替える?(任意)</h3><div class="row">';
-      data.orders.forEach(o=>{ th+='<button id="sw'+o.oi+'" class="ghost small">「'+o.nm+'」を捨てて引き直す</button>'; });
-      th+='<button id="swSkip" class="small">入れ替えない</button></div>';
+    if(data.orders.length){
+      const redraw=data.deckLeft>0;
+      let th='<h3>準備: 注文を'+(redraw?'入れ替える?(任意)':'捨てる?(山切れ・引き直しなし)')+'</h3><div class="row">';
+      data.orders.forEach(o=>{ th+='<button id="sw'+o.oi+'" class="ghost small">「'+o.nm+'」を'+(redraw?'捨てて引き直す':'捨てる')+'</button>'; });
+      th+='<button id="swSkip" class="small">'+(redraw?'入れ替えない':'捨てない')+'</button></div>';
       $('targetArea').innerHTML=th;
       data.orders.forEach(o=>{ $('sw'+o.oi).onclick=()=>send({type:'prep',swapOi:o.oi}); });
       $('swSkip').onclick=()=>send({type:'prep',swapOi:null});
@@ -894,14 +947,14 @@ function buildTurnData(pi){
     orders:p.orders.map((o,oi)=>({oi,nm:o.nm,txt:o.txt,base:o.base,st:Engine.statusOf(S,o)})),
     tools:Flow.toolUsed?[]:p.tools.map((t,ti)=>({ti,nm:t.nm,txt:t.txt,fx:t.fx})),
     peek:p.peek, peekRemoved:p.peekRemoved, spied:p.spied,
-    canSwap:S.orderDeck.length>0, revealBonus:Engine.revealBonus(S),
+    canSwap:p.orders.length>0, deckLeft:S.orderDeck.length,
     spyTargets:S.players.filter(q=>q.idx!==pi&&q.orders.length).map(q=>({tPi:q.idx,label:q.name}))
   };
 }
 function buildAfterActData(pi){
   const p=S.players[pi];
   return {
-    phase:'afterAct', myName:p.name, revealBonus:Engine.revealBonus(S),
+    phase:'afterAct', myName:p.name,
     mets:p.orders.map((o,oi)=>({oi,nm:o.nm,base:o.base,st:Engine.statusOf(S,o)})).filter(x=>x.st==='met')
   };
 }
@@ -1045,11 +1098,21 @@ function hostApplyAct(pi,a){
   // phase 'turn'
   if(a.type==='tview'){
     const t=p.tools[a.ti];
-    if(!t||t.fx!=='trial'||Flow.toolUsed)return;
+    if(!t||t.fx!=='shovel'||Flow.toolUsed)return;
     const view=S.mine.slice(-2).reverse();
     if(!view.length)return;
     if(pi===mySeat){ myTurn={phase:'tview',data:{phase:'tview',myName:p.name,ti:a.ti,view}}; renderMyTurn(); }
     else sendTo(pi,{t:'turn',data:{phase:'tview',myName:p.name,ti:a.ti,view}});
+    return;
+  }
+  if(a.type==='hview'){ // v0.5: 崩落発破の下見(見る札はホストが決めて本人にだけ送る)
+    const t=p.tools[a.ti];
+    if(!t||t.fx!=='happa'||Flow.toolUsed)return;
+    if(!S.removed.length||S.removedOpen)return;
+    const idx=rnd(S.removed.length);
+    const data={phase:'hview',myName:p.name,ti:a.ti,idx,g:S.removed[idx],canSwapTop:S.mine.length>0};
+    if(pi===mySeat){ myTurn={phase:'hview',data}; renderMyTurn(); }
+    else sendTo(pi,{t:'turn',data});
     return;
   }
   if(a.type==='tool'){
@@ -1175,6 +1238,6 @@ $('startBtn').onclick=hostStart;
 window.__engine=Engine;
 window.__state=()=>({role,roomId,mySeat,S,curSnap,Flow});
 </script>
-<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.4)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.5)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
 </body>
 </html>
