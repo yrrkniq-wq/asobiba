@@ -19,18 +19,24 @@
   逐次手番ゲームなので、手番のプレイヤーにだけ秘密情報（手札・山札・天気よほう）つきの
   手番メッセージを送り、ホストが検証して適用する。切断者はCPUが代打ち。
   注意: 会社ネットワーク等ではP2P接続に失敗することがある（その場合は別回線/スマホ回線を試す）
+  v1.1(2026-07-05): 製品版カード絵柄を表示（同フォルダの ashiten_cards.js を読み込み。無くてもテキストカードで動く。
+  天気めくり演出は操作をブロックしないオーバーレイ方式＝テスト・通信タイミングに影響しない）
 -->
 <style>
   :root{
     --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
     --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
     --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
-    --sky:#7ec3e0;
+    --sky:#7ec3e0; --skyband1:#a5daf2; --skyband2:#dbf2fc;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
-       background:var(--bg);color:var(--ink);line-height:1.6}
-  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+       background:linear-gradient(180deg,var(--skyband1) 0,var(--skyband2) 240px,var(--bg) 520px);
+       background-attachment:fixed;color:var(--ink);line-height:1.6}
+  body.wx-k{--skyband1:#c3cdd2;--skyband2:#e3e8ea}
+  body.wx-a{--skyband1:#9db4ce;--skyband2:#d6e2ee}
+  body.wx-t{--skyband1:#8b93ab;--skyband2:#c9cede}
+  header{padding:14px 20px;background:rgba(255,253,247,.82);border-bottom:1px solid var(--line);
          display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   header h1{font-size:19px;margin:0}
   header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
@@ -94,7 +100,36 @@
   table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
   .foot{font-size:11px;color:var(--sub);margin-top:8px}
   .mask{padding:30px;text-align:center}
+  /* ===== v1.1 カード絵柄・演出 ===== */
+  .mcard.artc,.rcard.artc{width:122px;height:170px;padding:0;border:none;background:transparent;
+    box-shadow:var(--shadow);border-radius:9px;overflow:visible;display:inline-block;position:relative;
+    transition:transform .15s ease}
+  .artc img{width:122px;height:170px;display:block;border-radius:9px}
+  .artc:hover{transform:scale(1.72);z-index:60;box-shadow:0 8px 26px rgba(60,60,80,.35)}
+  .artc.pick:hover{transform:scale(1.72) translateY(-2px)}
+  .tbthumb{display:inline-block;position:relative;margin:2px 3px 0 0;vertical-align:top}
+  .tbthumb img{width:34px;height:47px;border-radius:3px;display:block;transition:transform .12s}
+  .tbthumb:hover img{transform:scale(4.2);position:relative;z-index:70;box-shadow:0 8px 26px rgba(60,60,80,.4)}
+  .tbthumb.tl img{filter:grayscale(.6) brightness(.9)}
+  .tbthumb .st{position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;
+    color:#fff;font-size:9px;line-height:14px;text-align:center;font-weight:800;z-index:2}
+  .tbthumb.tw .st{background:var(--good)} .tbthumb.tl .st{background:var(--bad)}
+  .wxhist{display:inline-block;vertical-align:middle;margin:0 2px}
+  .wxhist img{width:26px;height:36px;border-radius:3px;display:block;transition:transform .12s}
+  .wxhist:hover img{transform:scale(3.4);position:relative;z-index:70}
+  .planback img{width:20px;height:28px;border-radius:2px;vertical-align:-8px}
+  @keyframes dealIn{from{opacity:0;transform:translateY(-14px) rotate(-2deg)}to{opacity:1;transform:none}}
+  .dealIn{animation:dealIn .34s both}
+  .wxo{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+       background:rgba(30,40,60,.35);z-index:100;pointer-events:none}
+  .flipwrap{perspective:900px}
+  .flip{position:relative;width:150px;height:209px;transform-style:preserve-3d;transition:transform .75s cubic-bezier(.2,.7,.3,1)}
+  .flip.go{transform:rotateY(180deg)}
+  .flip .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  .flip .face img{width:150px;height:209px;border-radius:10px;box-shadow:0 6px 18px rgba(60,60,80,.3)}
+  .flip .front{transform:rotateY(180deg)}
 </style>
+<script src="ashiten_cards.js"></script>
 </head>
 <body>
 <header>
@@ -159,6 +194,7 @@
 
   <!-- ===== GAME ===== -->
   <div id="game" class="hidden">
+    <div id="wxOverlay"></div>
     <div id="banner" class="banner"></div>
     <div class="card-panel">
       <h2>盤面 <span class="hint" id="drawInfo"></span></h2>
@@ -601,7 +637,12 @@ function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('ac
 function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'ashi-'+r; }
 function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
 
+/* --- カード絵柄（ashiten_cards.js があれば使う。無ければテキストカード） --- */
+const ART=(typeof window!=='undefined'&&window.CARD_ART)?window.CARD_ART:null;
+function art(key){ return ART&&ART[key]?ART[key]:null; }
 function memCardHTML(c,cls,id){
+  const a=art(c.dp||c.nm);
+  if(a)return '<div '+(id?'id="'+id+'" ':'')+'class="mcard artc '+(cls||'')+'" title="'+(c.dp||c.nm)+'"><img src="'+a+'" draggable="false"></div>';
   return '<div '+(id?'id="'+id+'" ':'')+'class="mcard '+(cls||'')+'">'
     +'<div class="pts"><span class="w">+'+c.win+'</span><span class="wx">'+c.w.split('').map(x=>WMARK[x]).join('')+'</span><span class="l">'+c.lose+'</span></div>'
     +'<div class="nm">'+(c.dp||c.nm)+'</div>'
@@ -613,8 +654,27 @@ function memCardHTML(c,cls,id){
     +'</div>';
 }
 function rewCardHTML(c,id,cls){
+  const a=art(c.nm);
+  if(a)return '<div '+(id?'id="'+id+'" ':'')+'class="rcard artc '+(cls||'')+'" title="'+c.nm+'"><img src="'+a+'" draggable="false"></div>';
   const kd=c.k==='q'?'<span class="kind q">クイック</span>':c.k==='e'?'<span class="kind e">なつのおわり</span>':'<span class="kind">通常</span>';
   return '<div '+(id?'id="'+id+'" ':'')+'class="rcard '+(cls||'')+'"><div class="nm">'+c.nm+'</div>'+kd+'<div>'+c.txt+'</div></div>';
+}
+function wxHistHTML(w){
+  const a=art('w:'+w);
+  if(a)return '<span class="wxhist" title="'+WLB[w]+'"><img src="'+a+'" draggable="false"></span>';
+  return WLB[w];
+}
+/* 天気めくり演出: 操作をブロックしないオーバーレイ（テスト・通信タイミング非依存） */
+let lastWxCount=0;
+function playWxFlip(w){
+  const wa=art('w:'+w), wb=art('bk:wea');
+  const ov=$('wxOverlay');
+  if(!wa||!wb||!ov)return;
+  ov.innerHTML='<div class="wxo"><div class="flipwrap"><div class="flip" id="flipCard">'
+    +'<div class="face back"><img src="'+wb+'" draggable="false"></div>'
+    +'<div class="face front"><img src="'+wa+'" draggable="false"></div></div></div></div>';
+  setTimeout(()=>{ const f=$('flipCard'); if(f)f.classList.add('go'); },60);
+  setTimeout(()=>{ ov.innerHTML=''; },1500);
 }
 
 /* ---------- 共通描画（snapから） ---------- */
@@ -626,23 +686,36 @@ function applySnap(snap,lines){
   if(snap.flags.yudachi)flag.push('夕立(→あめ)');
   if(snap.flags.benkyokai)flag.push('べんきょうかい(しゅくだい禁止)');
   $('drawInfo').textContent='お天気残り'+snap.weaLeft+'枚 / 思い出山'+snap.memLeft+'枚 / ごほうび山'+snap.rewLeft+'枚'+(flag.length?' / '+flag.join('・'):'');
-  let h='<div class="row"><span class="hint">めくられた天気:</span> '+(snap.revealed.map(w=>WLB[w]).join(' → ')||'（まだ）')+'</div>';
+  if(document.body&&document.body.classList){ // 直近の天気で空の色を変える
+    ['wx-k','wx-a','wx-t'].forEach(c=>document.body.classList.remove(c));
+    const last=snap.revealed[snap.revealed.length-1];
+    if(last&&last!=='h')document.body.classList.add('wx-'+last);
+  }
+  // 新しい天気がめくられた直後だけフリップ演出（被せ表示。下のUIはそのまま動く）
+  if(snap.revealed.length>lastWxCount&&snap.phase==='afterWeather')playWxFlip(snap.revealed[snap.revealed.length-1]);
+  lastWxCount=snap.revealed.length;
+  let h='<div class="row"><span class="hint">めくられた天気:</span> '+(snap.revealed.map(w=>wxHistHTML(w)).join(ART?'':' → ')||'（まだ）')+'</div>';
   if(snap.showPlans){
     h+='<h3>公開された予定</h3><div class="row">';
     snap.players.forEach(p=>{ if(p.plan)h+='<div><div class="hint">'+p.name+'</div>'+memCardHTML(p.plan)+'</div>'; });
     h+='</div>';
   }
   $('board').innerHTML=h;
+  const planBack=art('bk:mem');
   let ph='';
   snap.players.forEach((p,pi)=>{
-    const ent=p.entries.map(e=>'<span>'+(e.win?'✔':'✘')+e.nm+'('+(e.win?'+':'')+e.val+')</span>').join(' ');
+    const ent=p.entries.map(e=>{
+      const a=art(e.dp||e.nm);
+      if(a)return '<span class="tbthumb '+(e.win?'tw':'tl')+'" title="'+e.nm+'（'+(e.win?'せいこう +':'しっぱい ')+e.val+'）"><img src="'+a+'" draggable="false"><span class="st">'+(e.win?'✔':'✘')+'</span></span>';
+      return '<span>'+(e.win?'✔':'✘')+e.nm+'('+(e.win?'+':'')+e.val+')</span>';
+    }).join(' ');
     ph+='<div class="pl'+(pi===mySeat?' me':'')+(pi===snap.actor?' turn':'')+'"><div class="name"><span>'+p.name
       +(pi===snap.oyaIdx?' <span class="badge oya">親</span>':'')
       +(p.isCPU?' <span class="badge bot">CPU</span>':'')
       +'</span><span class="score">'+(p.memPts-p.hwLeft)+'</span></div>'
       +'<div class="mini">思い出: '+(ent||'なし')+'</div>'
       +'<div class="mini">しゅくだい残り'+p.hwLeft+'枚 / 消化: '+(p.consumed.join('・')||'なし')
-      +' / ごほうび手札'+p.handCount+'枚'+(p.hasPlan?' / 予定あり🂠':'')+'</div></div>';
+      +' / ごほうび手札'+p.handCount+'枚'+(p.hasPlan?(planBack?' / 予定あり<span class="planback"><img src="'+planBack+'"></span>':' / 予定あり🂠'):'')+'</div></div>';
   });
   $('players').innerHTML=ph;
   $('banner').textContent='ラウンド'+snap.round+' ― '+(PHASE_LB[snap.phase]||'');
@@ -705,7 +778,7 @@ function renderTurn(data,send){
       h+='</div>';
     }
     h+='<h3>まわってきた思い出カード</h3><div class="row">';
-    data.pile.forEach((c,i)=>{h+=memCardHTML(c,'pick','pm'+i);});
+    data.pile.forEach((c,i)=>{h+=memCardHTML(c,'pick dealIn','pm'+i);});
     h+='</div><div class="row" style="margin-top:10px">'
       +'<button id="hwBtn" class="ghost"'+(data.canHw?'':' disabled')+'>しゅくだいの1番上を消化する（残り'+data.hwLeft+'枚）</button>'
       +(!data.pile.length&&!data.canHw?'<button id="skipBtn" class="ghost">何もできない（次へ）</button>':'')
@@ -722,7 +795,9 @@ function renderTurn(data,send){
         }else send({type:'quick',hi:q.hi,ti:-1});
       };
     });
-    data.pile.forEach((c,i)=>{ $('pm'+i).onclick=()=>send({type:'take',idx:i}); });
+    data.pile.forEach((c,i)=>{ const el=$('pm'+i);
+      if(el&&el.style)el.style.animationDelay=(i*70)+'ms'; // 配りアニメの時差
+      el.onclick=()=>send({type:'take',idx:i}); });
     $('hwBtn').onclick=()=>send({type:'hw'});
   }else if(data.phase==='weather'){
     $('turnTitle').textContent='お天気フェイズ ― あなたが親です';
@@ -816,7 +891,7 @@ function buildSnap(){
       name:p.name,isCPU:p.isCPU,handCount:p.hand.length,hwLeft:p.homework.length,
       consumed:p.consumed.slice(),memPts:Engine.memPts(p),hasPlan:!!p.plan,
       plan:(Flow&&Flow.phase==='weather'&&p.plan)?{nm:p.plan.nm,dp:p.plan.dp,w:p.plan.w,win:p.plan.win,lose:p.plan.lose,fx:p.plan.fx,tag:p.plan.tag}:null,
-      entries:Object.keys(p.tableau).map(nm=>({nm,win:p.tableau[nm].win,val:p.tableau[nm].win?p.tableau[nm].card.win:p.tableau[nm].card.lose}))
+      entries:Object.keys(p.tableau).map(nm=>({nm,dp:p.tableau[nm].card.dp,win:p.tableau[nm].win,val:p.tableau[nm].win?p.tableau[nm].card.win:p.tableau[nm].card.lose}))
     }))
   };
 }
