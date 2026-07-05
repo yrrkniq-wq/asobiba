@@ -139,6 +139,14 @@
       <h2 id="turnTitle"></h2>
       <div id="actionBody"></div>
     </div>
+    <div class="card-panel" id="myPanelWrap">
+      <h2>あなたの手札(常時表示)</h2>
+      <div id="myPanel"></div>
+    </div>
+    <div class="card-panel">
+      <h2>カード一覧(リファレンス)</h2>
+      <div id="refPanel"></div>
+    </div>
     <div class="row">
       <button class="ghost small" id="backSetup">← 設定に戻す</button>
       <button class="ghost small" id="restartSame">同じ設定で最初から</button>
@@ -241,6 +249,7 @@ const Engine = {
     const toolDeck=[]; TOOLS.forEach(t=>{for(let i=0;i<t.n;i++)toolDeck.push(t);});
     shuffle(toolDeck);
     const S={cfg,np,mine,removed,removedOpen:false,hist:[],orderDeck,toolDeck,toolDiscard:[],
+      orderDiscard:[],
       turnIdx:rnd(np),over:false,log:[],noDigStreak:0,roadblock:false,
       flags:{},players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0},toolStats:{}};
     for(let i=0;i<np;i++){
@@ -298,8 +307,8 @@ const Engine = {
       const out=p.orders[swapIdx];
       const inn=S.orderDeck.pop();
       p.orders[swapIdx]=inn;
-      // 捨てた注文は箱へ(戻さない)
-      msg+='。注文を1枚入れ替えた';
+      S.orderDiscard.push(out); // 捨てた注文票は公開される(v0.3.1)
+      msg+='。注文「'+out.nm+'」を捨てて引き直した(捨て札は公開)';
       S.actionStats.swap++;
     }
     S.noDigStreak++;
@@ -556,6 +565,40 @@ function flushLog(){ const el=$('log'); let h='';
   for(;UI.logPtr<S.log.length;UI.logPtr++)h+='<div>'+S.log[UI.logPtr]+'</div>';
   if(h){el.innerHTML+=h; el.scrollTop=el.scrollHeight;} }
 function gemHTML(g){ return '<span class="gem '+g+'">'+GEMS[g].nm[0]+'</span>'; }
+function renderMyPanel(){
+  // 1人プレイ(人間1)のときだけ、手番外でも自分の手札を常時表示(パス&プレイでは覗き見防止のため非表示)
+  const wrap=$('myPanelWrap');
+  if(!S||S.cfg.nHuman!==1){ wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  const p=S.players[0];
+  let h='';
+  if(p.dealt&&p.dealt.length){ $('myPanel').innerHTML='<span class="hint">(キープ選択中)</span>'; return; }
+  if(p.peek&&p.peek.length)h+='<div class="hint">🔍 山の上: '+p.peek.map(g=>GEMS[g].nm).join(' → ')+'</div>';
+  if(p.peekRemoved)h+='<div class="hint">🕳️ 崩落の1枚: '+GEMS[p.peekRemoved].nm+'</div>';
+  if(p.spied&&p.spied.length)h+='<div class="hint">👀 のぞき見メモ: '+p.spied.map(x=>x.who+'「'+x.nm+'」').join(' / ')+'</div>';
+  h+='<div class="row">';
+  p.orders.forEach(o=>{
+    const st=Engine.statusOf(S,o);
+    const cls=st==='met'?'met':st==='failed'?'failed':'';
+    const tag=st==='met'?'<div class="hint" style="color:var(--good)">✅ 成立中(手番で公開できる)</div>'
+      :st==='failed'?'<div class="hint" style="color:var(--bad)">❌ 不成立確定(準備で入れ替え)</div>'
+      :'<div class="hint">…未成立</div>';
+    h+=orderHTML(o,cls,null,tag);
+  });
+  h+='</div><div class="row" style="margin-top:6px">';
+  p.tools.forEach(t=>{ h+='<div class="tcard"><div class="nm">'+t.nm+'</div><div>'+t.txt+'</div></div>'; });
+  h+='</div>'+(p.tools.length?'':'<span class="hint">道具なし(準備で引ける)</span>');
+  $('myPanel').innerHTML=h;
+}
+function renderRef(){
+  let h='<details><summary style="cursor:pointer;font-weight:700">📜 注文カード 18種(各1枚)</summary><table class="rules" style="margin-top:8px">';
+  ORDERS.forEach(o=>{ h+='<tr><td style="white-space:nowrap">'+o.nm+'</td><td style="text-align:center">'+o.base+'点</td><td>'+o.txt+'</td></tr>'; });
+  h+='</table></details>';
+  h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🛠️ 道具カード 7種(計16枚)</summary><table class="rules" style="margin-top:8px">';
+  TOOLS.forEach(t=>{ h+='<tr><td style="white-space:nowrap">'+t.nm+'</td><td style="text-align:center">×'+t.n+'</td><td>'+t.txt+'</td></tr>'; });
+  h+='</table></details>';
+  $('refPanel').innerHTML=h;
+}
 function orderHTML(o,cls,id,extra){
   return '<div '+(id?'id="'+id+'" ':'')+'class="ocard '+(cls||'')+'"><div class="nm">'+o.nm
     +' <span class="base">'+o.base+'点</span></div><div class="cond">'+o.txt+'</div>'+(extra||'')+'</div>';
@@ -569,7 +612,10 @@ function renderBoard(){
     +(S.removedOpen?S.removed.map(gemHTML).join(''):S.removed.map(()=>'<span class="gem back">?</span>').join(''))+'</div>';
   h+='<div class="hint" style="margin-top:4px">残り構成(崩落含む): '
     +GEMKEYS.map(g=>GEMS[g].nm+' '+(GEMS[g].n-cnt(S.hist,g))+'枚').join(' / ')+'</div>';
+  h+='<div class="hint" style="margin-top:4px">🗑️ 捨てられた注文(公開): '
+    +(S.orderDiscard.length?S.orderDiscard.map(o=>'「'+o.nm+'」').join(' '):'まだなし')+'</div>';
   $('mine').innerHTML=h;
+  renderMyPanel();
   let ph='';
   S.players.forEach((p,pi)=>{
     ph+='<div class="pl'+(UI.actor===pi?' turn':'')+'"><div class="name"><span>'+p.name
@@ -774,6 +820,7 @@ function startGame(){
   $('log').innerHTML='';
   $('setup').classList.add('hidden'); $('result').classList.add('hidden');
   $('game').classList.remove('hidden');
+  renderRef();
   if(cfg.nHuman===0){
     // 観戦: playAutoと同じ流れをUI付きで
     S.players.forEach((p,pi)=>Engine.cpuKeep(S,pi));

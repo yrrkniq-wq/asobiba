@@ -166,6 +166,14 @@
       <h2 id="turnTitle"></h2>
       <div id="actionBody"></div>
     </div>
+    <div class="card-panel" id="myPanelWrap">
+      <h2>あなたの手札(常時表示・この画面はあなたにしか見えません)</h2>
+      <div id="myPanel"></div>
+    </div>
+    <div class="card-panel">
+      <h2>カード一覧(リファレンス)</h2>
+      <div id="refPanel"></div>
+    </div>
   </div>
 
   <!-- ===== RESULT ===== -->
@@ -265,6 +273,7 @@ const Engine = {
     const toolDeck=[]; TOOLS.forEach(t=>{for(let i=0;i<t.n;i++)toolDeck.push(t);});
     shuffle(toolDeck);
     const S={cfg,np,mine,removed,removedOpen:false,hist:[],orderDeck,toolDeck,toolDiscard:[],
+      orderDiscard:[],
       turnIdx:rnd(np),over:false,log:[],noDigStreak:0,roadblock:false,lastDig:null,
       players:[],actionStats:{dig:0,prep:0,reveal:0,swap:0},toolStats:{}};
     specs.forEach((sp,i)=>{
@@ -314,9 +323,11 @@ const Engine = {
       while(p.tools.length>S.cfg.toolMax){const d=p.tools.splice(rnd(p.tools.length),1)[0];S.toolDiscard.push(d);} }
     let msg=p.name+'は準備した(道具を1枚引いた)';
     if(swapIdx!=null&&p.orders[swapIdx]&&S.orderDeck.length){
+      const out=p.orders[swapIdx];
       const inn=S.orderDeck.pop();
       p.orders[swapIdx]=inn;
-      msg+='。注文を1枚入れ替えた';
+      S.orderDiscard.push(out); // 捨てた注文票は公開される(v0.3.1)
+      msg+='。注文「'+out.nm+'」を捨てて引き直した(捨て札は公開)';
       S.actionStats.swap++;
     }
     S.noDigStreak++;
@@ -539,6 +550,7 @@ let S=null;             // hostのみ
 let Flow=null;          // hostのみ: {phase:'keep'|'turn'|'afterAct', waiting, toolUsed, pendingKeep:[]}
 let sentLog=0;
 let mySeat=-1, curSnap=null;
+let myHand=null;        // 自分の手札(常時表示用。hostが毎同期で本人にだけ配る)
 let myTurn=null;        // 自分の未消化UI状態 {phase:'keep'|'turn'|'afterAct'|'tview', data}
 
 function log(msg){ const el=$('log'); el.innerHTML+='<div>'+msg+'</div>'; el.scrollTop=el.scrollHeight; }
@@ -547,6 +559,36 @@ function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('ac
 function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'hori-'+r; }
 function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
 function gemHTML(g,mini){ return '<span class="gem '+g+(mini?' mini':'')+'">'+GEMS[g].nm[0]+'</span>'; }
+function renderMyPanel(){
+  const wrap=$('myPanelWrap');
+  if(!myHand){ if(wrap)wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  let h='';
+  if(myHand.peek&&myHand.peek.length)h+='<div class="hint">🔍 山の上: '+myHand.peek.map(g=>GEMS[g].nm).join(' → ')+'</div>';
+  if(myHand.peekRemoved)h+='<div class="hint">🕳️ 崩落の1枚: '+GEMS[myHand.peekRemoved].nm+'</div>';
+  if(myHand.spied&&myHand.spied.length)h+='<div class="hint">👀 のぞき見メモ: '+myHand.spied.map(x=>x.who+'「'+x.nm+'」').join(' / ')+'</div>';
+  h+='<div class="row">';
+  myHand.orders.forEach(o=>{
+    const cls=o.st==='met'?'met':o.st==='failed'?'failed':'';
+    const tag=o.st==='met'?'<div class="hint" style="color:var(--good)">✅ 成立中(手番で公開できる)</div>'
+      :o.st==='failed'?'<div class="hint" style="color:var(--bad)">❌ 不成立確定(準備で入れ替え)</div>'
+      :'<div class="hint">…未成立</div>';
+    h+=orderHTML(o,cls,null,tag);
+  });
+  h+='</div><div class="row" style="margin-top:6px">';
+  myHand.tools.forEach(t=>{ h+='<div class="tcard"><div class="nm">'+t.nm+'</div><div>'+t.txt+'</div></div>'; });
+  h+='</div>'+(myHand.tools.length?'':'<span class="hint">道具なし(準備で引ける)</span>');
+  $('myPanel').innerHTML=h;
+}
+function renderRef(){
+  let h='<details><summary style="cursor:pointer;font-weight:700">📜 注文カード 18種(各1枚)</summary><table class="rules" style="margin-top:8px">';
+  ORDERS.forEach(o=>{ h+='<tr><td style="white-space:nowrap">'+o.nm+'</td><td style="text-align:center">'+o.base+'点</td><td>'+o.txt+'</td></tr>'; });
+  h+='</table></details>';
+  h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🛠️ 道具カード 7種(計16枚)</summary><table class="rules" style="margin-top:8px">';
+  TOOLS.forEach(t=>{ h+='<tr><td style="white-space:nowrap">'+t.nm+'</td><td style="text-align:center">×'+t.n+'</td><td>'+t.txt+'</td></tr>'; });
+  h+='</table></details>';
+  $('refPanel').innerHTML=h;
+}
 function orderHTML(o,cls,id,extra){
   return '<div '+(id?'id="'+id+'" ':'')+'class="ocard '+(cls||'')+'"><div class="nm">'+o.nm
     +' <span class="base">'+o.base+'点</span></div><div class="cond">'+o.txt+'</div>'+(extra||'')+'</div>';
@@ -564,7 +606,10 @@ function applySnap(snap,lines){
     +(snap.removedOpen?snap.removed.map(g=>gemHTML(g)).join(''):Array(snap.nRemove).fill('<span class="gem back">?</span>').join(''))+'</div>';
   h+='<div class="hint" style="margin-top:4px">残り構成(崩落含む): '
     +GEMKEYS.map(g=>GEMS[g].nm+' '+(GEMS[g].n-cnt(snap.hist,g))+'枚').join(' / ')+'</div>';
+  h+='<div class="hint" style="margin-top:4px">🗑️ 捨てられた注文(公開): '
+    +((snap.orderDiscard&&snap.orderDiscard.length)?snap.orderDiscard.map(o=>'「'+o.nm+'」').join(' '):'まだなし')+'</div>';
   $('mine').innerHTML=h;
+  renderMyPanel();
   let ph='';
   snap.players.forEach((p,pi)=>{
     ph+='<div class="pl'+(pi===mySeat?' me':'')+(pi===snap.turnIdx&&!snap.over?' turn':'')+'"><div class="name"><span>'+p.name
@@ -785,6 +830,7 @@ function buildSnap(){
     orderDeckLeft:S.orderDeck.length, toolDeckLeft:S.toolDeck.length,
     roadblock:S.roadblock, noDigStreak:S.noDigStreak, stallMax:S.cfg.stallMax,
     hist:S.hist.slice(), removedOpen:S.removedOpen,
+    orderDiscard:S.orderDiscard.map(o=>({nm:o.nm,base:o.base})),
     removed:S.removedOpen?S.removed.slice():[], nRemove:S.cfg.nRemove,
     players:S.players.map(p=>({
       name:p.name,isCPU:p.isCPU,bag:p.bag.slice(),
@@ -794,10 +840,22 @@ function buildSnap(){
     }))
   };
 }
+function buildHand(pi){
+  const p=S.players[pi];
+  return {orders:p.orders.map(o=>({nm:o.nm,txt:o.txt,base:o.base,st:Engine.statusOf(S,o)})),
+    tools:p.tools.map(t=>({nm:t.nm,txt:t.txt})),
+    peek:p.peek,peekRemoved:p.peekRemoved,spied:p.spied};
+}
 function sync(){
   const snap=buildSnap();
   const lines=S.log.slice(sentLog); sentLog=S.log.length;
   hostBroadcast({t:'snap',snap,log:lines});
+  // 手札は本人にだけ個別配信(常時表示用)
+  S.players.forEach((p,pi)=>{
+    if(p.isCPU)return;
+    if(pi===mySeat)myHand=buildHand(pi);
+    else sendTo(pi,{t:'hand',data:buildHand(pi)});
+  });
   applySnap(snap,lines);
 }
 function buildTurnData(pi){
@@ -835,6 +893,7 @@ function hostStart(){
   hostConns.filter(c=>c.alive).forEach(c=>c.conn.send({t:'start',seat:c.seat}));
   $('log').innerHTML='';
   show('game');
+  renderRef();
   // キープフェイズ
   Flow={phase:'keep',waiting:null,toolUsed:false,pendingKeep:[]};
   S.players.forEach((p,pi)=>{
@@ -1009,7 +1068,8 @@ function onGuestData(d){
     $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
     renderLobby();
   }
-  if(d.t==='start'){ mySeat=d.seat; myTurn=null; $('log').innerHTML=''; log('ゲーム開始!'); show('game'); }
+  if(d.t==='start'){ mySeat=d.seat; myTurn=null; myHand=null; $('log').innerHTML=''; log('ゲーム開始!'); show('game'); renderRef(); }
+  if(d.t==='hand'){ myHand=d.data; renderMyPanel(); }
   if(d.t==='snap'){ applySnap(d.snap,d.log); }
   if(d.t==='pnote'){ log(d.msg); }
   if(d.t==='turn'){ myTurn={phase:d.data.phase,data:d.data}; renderTurn(d.data,sendAct); }
