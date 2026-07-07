@@ -290,11 +290,15 @@ const Engine = {
     return {kind:'answer',val:cands[rnd(cands.length)]};
   },
   cpuVote(S,judgeSeat,ansSeat,val){
+    // 「辞書に載っている語なら素直に通す・知らない語は基本疑う」を軸にする。
+    // 旧版は2文字以下という理由だけで正当な短い単語(例:いぬ,かお)まで疑っており、
+    // 逆に辞書に無い出まかせの組み合わせには甘すぎた（"CPUの判定が一般常識からズレる"の原因）。
     const j=S.players[judgeSeat];
-    let base = DICT_SET.has(val.w)?0.82:0.62;
-    let pr = base - 0.18*val.gaps - (val.w.length<=2?0.18:0) + (val.w.length>=4?0.06:0);
-    if(j.policy!=='smart') pr=0.6;
-    pr=Math.max(0.05,Math.min(0.97,pr+Engine.gauss()*0.12));
+    const known = DICT_SET.has(val.w);
+    let pr = known ? 0.88 : 0.32;
+    pr -= 0.15*val.gaps; // すきまで無理やり作った感が強いほど疑わしくなる
+    if(j.policy!=='smart') pr=0.55;
+    pr=Math.max(0.03,Math.min(0.97,pr+Engine.gauss()*0.08));
     return Math.random()<pr;
   },
 

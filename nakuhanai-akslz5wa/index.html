@@ -132,7 +132,7 @@
         <label>すきま上限 <input id="gapMax" class="num" type="number" min="0" max="4" value="2"></label>
         <label>すきまコスト(枚) <input id="gapCost" class="num" type="number" min="0" max="3" value="1"></label>
         <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
-        <label>CPU思考(ms・平均) <input id="cpuThink" class="num" type="number" min="0" value="5000"></label>
+        <label>CPU思考(ms・平均) <input id="cpuThink" class="num" type="number" min="0" value="8000"></label>
       </div>
       <div class="row" style="margin-top:10px">
         <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
@@ -308,11 +308,15 @@ const Engine = {
     return {kind:'answer',val:cands[rnd(cands.length)]};
   },
   cpuVote(S,judgeSeat,ansSeat,val){
+    // 「辞書に載っている語なら素直に通す・知らない語は基本疑う」を軸にする。
+    // 旧版は2文字以下という理由だけで正当な短い単語(例:いぬ,かお)まで疑っており、
+    // 逆に辞書に無い出まかせの組み合わせには甘すぎた（"CPUの判定が一般常識からズレる"の原因）。
     const j=S.players[judgeSeat];
-    let base = DICT_SET.has(val.w)?0.82:0.62;
-    let pr = base - 0.18*val.gaps - (val.w.length<=2?0.18:0) + (val.w.length>=4?0.06:0);
-    if(j.policy!=='smart') pr=0.6;
-    pr=Math.max(0.05,Math.min(0.97,pr+Engine.gauss()*0.12));
+    const known = DICT_SET.has(val.w);
+    let pr = known ? 0.88 : 0.32;
+    pr -= 0.15*val.gaps; // すきまで無理やり作った感が強いほど疑わしくなる
+    if(j.policy!=='smart') pr=0.55;
+    pr=Math.max(0.03,Math.min(0.97,pr+Engine.gauss()*0.08));
     return Math.random()<pr;
   },
 
@@ -330,6 +334,7 @@ let peer=null, hostConns=[], guestConn=null;
 let S=null, J=null;               // host側のみ実体を持つ
 let mySeat=-1, myHand=[], myVotedSeq=-1, curPub=null;
 let cpuEpoch=0, deadTimer=null;   // scheduleRound()の世代管理・安全弁タイマー
+let myDraft='', lastPhase=null;   // 入力途中に誰かに先を越されても打ち込んだ内容を保持・再表示するための状態
 
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
 function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
@@ -643,7 +648,7 @@ function onClientMsg(d){
     return;
   }
   if(d.t==='start'){
-    mySeat=d.seat; myHand=d.hand.slice(); myVotedSeq=-1;
+    mySeat=d.seat; myHand=d.hand.slice(); myVotedSeq=-1; myDraft=''; lastPhase=null;
     $('log').innerHTML=''; log('ゲーム開始！');
     show('game');
     return;
@@ -657,6 +662,15 @@ function onClientMsg(d){
 
 function renderGame(){
   const snap=curPub; if(!snap) return;
+  // 自分が入力中に他の誰か（CPU含む）が先に宣言してaction→judgeへ切り替わった場合、
+  // 入力欄が問答無用で消えて「反応がない」ように見えてしまうのを防ぐ：
+  // 打ちかけの文字を保存し、次に自分の番の画面へ戻ったときに復元する＋一言ログを出す。
+  if(lastPhase==='action' && snap.phase==='judge' && snap.judging && snap.judging.seat!==mySeat){
+    const live=$('ansInput');
+    if(live && live.value) myDraft=live.value;
+    log(`😮 ${esc(snap.judging.name)} に先を越されました（入力中の内容は次のお題で復元します）`);
+  }
+  lastPhase=snap.phase;
   $('topicBox').textContent=snap.topic;
   $('drawInfo').textContent=`お題山 残り${snap.topicDeckLeft}${snap.topicCycle?'（2巡目）':''} ／ 文字の山 残り${snap.deckLeft}枚`;
   $('discardRow').innerHTML = snap.discard.length
@@ -696,14 +710,14 @@ function renderMyTurn(snap){
   setAction(`
     <div>あなたの手札（${myHand.length}枚）: ${chipHand(myHand)}</div>
     <div class="row" style="margin:10px 0">
-      <input id="ansInput" class="txt2" placeholder="お題への答え（ひらがな）">
+      <input id="ansInput" class="txt2" placeholder="お題への答え（ひらがな）" value="${esc(myDraft)}">
       <button id="checkBtn" class="ghost small">チェック</button>
       <button id="declareBtn" disabled>宣言する</button>
     </div>
     <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言（早い者勝ち）</div>`);
-  $('ansInput').oninput=()=>{ $('declareBtn').disabled=true; };
+  $('ansInput').oninput=()=>{ myDraft=$('ansInput').value; $('declareBtn').disabled=true; };
   $('checkBtn').onclick=()=>mySend({t:'checkAnswer',text:$('ansInput').value});
-  $('declareBtn').onclick=()=>{ if(!$('declareBtn').disabled) mySend({t:'declareAnswer',text:$('ansInput').value}); };
+  $('declareBtn').onclick=()=>{ if(!$('declareBtn').disabled){ myDraft=''; mySend({t:'declareAnswer',text:$('ansInput').value}); } };
 }
 function applyCheckResult(d){
   if(!$('declareBtn')) return; // 画面が切り替わった後の遅延到着は無視
