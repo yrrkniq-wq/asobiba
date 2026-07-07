@@ -175,16 +175,16 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[
 
 /* ===== カード定義（ミラー各20枚） ===== */
 const CARDS={
-  HI:{n:'ひのたま', e:'🔥', cnt:3, soku:'3ダメージ',                    ei:'2+チャージ ダメージ',           fu:'—'},
+  HI:{n:'ひのたま', e:'🔥', cnt:3, soku:'3ダメージ',                    ei:'3+チャージ ダメージ',           fu:'—'},
   SW:{n:'いれかえ', e:'🔁', cnt:3, soku:'詠唱1枚と手札1枚を入替(チャージ残る)', ei:'1+チャージ ダメージ',    fu:'—'},
   KA:{n:'かがみ',   e:'🪞', cnt:2, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'詠唱中: 受ける即唱-1'},
   FU:{n:'ふいうち', e:'⚡', cnt:2, soku:'1ダメージ',                    ei:'2ダメージ(チャージ無効)',        fu:'割込: 解放を無効化+チャージ分反撃'},
   IY:{n:'いやし',   e:'💚', cnt:2, soku:'自分ライフ+2',                 ei:'チャージ分回復＆相手に1ダメージ', fu:'割込: 解放ダメージ半減'},
-  AB:{n:'あばく',   e:'🔦', cnt:2, soku:'相手の伏せ1枚を暴いて破棄+1ダメージ', ei:'1+チャージ ダメージ',     fu:'—'},
-  OS:{n:'おしきり', e:'🛡', cnt:2, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'解放時に手札から捨てると割込不可'},
+  AB:{n:'あばく',   e:'🔦', cnt:2, soku:'相手の伏せ1枚を暴いて破棄+1ダメージ', ei:'2+チャージ ダメージ',     fu:'—'},
+  OS:{n:'おしきり', e:'🛡', cnt:2, soku:'1ダメージ',                    ei:'2+チャージ ダメージ',           fu:'解放時に手札から捨てると割込不可'},
   MG:{n:'みがわり', e:'🧸', cnt:1, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'割込: ダメージ無効化→チャージ変換'},
-  HG:{n:'ひきはがし',e:'🧲', cnt:1, soku:'相手の最大詠唱からチャージ2奪う', ei:'2+チャージ ダメージ',        fu:'—'},
-  TD:{n:'とどめ',   e:'☄️', cnt:1, soku:'（即唱不可）',                 ei:'チャージ×2 ダメージ(自分も1)',   fu:'—'},
+  HG:{n:'ひきはがし',e:'🧲', cnt:1, soku:'相手の最大詠唱からチャージ2奪う', ei:'3+チャージ ダメージ',        fu:'—'},
+  TD:{n:'とどめ',   e:'☄️', cnt:1, soku:'（即唱不可）',                 ei:'チャージ×2+1 ダメージ(自分も1)',   fu:'—'},
   MK:{n:'めくらまし',e:'🎭', cnt:1, soku:'1ダメージ',                   ei:'1ダメージ(チャージ無効)',        fu:'（効果なし＝はったり用）'}
 };
 const INTS={FU:1,IY:1,MG:1}; // 割込効果を持つ札
@@ -204,8 +204,8 @@ const Engine={
   },
   drawTo(S,p,n){ while(p.hand.length<n){ if(p.deck.length===0){ if(p.disc.length===0)break; p.deck=shuffle(p.disc.splice(0)); S.log.push(`${p.name}: 捨て札を混ぜ直した`);} p.hand.push(p.deck.pop()); } },
   kaCount(p){ return p.cast.filter(c=>c.id==='KA').length; },
-  relDamageOf(id,c){ if(id==='HI')return 2+c; if(id==='FU')return 2; if(id==='MK')return 1;
-    if(id==='TD')return c*2; if(id==='IY')return 1; if(id==='HG')return 2+c; return 1+c; },
+  relDamageOf(id,c){ if(id==='HI')return 3+c; if(id==='FU')return 2; if(id==='MK')return 1;
+    if(id==='TD')return c*2+1; if(id==='IY')return 1; if(id==='HG')return 3+c; if(id==='AB')return 2+c; if(id==='OS')return 2+c; return 1+c; },
   startTurn(S){ const p=S.ps[S.cur],o=S.ps[1-S.cur];
     p.cast.forEach(c=>c.charge=Math.min(S.cfg.chargeCap,c.charge+1));
     let n=S.cfg.handSize;
