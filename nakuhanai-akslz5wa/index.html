@@ -132,7 +132,7 @@
         <label>すきま上限 <input id="gapMax" class="num" type="number" min="0" max="4" value="2"></label>
         <label>すきまコスト(枚) <input id="gapCost" class="num" type="number" min="0" max="3" value="1"></label>
         <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
-        <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" min="0" value="900"></label>
+        <label>CPU思考(ms・平均) <input id="cpuThink" class="num" type="number" min="0" value="5000"></label>
       </div>
       <div class="row" style="margin-top:10px">
         <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
@@ -329,7 +329,7 @@ let role=null, myName='', roomId='';
 let peer=null, hostConns=[], guestConn=null;
 let S=null, J=null;               // host側のみ実体を持つ
 let mySeat=-1, myHand=[], myVotedSeq=-1, curPub=null;
-let noAnswerTicks=0;              // 連続で誰も宣言しなかったCPUループの回数（安全弁用）
+let cpuEpoch=0, deadTimer=null;   // scheduleRound()の世代管理・安全弁タイマー
 
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
 function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
@@ -393,6 +393,8 @@ function onGuestLeave(conn){
     if(J && J.order.includes(rec.seat) && !(rec.seat in J.got)){
       J.got[rec.seat]=Engine.cpuVote(S,rec.seat,J.seat,J.val);
       maybeResolveJudge();
+    } else if(!J){
+      scheduleRound();
     }
   } else if(!S){
     broadcastLobby();
@@ -450,7 +452,7 @@ function hostStart(){
   for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true,policy:'smart'});
   shuffle(specs);
   S=Engine.newGame(cfg,specs);
-  J=null; noAnswerTicks=0;
+  J=null;
   for(let i=0;i<S.players.length;i++){
     if(S.players[i].name===myName+'（ホスト）') mySeat=i;
   }
@@ -463,35 +465,56 @@ function hostStart(){
   show('game');
   S.players.forEach((p,i)=>{ deliverToSeat(i,{t:'start',seat:i,hand:p.hand.slice()}); });
   broadcastPub();
-  hostCpuLoop();
+  scheduleRound();
 }
 
-/* CPUは手番が無いので、定期的に「今なら誰かが答えを出せるか」をチェックする早出しループ */
-function hostCpuLoop(){
-  if(!S||S.over) return;
-  if(!J){
-    const cpuSeats=shuffle(S.players.map((_,i)=>i).filter(i=>S.players[i].isCPU));
-    let acted=false;
-    for(const seat of cpuSeats){
-      const dec=Engine.cpuDecide(S,seat);
-      if(dec.kind==='answer'){ hostDeclare(seat,dec.val); acted=true; break; }
-    }
-    noAnswerTicks = acted ? 0 : noAnswerTicks+1;
-    if(!acted && noAnswerTicks>=3){
-      // 誰も答えられないまま複数巡 → 安全弁でお題を自動交換
-      noAnswerTicks=0;
+function clearDeadTimer(){ if(deadTimer){ clearTimeout(deadTimer); deadTimer=null; } }
+
+/* CPUには手番が無いので、お題（またはJの解消）が変わるたびに呼び直す。
+   「客観的にこの手札+辞書でこのお題に答えられるか」をEngine.cpuCandidatesで人間もCPUも同じ基準でチェックし、
+   誰か一人でも答えられるなら安全弁タイマーは張らない（本物の早出し=人間がいつ宣言してもよい状態を維持）。
+   CPUで答えられる者がいれば、各CPUごとにバラけた反応時間（cpuThinkを中心にジッターを掛けた乱数）で
+   個別にタイマーを仕込む。人間に「考えて入力する時間」を作るのが狙いなので、cpuThinkは実プレイ時は
+   数秒〜十秒程度を想定（既定5000ms=平均5秒、ジッターで実際は0.6〜1.9倍にばらける）。
+   epoch(cpuEpoch)は世代カウンタ。宣言・お題交換・判定解消のたびに増分し、古いタイマーは発火時にepochが
+   食い違っていれば何もせず自滅する（宣言済み・お題が変わった後の誤発火を防ぐ）。 */
+function scheduleRound(){
+  if(!S||S.over||J) return;
+  clearDeadTimer();
+  cpuEpoch++;
+  const myEpoch=cpuEpoch;
+  const base=Math.max(0,+S.cfg.cpuThink||0);
+  let anyoneCanAnswer=false;
+  S.players.forEach((p,seat)=>{
+    const cands=Engine.cpuCandidates(S,seat); // 手札+辞書だけの客観判定（CPU方策には依らない）
+    if(cands.length===0) return;
+    anyoneCanAnswer=true;
+    if(!p.isCPU) return; // 人間はボタン操作で自分から宣言する。ここではCPUの反応だけを予約する
+    const dec=Engine.cpuDecide(S,seat);
+    if(dec.kind!=='answer') return;
+    const jitter=0.6+Math.random()*1.3;
+    const delay=Math.max(200,base*jitter); // 200ms床: cpuThink=0でも人間が反応する隙は最低限確保する
+    setTimeout(()=>{
+      if(myEpoch!==cpuEpoch||!S||S.over||J) return; // 世代が古い・既に他の宣言で決着済みなら何もしない
+      hostDeclare(seat,dec.val);
+    },delay);
+  });
+  if(!anyoneCanAnswer){
+    // 誰ひとり（人間もCPUも）このお題に客観的に答えられない → 安全弁でお題を自動交換
+    const wait=Math.max(1,base*3);
+    deadTimer=setTimeout(()=>{
+      if(myEpoch!==cpuEpoch||!S||S.over||J) return;
       S.stats.deadRounds++;
       const t=Engine.autoSwapTopic(S);
       if(S.over){ hostFinish(); return; }
       log(`💭 誰も答えられず → お題を交換 →「${t}」`);
       broadcastPub();
-    }
+      scheduleRound();
+    },wait);
   }
-  setTimeout(hostCpuLoop, Math.max(200,S.cfg.cpuThink));
 }
 
 function hostDeclare(seat,val){
-  noAnswerTicks=0;
   S.judgeSeq++;
   J={seat,val,got:{},order:S.players.map((_,i)=>i).filter(i=>i!==seat),seq:S.judgeSeq};
   log(`${S.players[seat].name} の答え:「${val.w}」（手札${val.use.length}枚＋すきま${val.gaps}）→ みんなの判定へ`);
@@ -543,6 +566,7 @@ function maybeResolveJudge(){
   J=null;
   broadcastPub();
   if(wasOver){ hostFinish(); return; }
+  scheduleRound();
 }
 function hostFinish(){
   const st=S.stats;
@@ -570,12 +594,12 @@ function hostAgain(){
   const specs=S.players.map(p=>({name:p.name,isCPU:p.isCPU,policy:'smart'}));
   const cfg=S.cfg;
   S=Engine.newGame(cfg,specs);
-  J=null; noAnswerTicks=0;
+  J=null;
   $('log').innerHTML=''; log('もう1戦！');
   show('game');
   S.players.forEach((p,i)=>{ deliverToSeat(i,{t:'start',seat:i,hand:p.hand.slice()}); });
   broadcastPub();
-  hostCpuLoop();
+  scheduleRound();
 }
 
 /* ---------- ゲスト ---------- */
