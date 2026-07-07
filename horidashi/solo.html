@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ほりだしもの ― 開発プロトタイプ v0.5</title>
+<title>ほりだしもの ― 開発プロトタイプ v0.6</title>
 <meta property="og:title" content="ほりだしもの(仮) ひとり用CPU対戦">
 <meta property="og:description" content="秘密の注文をこっそり当てにいく発掘カードゲーム(開発中)。CPU相手にひとりで遊べます(2〜5人)。">
 <meta property="og:site_name" content="ゆるるかなアイキュ〜 プロト試遊場">
@@ -13,10 +13,12 @@
 <meta name="twitter:site" content="@yrr_iq">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  ほりだしもの(仮) v0.5 ― 秘匿注文×掘る主導権。ゲームID: horidashi
-  v0.5(2026-07-05): 早出しボーナス廃止(確定系/序盤掘り安定への対策)・道具6種13枚に再編
-  (先読みシャベル=ルーペ+試掘統合/横取り/崩落発破/のぞき見全見せ/通行止め廃止)・注文山切れでも捨てるだけ可。
-  ルール正本: ルール_ほりだしもの_v0.5.md
+  ほりだしもの(仮) v0.6 ― 秘匿注文×掘る主導権。ゲームID: horidashi
+  v0.6(2026-07-07): kaiyo初見テストプレイ(単調・ワンサイド/一人プレイ感/掘るがリスクゼロで強い)への回答。
+  ①落石(X)2枚を鉱山山札に追加: 掘って落石を引くと宝石はもらえず袋の最安1個を山に埋め戻す=掘る自体にプッシュ・ユア・ラックの実リスクを戻す。
+  ②横取りを「直前の1枚」から「今の首位(自分以外)の袋からいちばん高い宝石を奪う」に変更=VIC-18キャッチ・ザ・リーダー+毎回のテーブルトークの種。
+  v0.5(2026-07-05): 早出しボーナス廃止・道具6種13枚に再編(先読みシャベル=ルーペ+試掘統合/崩落発破/のぞき見全見せ/通行止め廃止)・注文山切れでも捨てるだけ可。
+  ルール正本: ルール_ほりだしもの_v0.6.md
   スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
 -->
 <style>
@@ -51,6 +53,7 @@
   .gem{display:inline-block;width:34px;height:44px;border-radius:8px;color:#fff;font-weight:800;
        text-align:center;line-height:44px;font-size:16px;box-shadow:var(--shadow);margin:1px}
   .gem.R{background:var(--ruby)} .gem.S{background:var(--sapp)} .gem.E{background:var(--emer)} .gem.D{background:var(--diam)}
+  .gem.X{background:#5a5245;color:#f6f3ea}
   .gem.back{background:#b9ad97;color:#fffdf7}
   .ocard{display:flex;flex-direction:column;width:215px;border-radius:12px;background:#fff;
          border:2px solid var(--line);padding:8px 10px;font-size:12px;box-shadow:var(--shadow)}
@@ -91,7 +94,7 @@
 <body>
 <header>
   <h1>⛏️ ほりだしもの</h1>
-  <span class="tag">開発プロトタイプ v0.5(道具再編+ボーナス廃止)</span>
+  <span class="tag">開発プロトタイプ v0.6(落石でリスク復活+横取りは首位狙い撃ち)</span>
   <span class="tag">検証: 操縦リフト / 死に択ゼロ / 腕の差・接戦度</span>
 </header>
 
@@ -116,9 +119,9 @@
     </div>
     <h3>ルール要約</h3>
     <table class="rules">
-      <tr><td>準備</td><td>鉱山14枚(公開構成)から3枚を見ずに抜く(崩落)。席順に注文を3枚引き→2枚秘密でキープ(残りは山の底へ)</td></tr>
-      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→その宝石は自分の袋へ(R/S/E=1点 D=2点) or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定)。公開したら注文山から1枚補充してよい。入れ替えは山切れでも「捨てるだけ」可</td></tr>
-      <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩されることがある。公開すれば確定だが狙いがバレる。掘るが3手番なければ次は掘る強制</td></tr>
+      <tr><td>準備</td><td>鉱山16枚(宝石14+落石2・公開構成)から3枚を見ずに抜く(崩落)。席順に注文を3枚引き→2枚秘密でキープ(残りは山の底へ)</td></tr>
+      <tr><td>手番</td><td>①道具1枚(任意) ②【掘る】山から1枚→宝石なら自分の袋へ(R/S/E=1点 D=2点)、💥落石なら宝石はもらえず袋の最安1個を山に埋め戻す or【準備】道具1枚引く+注文入れ替え可 ③成立した注文の公開(任意・確定)。公開したら注文山から1枚補充してよい。入れ替えは山切れでも「捨てるだけ」可</td></tr>
+      <tr><td>攻防</td><td>隠したままの成立は「埋め戻し」で崩されることがある。公開すれば確定だが狙いがバレる。「横取り」は常に今の首位の袋を狙う。掘るが3手番なければ次は掘る強制</td></tr>
       <tr><td>終了</td><td>山が尽きたら崩落3枚を公開→手札一斉公開。公開済/成立=基礎点、不成立=-1点</td></tr>
     </table>
     <div class="row" style="margin-top:16px">
@@ -176,18 +179,21 @@ function softmaxPick(opts,temp){
 
 /* ===== カードデータ(ルール_ほりだしもの_v0.4。条件はv0.1調律値を継承) ===== */
 /* v0.4: 袋点レンジ縮小 R/S/E=1, D=2(「宝石のレンジを狭く」kaiyoフィードバック) */
-const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:1},D:{nm:'ダイヤ',n:2,val:2}};
-const GEMKEYS=['R','S','E','D'];
+/* v0.6: 落石(X)を2枚追加。掘るに実リスクを戻す(押し付けでなく本人が損をするプッシュ・ユア・ラック)。
+   GEMKEYSに含めることで、deck構築・残り構成表示・estimateP(モンテカルロ)全てに自動反映される */
+const GEMS={R:{nm:'ルビー',n:5,val:1},S:{nm:'サファイア',n:4,val:1},E:{nm:'エメラルド',n:3,val:1},D:{nm:'ダイヤ',n:2,val:2},
+  X:{nm:'落石',n:2,val:0}};
+const GEMKEYS=['R','S','E','D','X'];
 function cnt(hist,g){ let c=0; for(const x of hist)if(x===g)c++; return c; }
 /* judge(h,rm,tot,over) → 'met'|'failed'|'open'。埋め戻しでhistが縮むと再評価される(隠し注文のリスク) */
 /* v0.4: 18種→12種。勝率偏りシミュ(3000G)の負け組+重複ファミリーから
    #2サファイア鉱脈・#8崩落は空振り・#9赤の時代・#13とどめのダイヤ・#16大山盛り・#17赤の独占をカット。
    基礎点は偏り是正のため再値付け(過剰勝ち組#15/#5/#14を減点、負け組#1/#11/#12を増点) */
 const ORDERS=[
- {id:1, nm:'ルビーラッシュ', base:5, txt:'8枚目までにルビーが4枚掘られたら成立',
-   judge:(h,rm,tot,over)=>{ const w=h.slice(0,8); if(cnt(w,'R')>=4)return 'met';
-     if(h.length>=8||over)return 'failed'; return 'open';}},
- {id:3, nm:'みどりの鉱脈', base:5, txt:'エメラルドが3枚すべて掘られたら成立',
+ {id:1, nm:'ルビーラッシュ', base:5, txt:'9枚目までにルビーが4枚掘られたら成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,9); if(cnt(w,'R')>=4)return 'met';
+     if(h.length>=9||over)return 'failed'; return 'open';}},
+ {id:3, nm:'みどりの鉱脈', base:4, txt:'エメラルドが3枚すべて掘られたら成立',
    judge:(h,rm,tot,over)=>cnt(h,'E')>=3?'met':(over?'failed':'open')},
  {id:4, nm:'かけこみダイヤ', base:2, txt:'4枚目までにダイヤが掘られたら成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,4); if(cnt(w,'D')>=1)return 'met';
@@ -195,9 +201,9 @@ const ORDERS=[
  {id:5, nm:'ダブルダイヤ', base:3, txt:'9枚目までにダイヤが2枚とも掘られたら成立',
    judge:(h,rm,tot,over)=>{ const w=h.slice(0,9); if(cnt(w,'D')>=2)return 'met';
      if(h.length>=9||over)return 'failed'; return 'open';}},
- {id:6, nm:'眠れるダイヤ', base:3, txt:'6枚目までダイヤが1枚も掘られなければ成立',
-   judge:(h,rm,tot,over)=>{ const w=h.slice(0,6); if(cnt(w,'D')>=1)return 'failed';
-     if(h.length>=6)return 'met'; if(over)return 'met'; return 'open';}},
+ {id:6, nm:'眠れるダイヤ', base:3, txt:'8枚目までダイヤが1枚も掘られなければ成立',
+   judge:(h,rm,tot,over)=>{ const w=h.slice(0,8); if(cnt(w,'D')>=1)return 'failed';
+     if(h.length>=8)return 'met'; if(over)return 'met'; return 'open';}},
  {id:7, nm:'埋もれた宝', base:5, txt:'崩落の3枚にダイヤが含まれていたら成立(最後に公開)',
    judge:(h,rm,tot,over)=>rm? (rm.indexOf('D')>=0?'met':'failed') : (cnt(h,'D')>=GEMS.D.n?'failed':'open')},
  {id:10, nm:'青の逆襲', base:5, txt:'終了時、サファイアがルビー以上掘られていたら成立',
@@ -212,18 +218,19 @@ const ORDERS=[
    return over?'failed':'open';}},
  {id:14, nm:'希少ペア', base:4, txt:'エメラルドまたはダイヤが同じ種類2枚連続で掘られたら成立(1度でも)',
    judge:(h,rm,tot,over)=>{ for(let i=1;i<h.length;i++)if(h[i]===h[i-1]&&(h[i]==='E'||h[i]==='D'))return 'met'; return over?'failed':'open';}},
- {id:15, nm:'四色ならび', base:3, txt:'連続する4枚が4種類すべてになったら成立(1度でも)',
+ {id:15, nm:'四色ならび', base:3, txt:'連続する4枚が4種類すべてになったら成立(1度でも・落石を挟むと途切れる)',
    judge:(h,rm,tot,over)=>{ for(let i=3;i<h.length;i++){ const w=[h[i-3],h[i-2],h[i-1],h[i]];
-     let uniq=true; for(let a=0;a<4;a++)for(let b=a+1;b<4;b++)if(w[a]===w[b])uniq=false;
-     if(uniq)return 'met'; } return over?'failed':'open';}},
- {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立',
+     // v0.6: 落石(X)混入後は「4枚がユニーク」だけだとR/S/E/D以外の組でも通ってしまうため、
+     // Xを含まずR/S/E/Dが1個ずつ(=4種類すべて)であることを明示的に確認する
+     if(w.indexOf('X')<0 && new Set(w).size===4)return 'met'; } return over?'failed':'open';}},
+ {id:18, nm:'静かな鉱山', base:6, txt:'終了時、エメラルドとダイヤが合わせて3枚以下しか掘られていなければ成立(大穴枠)',
    judge:(h,rm,tot,over)=>(cnt(h,'E')+cnt(h,'D'))>=4?'failed':(over?'met':'open')},
 ];
 /* v0.5: 6種13枚に再編。「見るだけ」を全廃し、全道具が山・袋・秘密のどれかに触る */
 const TOOLS=[
  {fx:'shovel', nm:'先読みシャベル', txt:'山の上2枚を見て、好きな順で戻す か 1枚を山底へ送る', n:3},
  {fx:'dyna', nm:'ダイナマイト', txt:'このターン「掘る」を選んだら2枚掘る', n:2},
- {fx:'yokodori', nm:'横取り', txt:'直前に掘られた宝石1枚を、掘った人の袋から自分の袋へ移す', n:2},
+ {fx:'yokodori', nm:'横取り', txt:'今いちばん点が高い相手(自分以外)の袋から、いちばん高い宝石を奪う', n:2},
  {fx:'rebury', nm:'埋め戻し', txt:'直前に掘られた1枚を山に戻してシャッフルする(袋からも没収)', n:2},
  {fx:'spy', nm:'のぞき見', txt:'相手1人の手札の注文をすべて見る', n:2},
  {fx:'happa', nm:'崩落発破', txt:'崩落の1枚をこっそり見て、山の一番上と入れ替えてもよい', n:2},
@@ -272,6 +279,12 @@ const Engine = {
   },
   totalDigs(S){ return S.mine.length+S.hist.length; },
   statusOf(S,o){ return o.judge(S.hist,S.removedOpen?S.removed:null,Engine.totalDigs(S),S.over); },
+  scoreOf(S,p){ return p.bag.reduce((a,g)=>a+GEMS[g].val,0)+p.revealed.reduce((a,o)=>a+o.base,0)+(p.revealBonus||0); },
+  leaderOther(S,pi){ // v0.6: 横取りは常に「自分以外の現在の首位(確定点)」を狙う→VIC-18キャッチ・ザ・リーダー
+    let target=null,best=-1;
+    S.players.forEach(q=>{ if(q.idx===pi)return; const sc=Engine.scoreOf(S,q); if(sc>best){best=sc;target=q;} });
+    return target;
+  },
 
   /* --- アクション --- */
   canDig(S,pi){ return !S.roadblock && S.mine.length>0; },
@@ -281,9 +294,23 @@ const Engine = {
     const n=(p._dyna?2:1);
     for(let i=0;i<n&&S.mine.length;i++){
       const g=S.mine.pop(); S.hist.push(g);
-      p.bag.push(g);
-      S.lastDig={pi,g};
-      Engine.log(S,'⛏️ '+p.name+'が掘った → '+GEMS[g].nm+'('+S.hist.length+'枚目)を袋へ(+'+GEMS[g].val+'点)');
+      if(g==='X'){
+        // v0.6: 落石。宝石はもらえず、袋があれば1個(自動で最安値)を山に埋め戻す=掘る本人が損をするリスク
+        S.lastDig={pi,g};
+        if(p.bag.length){
+          let bi=0,bv=999;
+          p.bag.forEach((bg,idx)=>{ if(GEMS[bg].val<bv){bv=GEMS[bg].val; bi=idx;} });
+          const lost=p.bag.splice(bi,1)[0];
+          S.mine.push(lost); shuffle(S.mine);
+          Engine.log(S,'💥 '+p.name+'が掘ったら「落石」!('+S.hist.length+'枚目) 袋の'+GEMS[lost].nm+'を1個失い、山に埋め戻った');
+        }else{
+          Engine.log(S,'💥 '+p.name+'が掘ったら「落石」!('+S.hist.length+'枚目) 袋が空だったので被害なし');
+        }
+      }else{
+        p.bag.push(g);
+        S.lastDig={pi,g};
+        Engine.log(S,'⛏️ '+p.name+'が掘った → '+GEMS[g].nm+'('+S.hist.length+'枚目)を袋へ(+'+GEMS[g].val+'点)');
+      }
     }
     p._dyna=false;
     S.noDigStreak=0;
@@ -361,15 +388,16 @@ const Engine = {
         } break; }
       case 'dyna': p._dyna=true;
         Engine.log(S,p.name+'が「ダイナマイト」: このターン掘るなら2枚!'); break;
-      case 'yokodori':{ // v0.5: 直前の宝石を袋ごと奪う
-        if(S.lastDig&&S.lastDig.pi!==pi){
-          const q=S.players[S.lastDig.pi]; const g=S.lastDig.g;
-          const bi=q.bag.lastIndexOf(g);
-          if(bi>=0){
-            q.bag.splice(bi,1); p.bag.push(g);
-            S.lastDig={pi,g}; // 実物は横取りした人の袋にあるので、以後の埋め戻しはそこから取る
-            Engine.log(S,'🫳 '+p.name+'が「横取り」: '+q.name+'の袋から'+GEMS[g].nm+'を奪った(+'+GEMS[g].val+'点)');
-          }
+      case 'yokodori':{ // v0.6: 「直前の1枚」ではなく「今の首位(自分以外)」の袋からいちばん高い宝石を奪う
+        const target=Engine.leaderOther(S,pi);
+        if(target&&target.bag.length){
+          let bi=0,bv=-1;
+          target.bag.forEach((g,idx)=>{ if(GEMS[g].val>bv){bv=GEMS[g].val;bi=idx;} });
+          const g=target.bag.splice(bi,1)[0];
+          p.bag.push(g);
+          Engine.log(S,'🫳 '+p.name+'が「横取り」: 首位'+target.name+'の袋から'+GEMS[g].nm+'を奪った(+'+GEMS[g].val+'点)');
+        }else{
+          Engine.log(S,'🫳 '+p.name+'が「横取り」を使ったが、奪えるものがなかった(空振り)');
         } break; }
       case 'rebury':{
         if(S.hist.length){
@@ -490,6 +518,7 @@ const Engine = {
       const ri=p.tools.findIndex(t=>t.fx==='rebury');
       const si=p.tools.findIndex(t=>t.fx==='spy');
       const hi=p.tools.findIndex(t=>t.fx==='happa');
+      const yTarget=yi>=0?Engine.leaderOther(S,pi):null; // v0.6: 横取りは首位固定なので判定を先に1回だけ計算
       if(shi>=0&&S.mine.length&&Math.random()<0.5){
         // 次にめくれる1枚が自分の注文にマイナスなら山底へ、そうでなければ気分で並べ替え
         let mode='keep';
@@ -508,7 +537,7 @@ const Engine = {
         const swap=S.mine.length>0&&(wantD?S.removed[idx]!=='D':Math.random()<0.5);
         Engine.useTool(S,pi,hi,{idx,swap});
       }
-      else if(yi>=0&&S.lastDig&&S.lastDig.pi!==pi&&Math.random()<(GEMS[S.lastDig.g].val>=2?0.5:0.15))Engine.useTool(S,pi,yi,{});
+      else if(yi>=0&&yTarget&&yTarget.bag.length&&Math.random()<0.5)Engine.useTool(S,pi,yi,{});
       else if(ri>=0&&S.hist.length&&Math.random()<0.35){
         // 直前の1枚が自分の注文にマイナスだったら埋め戻す(粗い判定: 戻したらP合計が上がるか)
         const before=p.orders.reduce((a,o)=>a+Engine.estimateP(S,o,30),0);
@@ -546,6 +575,13 @@ const Engine = {
         GEMKEYS.forEach(g=>{ for(let i=0;i<GEMS[g].n-cnt(S.hist,g);i++)remainAll.push(GEMS[g].val); });
         const evGem=remainAll.length?remainAll.reduce((a,b)=>a+b,0)/remainAll.length:0;
         digScore+=(p.peek&&p.peek.length)?GEMS[p.peek[0]].val*0.5:evGem*0.5;
+        // v0.6: 落石リスクを勘案(引き当てる確率×袋の最安値=期待損失)。プッシュ・ユア・ラックの「引くか止めるか」をCPUにも反映
+        const caveLeft=GEMS.X.n-cnt(S.hist,'X');
+        const caveProb=remainAll.length?caveLeft/remainAll.length:0;
+        const bagMin=p.bag.length?Math.min(...p.bag.map(bg=>GEMS[bg].val)):0;
+        let risk=caveProb*bagMin*0.8;
+        if(p._dyna)risk*=1.8; // ダイナマイトは2連続で引くのでリスクもほぼ倍
+        digScore-=risk;
       }
       p.orders.forEach(o=>{
         const st=Engine.statusOf(S,o);
@@ -623,7 +659,7 @@ function setAction(html){ const ta=$('targetArea'); if(ta)ta.innerHTML=''; $('ac
 function flushLog(){ const el=$('log'); let h='';
   for(;UI.logPtr<S.log.length;UI.logPtr++)h+='<div>'+S.log[UI.logPtr]+'</div>';
   if(h){el.innerHTML+=h; el.scrollTop=el.scrollHeight;} }
-function gemHTML(g){ return '<span class="gem '+g+'">'+GEMS[g].nm[0]+'</span>'; }
+function gemHTML(g){ if(g==='X')return '<span class="gem X">💥</span>'; return '<span class="gem '+g+'">'+GEMS[g].nm[0]+'</span>'; }
 function renderMyPanel(){
   // 1人プレイ(人間1)のときだけ、手番外でも自分の手札を常時表示(パス&プレイでは覗き見防止のため非表示)
   const wrap=$('myPanelWrap');
@@ -851,7 +887,6 @@ function humanTool(pi,ti){
       $('tg'+i).onclick=()=>{Engine.useTool(S,pi,ti,{tPi:q.idx});done();};
     });
   }else if(t.fx==='yokodori'){
-    if(!S.lastDig||S.lastDig.pi===pi){alert('横取りできる宝石がありません(直前に他の人が掘っていない)');return;}
     Engine.useTool(S,pi,ti,{});
     done();
   }else if(t.fx==='rebury'){
@@ -928,6 +963,6 @@ window.__orders=ORDERS;
 window.__gems=GEMS; // v0.4: シミュから袋点レンジのA/B比較をするために公開
 window.__state=()=>S;
 </script>
-<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.5)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
+<footer style="margin:26px auto 40px;max-width:1120px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">『ほりだしもの』(仮)は開発中のプロトタイプ(v0.6)です。ルール・数値は予告なく変わります。感想大歓迎!<br><a href="../" style="color:#5f8f8a">← 試遊場トップ(ほかのゲーム一覧)</a> ／ <a href="https://x.com/yrr_iq" target="_blank" rel="noopener" style="color:#5f8f8a">X (@yrr_iq)</a> ／ © ゆるるかなアイキュ〜</footer>
 </body>
 </html>
