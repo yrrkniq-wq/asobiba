@@ -7,12 +7,18 @@
 <title>ふたりのまほう ― オンライン対戦（テスト版）</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  オンライン対戦版（ルールはローカル版 ふたりのまほう_プロトタイプ.html と同一。Engineはコピー）
+  オンライン対戦版 v0.5（ルールはローカル版 ふたりのまほう_プロトタイプ.html と同一。Engineはコピー）
+  v0.5での変更点（kaiyoフィードバック反映・2026-07-08）:
+   - 詠唱のチャージ概念を撤廃。解放威力はカードごとの固定値
+   - 即唱を使うと自分に1ダメージの反動
+   - 伏せの割込対象を「解放」だけでなく「即唱（純粋ヒット系）」にも拡張
+   - ひきはがし【即】: 相手の詠唱中カードを1枚ランダムに選んで破棄させる（チャージ窃取→破棄に変更）
+   - みがわり【伏】: 無効化した分だけ自分のライフを回復（チャージ変換→ライフ回復に変更）
   仕組み: PeerJS（無料のP2P仲介。アカウント・課金不要）でホストの部屋に接続。
   ホスト＝進行役（Engineを持つ。このタブを閉じると部屋が終わる）。ゲストは部屋コードで参加。
   2人専用: ホスト+ゲスト1人（ゲスト不在ならCPUと対戦）。
   秘密情報（手札・自分の伏せ札）は手番メッセージ/割込メッセージでのみ本人に送る。
-  相手の解放への「割込」は、防御側に個別の割込プロンプトを送って返答を待つ。切断者はCPUが代打ち。
+  相手の解放・即唱への「割込」は、防御側に個別の割込プロンプトを送って返答を待つ。切断者はCPUが代打ち。
   注意: 会社ネットワーク等ではP2P接続に失敗することがある（その場合は別回線/スマホ回線を試す）
 -->
 <style>
@@ -112,9 +118,9 @@
     <div class="foot">ホストの画面を閉じると部屋は終了します。接続に失敗する場合は別のネット回線（スマホ回線など）を試してください。</div>
     <h3>ルール要約</h3>
     <table class="rules">
-      <tr><td>手番</td><td>①詠唱中すべてにチャージ+1（上限2）→②手札4枚まで引く→③アクション1つ（即唱／詠唱／解放／伏せ）</td></tr>
-      <tr><td>3モード</td><td>【即】隠して即時（弱）／【詠】見せて育てる（威力=基本+チャージ）／【伏】裏向きで相手の解放に割り込む</td></tr>
-      <tr><td>割込</td><td>相手の解放時、伏せ1枚を公開してよい（ふいうち=無効化+反撃／いやし=半減／みがわり=無効化+チャージ変換）。おしきり付き解放には割り込めない</td></tr>
+      <tr><td>手番</td><td>①手札4枚まで引く→②アクション1つ（即唱／詠唱／解放／伏せ）</td></tr>
+      <tr><td>3モード</td><td>【即】隠して即時（弱・自分に1ダメージの反動あり）／【詠】見せて育てる（威力=カード固定値・チャージなし）／【伏】裏向きで相手の解放・即唱（純粋ヒット系のみ）に割り込む</td></tr>
+      <tr><td>割込</td><td>相手の解放/即唱時、伏せ1枚を公開してよい（ふいうち=無効化+同ダメージ反撃／いやし=半減／みがわり=無効化+同ダメージ分ライフ回復）。おしきり付き解放には割り込めない</td></tr>
       <tr><td>勝敗</td><td>相手のライフ0以下で勝ち。後手はライフ+1。山札切れは捨て札を混ぜ直す</td></tr>
     </table>
   </div>
@@ -134,7 +140,6 @@
         <label>ライフ <input id="life" class="num" type="number" min="5" max="20" value="10"></label>
         <label>後手ボーナス <input id="backBonus" class="num" type="number" min="0" max="3" value="1"></label>
         <label>手札枚数 <input id="handSize" class="num" type="number" min="3" max="6" value="4"></label>
-        <label>チャージ上限 <input id="chargeCap" class="num" type="number" min="1" max="4" value="2"></label>
         <label>詠唱スロット <input id="castSlots" class="num" type="number" min="1" max="4" value="3"></label>
         <label>伏せスロット <input id="faceSlots" class="num" type="number" min="1" max="3" value="2"></label>
         <label>CPUの強さ <select id="cpuLevel"><option value="std" selected>標準</option><option value="adv">上級</option></select></label>
@@ -175,17 +180,17 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[
 
 /* ===== カード定義（ミラー各20枚） ===== */
 const CARDS={
-  HI:{n:'ひのたま', e:'🔥', cnt:3, soku:'3ダメージ',                    ei:'3+チャージ ダメージ',           fu:'—'},
-  SW:{n:'いれかえ', e:'🔁', cnt:3, soku:'詠唱1枚と手札1枚を入替(チャージ残る)', ei:'1+チャージ ダメージ',    fu:'—'},
-  KA:{n:'かがみ',   e:'🪞', cnt:2, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'詠唱中: 受ける即唱-1'},
-  FU:{n:'ふいうち', e:'⚡', cnt:2, soku:'1ダメージ',                    ei:'2ダメージ(チャージ無効)',        fu:'割込: 解放を無効化+チャージ分反撃'},
-  IY:{n:'いやし',   e:'💚', cnt:2, soku:'自分ライフ+2',                 ei:'チャージ分回復＆相手に1ダメージ', fu:'割込: 解放ダメージ半減'},
-  AB:{n:'あばく',   e:'🔦', cnt:2, soku:'相手の伏せ1枚を暴いて破棄+1ダメージ', ei:'2+チャージ ダメージ',     fu:'—'},
-  OS:{n:'おしきり', e:'🛡', cnt:2, soku:'1ダメージ',                    ei:'2+チャージ ダメージ',           fu:'解放時に手札から捨てると割込不可'},
-  MG:{n:'みがわり', e:'🧸', cnt:1, soku:'1ダメージ',                    ei:'1+チャージ ダメージ',           fu:'割込: ダメージ無効化→チャージ変換'},
-  HG:{n:'ひきはがし',e:'🧲', cnt:1, soku:'相手の最大詠唱からチャージ2奪う', ei:'3+チャージ ダメージ',        fu:'—'},
-  TD:{n:'とどめ',   e:'☄️', cnt:1, soku:'（即唱不可）',                 ei:'チャージ×2+1 ダメージ(自分も1)',   fu:'—'},
-  MK:{n:'めくらまし',e:'🎭', cnt:1, soku:'1ダメージ',                   ei:'1ダメージ(チャージ無効)',        fu:'（効果なし＝はったり用）'}
+  HI:{n:'ひのたま', e:'🔥', cnt:3, soku:'3ダメージ',                    ei:'5ダメージ',                       fu:'—'},
+  SW:{n:'いれかえ', e:'🔁', cnt:3, soku:'詠唱1枚と手札1枚を入替',        ei:'3ダメージ',                       fu:'—'},
+  KA:{n:'かがみ',   e:'🪞', cnt:2, soku:'1ダメージ',                    ei:'3ダメージ',                       fu:'詠唱中: 受ける即唱-1'},
+  FU:{n:'ふいうち', e:'⚡', cnt:2, soku:'1ダメージ',                    ei:'2ダメージ',                       fu:'割込: 解放/即唱を無効化+同ダメージ反撃'},
+  IY:{n:'いやし',   e:'💚', cnt:2, soku:'自分ライフ+2',                 ei:'ライフ+2＆相手に1ダメージ',        fu:'割込: 解放/即唱ダメージ半減'},
+  AB:{n:'あばく',   e:'🔦', cnt:2, soku:'相手の伏せ1枚を暴いて破棄+1ダメージ', ei:'4ダメージ',                 fu:'—'},
+  OS:{n:'おしきり', e:'🛡', cnt:2, soku:'1ダメージ',                    ei:'4ダメージ',                       fu:'解放時に手札から捨てると割込不可'},
+  MG:{n:'みがわり', e:'🧸', cnt:1, soku:'1ダメージ',                    ei:'3ダメージ',                       fu:'割込: 解放/即唱ダメージを無効化し、その分だけライフ回復'},
+  HG:{n:'ひきはがし',e:'🧲', cnt:1, soku:'相手の詠唱中カードを1枚選んで破棄させる', ei:'5ダメージ',            fu:'—'},
+  TD:{n:'とどめ',   e:'☄️', cnt:1, soku:'（即唱不可）',                 ei:'5ダメージ(自分も1)',              fu:'—'},
+  MK:{n:'めくらまし',e:'🎭', cnt:1, soku:'1ダメージ',                   ei:'1ダメージ',                       fu:'（効果なし＝はったり用）'}
 };
 const INTS={FU:1,IY:1,MG:1}; // 割込効果を持つ札
 
@@ -204,10 +209,8 @@ const Engine={
   },
   drawTo(S,p,n){ while(p.hand.length<n){ if(p.deck.length===0){ if(p.disc.length===0)break; p.deck=shuffle(p.disc.splice(0)); S.log.push(`${p.name}: 捨て札を混ぜ直した`);} p.hand.push(p.deck.pop()); } },
   kaCount(p){ return p.cast.filter(c=>c.id==='KA').length; },
-  relDamageOf(id,c){ if(id==='HI')return 3+c; if(id==='FU')return 2; if(id==='MK')return 1;
-    if(id==='TD')return c*2+1; if(id==='IY')return 1; if(id==='HG')return 3+c; if(id==='AB')return 2+c; if(id==='OS')return 2+c; return 1+c; },
+  relDamageOf(id){ const FIX={HI:5,SW:3,KA:3,FU:2,IY:1,AB:4,OS:4,MG:3,HG:5,TD:5,MK:1}; return FIX[id]; },
   startTurn(S){ const p=S.ps[S.cur],o=S.ps[1-S.cur];
-    p.cast.forEach(c=>c.charge=Math.min(S.cfg.chargeCap,c.charge+1));
     let n=S.cfg.handSize;
     if(S.cfg.rescue&&p.life<=o.life-4){n+=1;S.log.push(`${p.name}: 逆転救済で+1ドロー`);}
     Engine.drawTo(S,p,n); S.totalTurns++;
@@ -231,21 +234,27 @@ const Engine={
     if(id==='HI')msg=`${hit(3)}ダメージ`;
     else if(id==='IY'){p.life=Math.min(p.lifeMax,p.life+2);msg='ライフ+2';}
     else if(id==='AB'){ if(o.face.length>0){const f=o.face.splice(rnd(o.face.length),1)[0];o.disc.push(f.id);msg=`伏せ札【${CARDS[f.id].n}】を暴いて破棄、`;} msg+=`${hit(1)}ダメージ`; }
-    else if(id==='HG'){ if(o.cast.length>0){ let best=o.cast[0];o.cast.forEach(c=>{if(c.charge>best.charge)best=c;});
-        let take=Math.min(2,best.charge);best.charge-=take;const took=take;
-        p.cast.forEach(cc=>{while(take>0&&cc.charge<S.cfg.chargeCap){cc.charge++;take--;}});
-        msg=`チャージ${took}を奪った`; } else msg='相手に詠唱なし（不発）'; }
+    else if(id==='HG'){ if(o.cast.length>0){ const idx=rnd(o.cast.length); const gone=o.cast.splice(idx,1)[0];
+        o.disc.push(gone.id); msg=`詠唱中【${CARDS[gone.id].n}】を破棄させた`; } else msg='相手に詠唱なし（不発）'; }
     else msg=`${hit(1)}ダメージ`;
+    p.life-=1; msg+='／反動で自分に1ダメージ';
     S.log.push(`${p.name}: 即唱【${CARDS[id].n}】→ ${msg}${ka>0&&'HI KA FU OS MG MK AB'.indexOf(id)>=0?'（かがみ-'+ka+'）':''}`);
   },
   applyAction(S,act){ const i=S.cur,p=S.ps[i],o=S.ps[1-i];
-    if(act.t==='soku'){ const id=p.hand.splice(act.hi,1)[0]; p.stats.soku++;
+    if(act.t==='soku'){ const peekId=p.hand[act.hi];
+      const qualifies=['HI','KA','FU','OS','MG','MK'].indexOf(peekId)>=0; // 純粋ヒット系のみ伏せの割込対象
+      p.stats.soku++;
+      if(qualifies && o.face.length>0){
+        const ka=Engine.kaCount(o); const n=peekId==='HI'?3:1; const dmgVal=Math.max(0,n-ka);
+        p.hand.splice(act.hi,1); p.life-=1; // 即唱の反動
+        S.pending={kind:'soku',attacker:i,id:peekId,dmgVal}; return {pending:true}; }
+      const id=p.hand.splice(act.hi,1)[0];
       Engine.resolveSoku(S,i,id); p.disc.push(id); Engine.checkDead(S,i); return {done:true}; }
     if(act.t==='swap'){ let hj=act.hj; p.hand.splice(act.hi,1); if(act.hj>act.hi)hj--;
       const inId=p.hand.splice(hj,1)[0]; const slot=p.cast[act.si];
-      S.log.push(`${p.name}: 即唱【いれかえ】→ 詠唱中【${CARDS[slot.id].n}】(チャージ${slot.charge})を【${CARDS[inId].n}】に入替`);
+      S.log.push(`${p.name}: 即唱【いれかえ】→ 詠唱中【${CARDS[slot.id].n}】を【${CARDS[inId].n}】に入替`);
       p.hand.push(slot.id); slot.id=inId; p.disc.push('SW'); p.stats.swap++; return {done:true}; }
-    if(act.t==='eisho'){ const id=p.hand.splice(act.hi,1)[0]; p.cast.push({id,charge:0}); p.stats.eisho++;
+    if(act.t==='eisho'){ const id=p.hand.splice(act.hi,1)[0]; p.cast.push({id}); p.stats.eisho++;
       S.log.push(`${p.name}: 【${CARDS[id].n}】を詠唱（表向き）`); return {done:true}; }
     if(act.t==='fuse'){ const id=p.hand.splice(act.hi,1)[0]; p.face.push({id}); p.stats.fuse++;
       S.log.push(`${p.name}: カードを1枚伏せた`); return {done:true}; }
@@ -253,62 +262,74 @@ const Engine={
       let unint=false;
       if(act.os){ const oi=p.hand.indexOf('OS'); if(oi>=0){p.hand.splice(oi,1);p.disc.push('OS');unint=true;
         S.log.push(`${p.name}: 手札から【おしきり】を捨てて割込不可！`);} }
-      S.log.push(`${p.name}: 【${CARDS[slot.id].n}】を解放（チャージ${slot.charge}）`);
-      const pend={attacker:i,id:slot.id,charge:slot.charge,unint};
+      S.log.push(`${p.name}: 【${CARDS[slot.id].n}】を解放`);
+      const pend={kind:'rel',attacker:i,id:slot.id,unint};
       if(!unint&&o.face.length>0){ S.pending=pend; return {pending:true}; }
       Engine.resolveRelease(S,pend,-1); return {done:true}; }
   },
   resolveRelease(S,pend,intIdx){ const a=S.ps[pend.attacker],d=S.ps[1-pend.attacker];
-    let negated=false,halve=false,absorb=false;
+    let negated=false,halve=false;
     if(intIdx>=0){ const f=d.face.splice(intIdx,1)[0]; d.disc.push(f.id); d.stats.intUsed++;
-      if(f.id==='FU'){ negated=true; const ref=pend.charge;
+      if(f.id==='FU'){ negated=true; const ref=Engine.relDamageOf(pend.id);
         S.log.push(`${d.name}: 伏せ【ふいうち】で割込！解放を無効化、${ref}ダメージ反撃`);
         if(ref>0)a.life-=ref; }
       else if(f.id==='IY'){ halve=true; S.log.push(`${d.name}: 伏せ【いやし】で割込！ダメージ半減`); }
-      else if(f.id==='MG'){ absorb=true; S.log.push(`${d.name}: 伏せ【みがわり】で割込！`); }
+      else if(f.id==='MG'){ negated=true; const heal=Engine.relDamageOf(pend.id);
+        d.life=Math.min(d.lifeMax,d.life+heal); S.log.push(`${d.name}: 伏せ【みがわり】で割込！ダメージを無効化しライフ+${heal}`); }
       else S.log.push(`${d.name}: 伏せ【${CARDS[f.id].n}】を公開…割込効果なし`);
     }
-    if(!negated){ const id=pend.id,c=pend.charge; let dmg=Engine.relDamageOf(id,c),heal=0,self=0;
-      if(id==='IY')heal=c;
+    if(!negated){ const id=pend.id; let dmg=Engine.relDamageOf(id),heal=0,self=0;
+      if(id==='IY'){heal=2;dmg=1;}
       if(id==='TD')self=1;
       if(halve)dmg=Math.ceil(dmg/2);
-      if(absorb&&dmg>0){ let pts=dmg; dmg=0;
-        if(d.cast.length===0){d.life=Math.min(d.lifeMax,d.life+1);S.log.push(`${d.name}: 詠唱なし→ライフ+1`);}
-        else{ const got=pts; d.cast.forEach(cc=>{while(pts>0&&cc.charge<S.cfg.chargeCap){cc.charge++;pts--;}});
-          S.log.push(`${d.name}: ${got-pts}をチャージに変換`); } }
       if(heal>0){a.life=Math.min(a.lifeMax,a.life+heal);S.log.push(`${a.name}: ライフ+${heal}`);}
       if(dmg>0){d.life-=dmg;S.log.push(`${d.name}に${dmg}ダメージ`);}
       if(self>0){a.life-=self;S.log.push(`${a.name}は反動で${self}ダメージ`);}
     }
     a.disc.push(pend.id); S.pending=null; Engine.checkDead(S,pend.attacker);
   },
+  resolveSokuPending(S,pend,intIdx){ const a=S.ps[pend.attacker],d=S.ps[1-pend.attacker];
+    let dmg=pend.dmgVal,reflect=0,negated=false;
+    if(intIdx>=0){ const f=d.face.splice(intIdx,1)[0]; d.disc.push(f.id); d.stats.intUsed++;
+      if(f.id==='FU'){ negated=true; reflect=dmg;
+        S.log.push(`${d.name}: 伏せ【ふいうち】で即唱に割込！無効化＋${reflect}ダメージ反撃`); }
+      else if(f.id==='IY'){ dmg=Math.ceil(dmg/2); S.log.push(`${d.name}: 伏せ【いやし】で即唱に割込！ダメージ半減`); }
+      else if(f.id==='MG'){ negated=true; d.life=Math.min(d.lifeMax,d.life+dmg);
+        S.log.push(`${d.name}: 伏せ【みがわり】で即唱に割込！ダメージを無効化しライフ+${dmg}`); }
+      else S.log.push(`${d.name}: 伏せ【${CARDS[f.id].n}】を公開…割込効果なし`); }
+    if(!negated&&dmg>0){ d.life-=dmg; S.log.push(`${d.name}に${dmg}ダメージ`); }
+    if(reflect>0)a.life-=reflect;
+    a.disc.push(pend.id); S.pending=null; Engine.checkDead(S,pend.attacker); },
   checkDead(S,actor){ const a=S.ps[actor],o=S.ps[1-actor];
     if(o.life<=0){S.over=true;S.winner=actor;}
     else if(a.life<=0){S.over=true;S.winner=1-actor;} },
-  potential(id,c){ if(id==='IY')return 1+c*0.8; return Engine.relDamageOf(id,c); },
-  cpuScore(S,act){ const i=S.cur,p=S.ps[i],o=S.ps[1-i],ka=Engine.kaCount(o),cap=S.cfg.chargeCap;
+  potential(id){ if(id==='IY')return 1+2*0.8; return Engine.relDamageOf(id); },
+  cpuScore(S,act){ const i=S.cur,p=S.ps[i],o=S.ps[1-i],ka=Engine.kaCount(o);
     const lethal=d=>d>=o.life?8:0;
-    if(act.t==='soku'){ const id=p.hand[act.hi];
-      if(id==='HI'){const d=Math.max(0,3-ka);return d+lethal(d);}
-      if(id==='IY')return p.life<=p.lifeMax-3?(p.life<=5?2.4:1.2):0.2;
-      if(id==='AB')return (o.face.length>0?2.0:0.2)+Math.max(0,1-ka)*0.5;
-      if(id==='HG'){let mc=0;o.cast.forEach(c=>{if(c.charge>mc)mc=c.charge;});return mc*1.4+(p.cast.length?0.3:0);}
-      const d=Math.max(0,1-ka);return d*0.9+lethal(d); }
+    const fuseRisk=(id2)=>{ const q=['HI','KA','FU','OS','MG','MK'].indexOf(id2)>=0;
+      return (q&&o.face.length>0)?0.45:0; };
+    if(act.t==='soku'){ const id=p.hand[act.hi]; let v;
+      if(id==='HI'){const raw=Math.max(0,3-ka);const risk=fuseRisk(id);v=raw*(1-risk)+lethal(raw);}
+      else if(id==='IY')v=p.life<=p.lifeMax-3?(p.life<=5?2.4:1.2):0.2;
+      else if(id==='AB')v=(o.face.length>0?2.0:0.2)+Math.max(0,1-ka)*0.5;
+      else if(id==='HG')v=o.cast.length>0?1.6:0.1;
+      else{ const raw=Math.max(0,1-ka);const risk=fuseRisk(id);v=raw*(1-risk)*0.9+lethal(raw); }
+      v-=0.6; // 即唱の反動(自分に1ダメージ)を織り込む
+      return v; }
     if(act.t==='swap'){ const slot=p.cast[act.si];
-      const gain=Engine.potential(p.hand[act.hj],slot.charge)-Engine.potential(slot.id,slot.charge);
+      const gain=Engine.potential(p.hand[act.hj])-Engine.potential(slot.id);
       return Math.max(0.1,gain*1.1); }
-    if(act.t==='eisho'){ const id=p.hand[act.hi]; let v=Engine.potential(id,cap)*0.5;
+    if(act.t==='eisho'){ const id=p.hand[act.hi]; let v=Engine.potential(id)*0.5;
       if(id==='KA')v+=0.8; if(id==='FU'||id==='MK')v*=0.5; if(p.cast.length>=2)v*=0.6; return v; }
-    if(act.t==='fuse'){ const id=p.hand[act.hi]; let v,mc=0;o.cast.forEach(c=>{if(c.charge>mc)mc=c.charge;});
-      if(id==='FU')v=1.9+mc*0.4; else if(id==='MG')v=1.5+(p.cast.length?0.3:0);
+    if(act.t==='fuse'){ const id=p.hand[act.hi]; let v,maxDmg=0;o.cast.forEach(c=>{const d=Engine.relDamageOf(c.id);if(d>maxDmg)maxDmg=d;});
+      if(id==='FU')v=1.9+maxDmg*0.15; else if(id==='MG')v=1.5+(p.cast.length?0.3:0);
       else if(id==='IY')v=1.2; else if(id==='MK')v=0.8; else v=0.15;
       if(p.face.length>=1)v*=0.6; return v; }
-    if(act.t==='rel'){ const slot=p.cast[act.si],id=slot.id,c=slot.charge;
-      const dmg=(id==='IY')?1:Engine.relDamageOf(id,c); const healv=(id==='IY')?c*0.8:0; const self=(id==='TD')?1:0;
+    if(act.t==='rel'){ const slot=p.cast[act.si],id=slot.id;
+      const dmg=(id==='IY')?1:Engine.relDamageOf(id); const healv=(id==='IY')?2*0.8:0; const self=(id==='TD')?1:0;
       let v;
       if(act.os){ v=dmg+healv-0.9-self*0.5+lethal(dmg); if(o.face.length===0)v-=1.5; }
       else{ const risk=o.face.length>0?0.45:0; v=(dmg+healv)*(1-risk)-self*0.5+lethal(dmg); }
-      if(c<cap&&id!=='FU'&&id!=='MK')v-=0.5;
       return v; }
     return 0;
   },
@@ -322,19 +343,21 @@ const Engine={
     return Engine.softPick(acts.map(a=>({act:a,v:Engine.cpuScore(S,a)})),temp); },
   cpuChooseInterrupt(S){ const pend=S.pending,d=S.ps[1-pend.attacker];
     const temp=d.level==='adv'?0.4:1.2;
-    const dmg=Engine.relDamageOf(pend.id,pend.charge);
+    const dmg = pend.kind==='soku' ? pend.dmgVal : Engine.relDamageOf(pend.id);
     const opts=[{act:-1,v:1.1}];
     d.face.forEach((f,fi)=>{ let v=0.05;
-      if(f.id==='FU')v=dmg*0.9+pend.charge*0.9;
+      if(f.id==='FU')v=dmg*1.8;
       else if(f.id==='IY')v=(dmg-Math.ceil(dmg/2))*0.9;
-      else if(f.id==='MG')v=dmg*0.9+(d.cast.length?0.3:0);
+      else if(f.id==='MG')v=dmg*1.2;
       if(dmg>=d.life){ if(f.id==='FU'||f.id==='MG')v+=8; else if(f.id==='IY'&&Math.ceil(dmg/2)<d.life)v+=6; }
       opts.push({act:fi,v}); });
     return Engine.softPick(opts,temp); },
   playAuto(cfg){ const S=Engine.newGame(cfg); let safety=0;
     while(!S.over&&safety++<(cfg.maxTurns||200)){ Engine.startTurn(S);
       const act=Engine.cpuChooseAction(S); const r=Engine.applyAction(S,act);
-      if(r&&r.pending)Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S));
+      if(r&&r.pending){ const intIdx=Engine.cpuChooseInterrupt(S);
+        if(S.pending.kind==='soku')Engine.resolveSokuPending(S,S.pending,intIdx);
+        else Engine.resolveRelease(S,S.pending,intIdx); }
       if(!S.over)S.cur=1-S.cur; }
     if(!S.over){S.over=true;
       S.winner=S.ps[0].life>S.ps[1].life?0:(S.ps[1].life>S.ps[0].life?1:null);}
@@ -357,9 +380,8 @@ function setAction(html){ $('actionBody').innerHTML=html; }
 function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'futa-'+r; }
 function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
 function chip(id){ return CARDS[id].e+CARDS[id].n; }
-function cardHTML(id,extra,idAttr,charge){ const c=CARDS[id];
+function cardHTML(id,extra,idAttr){ const c=CARDS[id];
   return '<div class="scard '+(extra||'')+'"'+(idAttr?' id="'+idAttr+'"':'')+'>'
-    +((charge!==undefined&&charge>0)?'<span class="chg">'+'●'.repeat(charge)+'</span>':'')
     +'<span class="em">'+c.e+'</span><span class="nm">'+c.n+'</span><span class="fx">'+(id==='TD'?'詠唱専用':'')+'</span></div>'; }
 
 /* ---------- 共通描画（snapから） ---------- */
@@ -373,7 +395,7 @@ function applySnap(snap,lines){
       +'<div class="name"><span>'+p.name+'</span>'+(p.isCPU?'<span class="badge bot">CPU('+(p.level==='adv'?'上級':'標準')+')</span>':'')+'</div>'
       +'<div class="life">❤ '+p.life+'</div>'
       +'<div class="mini"><span>山札'+p.deck+'</span><span>手札'+p.handCount+'</span><span>捨て'+p.discCount+'</span></div>'
-      +'<div class="zone">詠唱: '+(p.cast.map(c=>chip(c.id)+'●'.repeat(c.charge)).join(' ／ ')||'—')+'</div>'
+      +'<div class="zone">詠唱: '+(p.cast.map(c=>chip(c.id)).join(' ／ ')||'—')+'</div>'
       +'<div class="zone">伏せ: '+('🌙'.repeat(p.faceCount)||'—')+'</div>'
       +'</div>';
   });
@@ -406,8 +428,8 @@ function renderActUI(data,send){
   const ui=myTurn.ui||(myTurn.ui={sel:-1,mode:null,swapSlot:-1,relSi:-1});
   $('turnTitle').textContent=data.myName+' の番 ― 手札を選んでモードを決める／詠唱中カードを解放';
   if(ui.mode==='swapSlot'){
-    let h='<h3>いれかえ: チャージを残したまま入れ替える詠唱枠を選択</h3><div class="row">';
-    data.cast.forEach((c,si)=>{h+=cardHTML(c.id,'pick','swapSlot'+si,c.charge);});
+    let h='<h3>いれかえ: 入れ替える詠唱枠を選択</h3><div class="row">';
+    data.cast.forEach((c,si)=>{h+=cardHTML(c.id,'pick','swapSlot'+si);});
     h+='</div><button class="ghost" id="btnCancel">やめる</button>';
     setAction(h);
     $('btnCancel').onclick=()=>{ui.mode=null;ui.sel=-1;renderMyTurn();};
@@ -425,7 +447,7 @@ function renderActUI(data,send){
   }
   if(ui.mode==='osConfirm'){
     const c=data.cast[ui.relSi];
-    let h='<div class="banner">【'+CARDS[c.id].n+'】（チャージ'+c.charge+'）を解放します。手札の【おしきり】を捨てて割込不可にしますか？</div>'
+    let h='<div class="banner">【'+CARDS[c.id].n+'】を解放します。手札の【おしきり】を捨てて割込不可にしますか？</div>'
       +'<div class="row"><button id="relBtn">そのまま解放</button>'
       +'<button id="relOsBtn">🛡おしきり併用（割込不可）</button>'
       +'<button class="ghost" id="btnCancel">やめる</button></div>';
@@ -447,8 +469,8 @@ function renderActUI(data,send){
     +'<div class="hint">'+(selId?('【'+CARDS[selId].n+'】 即:'+CARDS[selId].soku+' ／ 詠:'+CARDS[selId].ei+' ／ 伏:'+CARDS[selId].fu):'')+'</div>';
   if(data.cast.length){
     h+='<h3>詠唱中（クリックで解放）</h3><div class="row">';
-    data.cast.forEach((c,si)=>{h+='<button class="ghost" id="relSlot'+si+'">解放 '+chip(c.id)+'●'+c.charge
-      +'（威力'+(c.id==='IY'?('回復'+c.charge+'+1ダメ'):Engine.relDamageOf(c.id,c.charge))+'）</button>';});
+    data.cast.forEach((c,si)=>{h+='<button class="ghost" id="relSlot'+si+'">解放 '+chip(c.id)
+      +'（威力'+(c.id==='IY'?'回復2+1ダメ':Engine.relDamageOf(c.id))+'）</button>';});
     h+='</div>';
   }
   if(data.faceOwn.length){
@@ -468,7 +490,7 @@ function renderActUI(data,send){
 }
 function renderIntUI(data,send){
   $('turnTitle').textContent=data.myName+' ― 割り込みますか？';
-  let h='<div class="banner">'+data.attName+'が【'+CARDS[data.cardId].n+'】を解放（チャージ'+data.charge+'・威力'+data.dmg+'）</div>'
+  let h='<div class="banner">'+data.attName+'が【'+CARDS[data.cardId].n+'】を'+data.actionLabel+'（威力'+data.dmg+'）</div>'
     +'<h3>伏せ札を1枚公開して割り込める（割込効果が無い札は空振り）</h3><div class="row">';
   data.faces.forEach((id,fi)=>{h+=cardHTML(id,'pick','int'+fi);});
   h+='</div><div class="row" style="margin-top:10px"><button class="ghost" id="noIntBtn">割り込まない</button></div>';
@@ -535,7 +557,7 @@ function onGuestLeave(conn){
     sync();
     if(Flow&&Flow.waiting===rec.seat){
       if(Flow.phase==='act')cpuAct(rec.seat);
-      else if(Flow.phase==='int'&&S.pending){ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); afterResolve(); }
+      else if(Flow.phase==='int'&&S.pending){ resolvePendingHost(Engine.cpuChooseInterrupt(S)); afterResolve(); }
     }
   } else {
     broadcastLobby();
@@ -562,7 +584,7 @@ function buildSnap(){
     players:S.ps.map(p=>({
       name:p.name,isCPU:p.isCPU,level:p.level,life:Math.max(0,p.life),lifeMax:p.lifeMax,
       deck:p.deck.length,handCount:p.hand.length,discCount:p.disc.length,
-      cast:p.cast.map(c=>({id:c.id,charge:c.charge})),
+      cast:p.cast.map(c=>({id:c.id})),
       faceCount:p.face.length
     }))
   };
@@ -575,7 +597,7 @@ function sync(){
 }
 function readHostCfg(){
   const c={};
-  ['life','backBonus','handSize','chargeCap','castSlots','faceSlots'].forEach(i=>c[i]=+$(i).value);
+  ['life','backBonus','handSize','castSlots','faceSlots'].forEach(i=>c[i]=+$(i).value);
   c.rescue=$('rescue').checked;
   return c;
 }
@@ -604,7 +626,7 @@ function buildTurnData(pi){
   const p=S.ps[pi];
   return {phase:'act',myName:p.name,
     hand:p.hand.slice(),
-    cast:p.cast.map(c=>({id:c.id,charge:c.charge})),
+    cast:p.cast.map(c=>({id:c.id})),
     faceOwn:p.face.map(f=>f.id),
     canEisho:p.cast.length<S.cfg.castSlots,
     canFuse:p.face.length<S.cfg.faceSlots,
@@ -612,9 +634,13 @@ function buildTurnData(pi){
 }
 function buildIntData(def){
   const pend=S.pending, a=S.ps[pend.attacker];
-  return {phase:'int',myName:S.ps[def].name,attName:a.name,cardId:pend.id,charge:pend.charge,
-    dmg:Engine.relDamageOf(pend.id,pend.charge),faces:S.ps[def].face.map(f=>f.id)};
+  const dmg = pend.kind==='soku' ? pend.dmgVal : Engine.relDamageOf(pend.id);
+  const actionLabel = pend.kind==='soku' ? '即唱' : '解放';
+  return {phase:'int',myName:S.ps[def].name,attName:a.name,cardId:pend.id,actionLabel,
+    dmg,faces:S.ps[def].face.map(f=>f.id)};
 }
+function resolvePendingHost(intIdx){ if(S.pending.kind==='soku')Engine.resolveSokuPending(S,S.pending,intIdx);
+  else Engine.resolveRelease(S,S.pending,intIdx); }
 function stepTurn(){
   Engine.startTurn(S);
   Flow={phase:'act',waiting:S.cur};
@@ -636,7 +662,7 @@ function startInterrupt(){
   const d=S.ps[def];
   if(d.isCPU){
     sync();
-    setTimeout(()=>{ if(Flow&&Flow.phase==='int'&&S.pending){ Engine.resolveRelease(S,S.pending,Engine.cpuChooseInterrupt(S)); afterResolve(); } },cpuMs());
+    setTimeout(()=>{ if(Flow&&Flow.phase==='int'&&S.pending){ resolvePendingHost(Engine.cpuChooseInterrupt(S)); afterResolve(); } },cpuMs());
     return;
   }
   if(def===mySeat){ myTurn={phase:'int',data:buildIntData(def)}; sync(); }
@@ -676,7 +702,7 @@ function hostApplyAct(pi,a){
     if(a.type==='int'){ if(!(a.fi>=0&&a.fi<d.face.length))return; choice=a.fi; }
     else if(a.type!=='noint')return;
     if(pi===mySeat)myTurn=null;
-    Engine.resolveRelease(S,S.pending,choice);
+    resolvePendingHost(choice);
     afterResolve();
   }
 }
