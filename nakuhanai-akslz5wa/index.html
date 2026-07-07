@@ -7,8 +7,8 @@
 <title>なくはない ― オンライン対戦（テスト版）</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!--
-  なくはない（仮）v0.5 オンライン対戦版（ゲームID: nakuhanai・早出し方式＋オールマイティ）
-  ルール正本: Resources/ルール_なくはない_v0.5.md（早出し自体の仕様はv0.4から不変）
+  なくはない（仮）v0.6 オンライン対戦版（ゲームID: nakuhanai・早出し方式＋オールマイティ＋手札交換）
+  ルール正本: Resources/ルール_なくはない_v0.6.md（早出し自体の仕様はv0.4から不変）
   ルールはローカル版プロトタイプ（なくはない_プロトタイプ.html）と同一ロジック（Engineをそのままコピー）。
   v0.4で手番を廃止（早出し）: お題が出ている間、誰でも好きなタイミングで宣言リクエストを送れる。
   ホストに最初に届いた宣言リクエストだけを採用し、同時多発は「先を越されました」で弾く（真の早押しをホスト権威で実現）。
@@ -57,6 +57,8 @@
   .chipL{display:inline-block;min-width:34px;text-align:center;padding:6px 8px;margin:2px;background:#fff;
          border:2px solid var(--accent2);border-radius:10px;font-size:17px;font-weight:700;box-shadow:var(--shadow)}
   .chipL.wild{border-color:var(--chip);color:var(--chip);background:#fff7fb}
+  .chipL[data-i]{cursor:pointer}
+  .chipL.selD{border-color:var(--bad);background:#fdeceb;box-shadow:inset 0 0 0 2px var(--bad)}
   .chipD{display:inline-block;min-width:30px;text-align:center;padding:4px 7px;margin:2px;background:#fbf6e8;
          border:1px solid var(--line);border-radius:9px;font-size:15px;font-weight:700;opacity:.6}
   .ansTag{display:inline-block;padding:2px 10px;margin:2px;background:#eef6ef;border:1px solid #cfe3d2;
@@ -87,7 +89,7 @@
 <body>
 <header>
   <h1>🙆‍♀️ なくはない</h1>
-  <span class="tag">オンライン対戦 v0.5（早出し＋★オールマイティ）</span>
+  <span class="tag">オンライン対戦 v0.6（早出し＋★オールマイティ＋手札交換）</span>
   <span class="tag">部屋コードで友だちと</span>
 </header>
 
@@ -112,6 +114,7 @@
     <table class="rules">
       <tr><td>進行</td><td>お題が出ている間、誰でも好きなタイミングで手札を並べて答えを宣言できる（早い者勝ち）</td></tr>
       <tr><td>答え</td><td>手札の文字で作る。無い文字は「すきま」（1つ=山1枚引く・2つまで）。手札の「★オールマイティ」は好きな文字として無コストで使える。既に通った答えはダメ</td></tr>
+      <tr><td>手札交換</td><td>いつでも、使いにくい字（★以外）を最大数枚まで捨てて山から引き直せる（1ゲーム中の回数に上限あり）</td></tr>
       <tr><td>判定</td><td>回答者以外が秘密に あり/ないでしょ を投票。過半数あり=正解→使った手札を捨てて公開、即座にお題を自動交換。少数派は山1枚引く</td></tr>
       <tr><td>勝ち</td><td>手札を出し切ったら勝ち</td></tr>
     </table>
@@ -127,7 +130,7 @@
     <h3>参加者</h3>
     <div id="lobbyPlayers" class="players"></div>
     <div id="hostCfg">
-      <h3>調整レバー（ホストのみ・ルールノートv0.5と1対1）</h3>
+      <h3>調整レバー（ホストのみ・ルールノートv0.6と1対1）</h3>
       <div class="grid">
         <label>CPUの数 <input id="nCpu" class="num" type="number" min="0" max="4" value="0"></label>
         <label>初期手札 <input id="handSize" class="num" type="number" min="4" max="15" value="10"></label>
@@ -136,6 +139,8 @@
         <label>少数派ペナルティ(枚) <input id="minorPen" class="num" type="number" min="0" max="3" value="1"></label>
         <label>CPU思考(ms・平均) <input id="cpuThink" class="num" type="number" min="0" value="8000"></label>
         <label>オールマイティ枚数 <input id="wildN" class="num" type="number" min="0" max="8" value="3"></label>
+        <label>手札交換 上限回数 <input id="exchangeMax" class="num" type="number" min="0" max="5" value="2"></label>
+        <label>手札交換 1回の枚数上限 <input id="exchangeCap" class="num" type="number" min="1" max="5" value="3"></label>
       </div>
       <div class="row" style="margin-top:10px">
         <label><input id="tieWin" type="checkbox" checked> 判定同数は回答者有利（外すと否決）</label>
@@ -183,7 +188,7 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 /* ===== データ（ローカル版なくはない_プロトタイプ.htmlと同一。二重管理しないためコピーのみ） ===== */
-const DICT_WORDS = "あお,あか,あき,あさ,あし,あせ,あな,あに,あね,あめ,あわ,あゆ,いき,いけ,いし,いす,いた,いと,いぬ,いね,いま,いも,いろ,いわ,いか,うし,うた,うち,うて,うま,うみ,うめ,うら,えさ,えた,えひ,えん,えいか,おく,おと,おに,おひ,おや,かお,かき,かさ,かし,かす,かせ,かた,かち,かに,かわ,かみ,かめ,かも,かん,きた,きち,きり,きん,きく,くさ,くし,くせ,くち,くつ,くに,くひ,くま,くも,くり,けさ,けん,こえ,こし,こと,こな,こま,こめ,さき,さけ,さち,さら,さる,さめ,しか,しき,した,しま,しも,しる,しろ,すす,すそ,すな,すみ,せん,そこ,そて,そら,たか,たき,たけ,たな,たに,たね,たは,たま,たこ,ちち,ちす,ちり,つき,つち,つな,つの,つみ,つめ,つゆ,つり,つる,てん,とき,とし,とら,とり,なす,なつ,なわ,なみ,にし,にわ,ぬの,ねこ,ねつ,のり,はか,はこ,はし,はす,はた,はち,はな,はね,はは,はま,はら,はり,はる,はれ,ひま,ひめ,ひる,ひけ,ひさ,ふく,ふし,ふた,ふち,ふて,ふね,ふゆ,ふろ,ふな,ほお,ほし,ほね,ほん,まき,まく,まこ,まち,まつ,まと,まめ,まゆ,まり,まる,みせ,みそ,みち,みつ,みね,みみ,みや,みす,むし,むね,むら,むれ,もし,もち,もと,もの,もも,もり,もん,やみ,ゆか,ゆき,ゆひ,ゆめ,ゆり,よる,りく,りす,るす,れい,わき,わく,わた,わな,わん,わし,あくひ,あさひ,あすき,あそひ,あたま,あひる,あふら,あんこ,あおい,いちこ,いなか,いのち,いるか,うちわ,うつわ,うとん,うなき,うわき,うてわ,えほん,おかね,おしろ,おちや,おとこ,おとな,おなか,おはけ,おふろ,おやつ,おんな,かかし,かかみ,かきね,かたち,かはん,かひん,からす,からた,かるた,かもめ,かたな,きこり,きしや,きせつ,きつね,きのこ,きのう,きもち,きもの,きやく,きりん,くすり,くもり,くらけ,くるま,けむり,けもの,こおり,こころ,ことし,ことは,ことり,ことも,こねこ,このは,こひと,こむき,ころも,こんや,こたつ,さかな,さくら,さしみ,さとう,さはく,さんま,しかく,しくみ,しけん,しこと,しつほ,しはい,しゆみ,しるし,すきま,すすき,すすめ,すもう,せなか,せんろ,そうこ,たから,たきひ,たたみ,たぬき,たまこ,たより,ちよう,つほみ,つみき,つらら,てすり,てんき,てんし,とかけ,とけい,ところ,とたな,となり,とひら,とんほ,なかみ,なまえ,なみた,にんき,ねいろ,ねかい,ねすみ,ねほう,のはら,はかせ,はかり,はさみ,はしこ,はしら,はたけ,はなし,はなひ,はなみ,はやし,はんこ,ひたい,ひつし,ひとみ,ひみつ,ひもの,ひよこ,ひるね,ふきん,ふくろ,ふすま,ふたこ,ふとん,ふもと,へちま,ほくろ,ほこり,ほたる,ほとけ,ほのお,まつり,みかん,みこし,みさき,みとり,みなと,みなみ,みのり,みみす,みやけ,みらい,むすこ,むすめ,めたか,めまい,めいろ,もみし,もよう,やかん,やさい,やしき,やたい,やちん,ゆうひ,ゆかた,ゆひわ,よてい,りゆう,れきし,わかめ,あしあと,いなすま,うちゆう,えんそく,えんひつ,おおかみ,おしいれ,おみくし,おりかみ,おんかく,かいしや,かなつち,かねもち,かみなり,からあけ,きつつき,きゆうり,きんきよ,くちひる,くつした,くうこう,けいさつ,こうえん,こおろき,こくはん,こしよう,こなゆき,こんいろ,さかなや,さんかく,しまうま,しようゆ,しろくま,しんふん,しやしん,すいとう,せんせい,せんたく,たいふう,たいよう,たけうま,たけのこ,たなはた,たまねき,たんほほ,ちかてつ,ちきゆう,ちよきん,てちよう,てんしや,とうたい,としより,ともたち,なわとひ,にんしん,のみもの,のりもの,はちみつ,はなうた,はなたは,ひこうき,ひまわり,ひようき,ふうとう,ふくろう,ふろしき,ほうたい,ほしそら,ほんたな,まないた,まんけつ,みすうみ,みすたま,みちくさ,みかつき,めくすり,ももいろ,やきそは,やきとり,やきゆう,やくそく,ゆうかた,ゆうはん,ゆきくに,れんこん,ろうそく,わたあめ,わりはし".split(',');
+const DICT_WORDS = "あお,あか,あき,あさ,あし,あせ,あな,あに,あね,あめ,あわ,あゆ,いき,いけ,いし,いす,いた,いと,いぬ,いね,いま,いも,いろ,いわ,いか,うし,うた,うち,うて,うま,うみ,うめ,うら,えさ,えた,えひ,えん,えいか,おく,おと,おに,おひ,おや,かお,かき,かさ,かし,かす,かせ,かた,かち,かに,かわ,かみ,かめ,かも,かん,きた,きち,きり,きん,きく,くさ,くし,くせ,くち,くつ,くに,くひ,くま,くも,くり,けさ,けん,こえ,こし,こと,こな,こま,こめ,さき,さけ,さち,さら,さる,さめ,しか,しき,した,しま,しも,しる,しろ,すす,すそ,すな,すみ,せん,そこ,そて,そら,たか,たき,たけ,たな,たに,たね,たは,たま,たこ,ちち,ちす,ちり,つき,つち,つな,つの,つみ,つめ,つゆ,つり,つる,てん,とき,とし,とら,とり,なす,なつ,なわ,なみ,にし,にわ,ぬの,ねこ,ねつ,のり,はか,はこ,はし,はす,はた,はち,はな,はね,はは,はま,はら,はり,はる,はれ,ひま,ひめ,ひる,ひけ,ひさ,ふく,ふし,ふた,ふち,ふて,ふね,ふゆ,ふろ,ふな,ほお,ほし,ほね,ほん,まき,まく,まこ,まち,まつ,まと,まめ,まゆ,まり,まる,みせ,みそ,みち,みつ,みね,みみ,みや,みす,むし,むね,むら,むれ,もし,もち,もと,もの,もも,もり,もん,やみ,ゆか,ゆき,ゆひ,ゆめ,ゆり,よる,りく,りす,るす,れい,わき,わく,わた,わな,わん,わし,あくひ,あさひ,あすき,あそひ,あたま,あひる,あふら,あんこ,あおい,いちこ,いなか,いのち,いるか,うちわ,うつわ,うとん,うなき,うわき,うてわ,えほん,おかね,おしろ,おちや,おとこ,おとな,おなか,おはけ,おふろ,おやつ,おんな,かかし,かかみ,かきね,かたち,かはん,かひん,からす,からた,かるた,かもめ,かたな,きこり,きしや,きせつ,きつね,きのこ,きのう,きもち,きもの,きやく,きりん,くすり,くもり,くらけ,くるま,けむり,けもの,こおり,こころ,ことし,ことは,ことり,ことも,こねこ,このは,こひと,こむき,ころも,こんや,こたつ,さかな,さくら,さしみ,さとう,さはく,さんま,しかく,しくみ,しけん,しこと,しつほ,しはい,しゆみ,しるし,すきま,すすき,すすめ,すもう,せなか,せんろ,そうこ,たから,たきひ,たたみ,たぬき,たまこ,たより,ちよう,つほみ,つみき,つらら,てすり,てんき,てんし,とかけ,とけい,ところ,とたな,となり,とひら,とんほ,なかみ,なまえ,なみた,にんき,ねいろ,ねかい,ねすみ,ねほう,のはら,はかせ,はかり,はさみ,はしこ,はしら,はたけ,はなし,はなひ,はなみ,はやし,はんこ,ひたい,ひつし,ひとみ,ひみつ,ひもの,ひよこ,ひるね,ふきん,ふくろ,ふすま,ふたこ,ふとん,ふもと,へちま,ほくろ,ほこり,ほたる,ほとけ,ほのお,まつり,みかん,みこし,みさき,みとり,みなと,みなみ,みのり,みみす,みやけ,みらい,むすこ,むすめ,めたか,めまい,めいろ,もみし,もよう,やかん,やさい,やしき,やたい,やちん,ゆうひ,ゆかた,ゆひわ,よてい,りゆう,れきし,わかめ,あしあと,いなすま,うちゆう,えんそく,えんひつ,おおかみ,おしいれ,おみくし,おりかみ,おんかく,かいしや,かなつち,かねもち,かみなり,からあけ,きつつき,きゆうり,きんきよ,くちひる,くつした,くうこう,けいさつ,こうえん,こおろき,こくはん,こしよう,こなゆき,こんいろ,さかなや,さんかく,しまうま,しようゆ,しろくま,しんふん,しやしん,すいとう,せんせい,せんたく,たいふう,たいよう,たけうま,たけのこ,たなはた,たまねき,たんほほ,ちかてつ,ちきゆう,ちよきん,てちよう,てんしや,とうたい,としより,ともたち,なわとひ,にんしん,のみもの,のりもの,はちみつ,はなうた,はなたは,ひこうき,ひまわり,ひようき,ふうとう,ふくろう,ふろしき,ほうたい,ほしそら,ほんたな,まないた,まんけつ,みすうみ,みすたま,みちくさ,みかつき,めくすり,ももいろ,やきそは,やきとり,やきゆう,やくそく,ゆうかた,ゆうはん,ゆきくに,れんこん,ろうそく,わたあめ,わりはし,やき,うさき,そう,らくた,かは,さい,らいおん,ひよう,こあら,かんかる,はんた,こうもり,もくら,かわうそ,あさらし,くしら,こりら,なまけもの,はりねすみ,やまねこ,かもしか,いたち,むささひ,にわとり,はと,つはめ,こうのとり,はくちよう,かちよう,いんこ,おうむ,かなりあ,くしやく,たちよう,へんきん,うくいす,ひはり,もす,つくみ,うすら,たい,まくろ,かつお,いわし,さは,としよう,こい,あさり,ししみ,はまくり,ほたて,うに,なまこ,ひとて,かえる,へひ,わに,やもり,いもり,かふとむし,くわかたむし,せみ,あり,てんとうむし,はつた,きりきりす,かまきり,はえ,むかて,たんこ,かたつむり,なめくし,てんとう,あふ,くわかた,すすめはち,すみれ,すき,つた,こけ,とんくり,はつは,くき,しやかいも,とまと,ほうれんそう,きやへつ,はくさい,たいこん,さといも,さつまいも,とうもろこし,えたまめ,そらまめ,ねき,にら,しようか,かほちや,おくら,もやし,こほう,にんにく,らつきよう,りんこ,ふとう,なし,すいか,めろん,はなな,きうい,れもん,あんす,いちしく,すもも,さくろ,ひわ,はいなつふる,まんこ,さくらんほ,ゆす,こはん,おにきり,すし,てんふら,らめん,そは,おこのみやき,たこやき,きようさ,かれ,はんはく,おむらいす,ちやはん,なへ,しやふしやふ,すきやき,おてん,つくたに,みそしる,すふ,さらた,やきにく,おもち,ふりん,けき,あいす,ちよこれと,せんへい,たいやき,とらやき,かすてら,くつき,ようかん,くみ,まかろん,となつ,ほてとちつふす,しお,からし,わさひ,こむきこ,むき,はん,しよくはん,くろわつさん,めろんはん,うとんこ,こうちや,きゆうにゆう,しゆす,こひ,こら,さいた,らむね,みるく,ふらいはん,ほうちよう,しやもし,おたま,ふおく,すふん,ちやわん,おさら,こつふ,きゆうす,すいはんき,れんし,とすた,れいそうこ,せんふうき,まくら,ほうる,けしこむ,のと,くれよん,くれはす,ふてはこ,ものさし,せろてふ,らんとせる,きようかしよ,ちよく,きゆうしよく,つくえ,ろつか,たいいくかん,こうてい,としよしつ,しようき,すすり,りゆつく,ひあにか,いえ,かへん,へつと,たんす,さいふ,てれひ,せんたくき,そうしき,えあこん,すとふ,といれ,せんめんしよ,けんかん,やね,かへ,くつはこ,さふとん,かてん,しゆうたん,しやつ,すほん,すかと,せた,ほうし,てふくろ,まふら,めかね,ねつくれす,えほし,はんかち,ねくたい,えふろん,はしやま,ほたん,ふあすな,みすき,さんたる,なかくつ,ふつ,りほん,かかと,へそ,あこ,まゆけ,まつけ,てのひら,とらつく,たくし,しんかんせん,へりこふた,けふるか,ろふうえい,してんしや,はいく,きゆうきゆうしや,しようほうしや,はとか,ゆうひんしや,おとはい,いちりんしや,くろは,ふえり,ほと,いしや,かんこし,けいさつかん,しようほうし,のうか,りようし,こつく,はんや,はなや,やおや,にくや,かか,やきゆうせんしゆ,うんてんしゆ,はいろつと,はいゆう,かしゆ,けんちくか,かかくしや,とうけいか,ひようし,たいく,のうふ,きよふ,えきいん,さつか,はすけつとほる,はれほる,てにす,たつきゆう,すいえい,まらそん,けんとう,しゆうとう,けんたま,ふらふふ,おにこつこ,かくれんほ,すころく,とらんふ,いこ,あやとり,はねつき,ふうせん,しやほんたま,ようよ,ふらんこ,すへりたい,しやんくるしむ,てつほう,しそ,ひあの,はいおりん,とらむ,ふると,とらんへつと,たいこ,しやみせん,はもにか,りこた,かすたねつと,たんはりん,あこていおん,やま,おんせん,とうくつ,あらし,かつこう,ひよういん,としよかん,はくふつかん,えいかかん,ゆうひんきよく,えき,こうはん,すは,こんひに,きんこう,やつきよく,けいさつしよ,しようほうしよ,しんしや,おてら,きようかい,しやくしよ,とうふつえん,すいそくかん,ゆうえんち,はくしゆうかん,うんとうしよう,えきまえ,やくは,おしようかつ,はつもうて,ひなまつり,おほん,もみしかり,ゆきまつり,くりすます,はろういん,うんとうかい,かつしゆく,そつきよう,にゆうかくしき,けつこんしき,たんしようひ,ふれせんと,なつやすみ,ふゆやすみ,はるやすみ,おおみそか,うれしさ,かなしみ,いかり,おとろき,きんちよう,ゆうき,あんしん,しあわせ,きほう,とりよく,かまん,ゆうしよう,しつはい,れんしゆう,しんらい,おもいて,なやみ,ゆたん,ていつしゆ,かみそり,はふらし,せつけん,しやんふ,たおる,けしよう,こうすい,えんひつけすり,ほんはこ,つえ,のこきり,とらいは,すはな,ろふ,かんつめ,ひん,まつち,らいた,めもちよう,かれんた,につき,める,たいおん,たいしゆうけい,きいろ,むらさき,ちやいろ,くろ,ひんく,はいいろ,きんいろ,みすいろ,ろけつと,えいせい,ゆうえい,かせい,すはる,きんか,よあけ,きよう,あした,らいねん,しゆん,いつふん,てかみ,はかき,きつて,まんか,ししよ,けいたい,すまほ,はそこん,かめら,てんち,りもこん,てんわ,ふりんた,すひか,いやほん,けふる,うてとけい,そろはん,てんたく,くつへら,かさたて,ひきかえる,おたましやくし,やまあらし,あらいくま,はりもくら,かめれおん,いくあな,みすかき,くちはし,うろこ,ひようたん,らは,ろは,ふくろねすみ,かいうさき,もるもつと,はむすた,ふんちよう,うつほ,たつのおとしこ,やとかり,しやこ,れんけ,なのはな,あしさい,すいせん,つはき,ささんか,もくれん,こふし,かえて,いちよう,けやき,ひのき,くぬき,しいのき,やなき,しやくやく,かねしよん,ちゆりつふ,あさかお,ひかんはな,まつほつくり,くさはな,わたけ,なつとう,とうふ,あふらあけ,こんふ,ひしき,かまほこ,ちくわ,はんへん,さつまあけ,つみれ,きんなん,くりきんとん,おそうに,おせち,ちまき,かしわもち,さくらもち,うくいすもち,みたらしたんこ,くすもち,わらひもち,あんみつ,せんさい,しるこ,おはき,ほたもち,かきこおり,そうめん,ひやむき,きしめん,やきうとん,なほりたん,みとそす,くらたん,とりあ,はんはか,さんといつち,ほつととつく,おにきらす,てんしれんし,おふん,あいろん,みきさ,しゆさ,ほつとふれと,しよつきあらいき,かしつき,しよしつき,てんきけとる,そうしきろほつと,らしお,まうす,きほと,もにた,ふるとうす,ちやしや,てんきゆう,けいこうとう,ふれか,けきや,くつや,めかねや,とけいや,くすりや,ほんや,おもちやや,ふんほうくや,てんきや,くりにんくや,りようしつ,かそりんすたんと,こいんらんとり,くりにんくてん,しよくとう,きつさてん,れすとらん,いさかや,ろてん,こくこ,さんすう,りか,しやかい,たいいく,すこう,とうとく,えいこ,しゆうし,そうししかん,かつきゆうかい,ふんかさい,たいいくさい,そつきようしき,しゆくたい,てすと,つうしんほ,くらすかえ,ほうかこ,とうこう,けこう,つりさお,えのく,すけつちふつく,かひよう,はれつと,きやんはす,みしん,あみほう,けいと,ぬのし,ほんと,せつちやくさい,かむてふ,ほちきす,くりつふ,ふせん,めしや,かすみ,つなみ,ししん,かさん,ふんか,りゆうせい,たつまき,ふふき,なたれ,かわきし,はまへ,いそ,たんかい,こうけん,そうけん,みつりん,ひようか,かんけつせん,わらい,しやつくり,くしやみ,いひき,ねこと,あこかれ,ときとき,わくわく,はらはら,にこにこ,ひつくり,かつかり,ほつと,すつきり,もやもや,すはいらる,りつほうたい,ひしかた,たえん,ものほし,せんたくはさみ,はんか,あいろんたい,けたはこ,こみはこ,ふんへつはこ,そうきん,ほうき,ちりとり,もつふ,はたき,はけつ,たわし,すほんし,こむてふくろ,まえかけ,はすほと,きつふ,すつけす,りゆつくさつく,かいとふつく,ちけつと,めいさんひん,おみやけ,ちんつうやく,ようふくいれ,はふらしせつと,しゆうてんき,へんかんふらく,うわはき,きかえ,ひにるふくろ,すなは,のほりほう,たいこはし,ふんすい,へんち,あすまや,へんとう,にくまん,あんまん,ふらいとちきん,あいすくりむ,かむ,さつし,こひき,えいていえむ,れし,はつひ,ちようちん,たいまつ,のほり,かとまつ,しめなわ,かかみもち,えと,おとしたま,ねんかしよう,はこいた,たこあけ,かるたとり,まめまき,えほうまき,しちこさん,こいのほり,かふと,せんす,すいかわり,ほんおとり,やくら,ひよういんし,りひよういん,つうやく,つうしんし,けんちくし,てさいな,かめらまん,ほうこくかん,あなうんさ,すほつせんしゆ,うちゆうひこうし,はつけんか,たんけんか,やまふきいろ,うすたいたい,ねすみいろ,くろすみ,しろかね,こかねいろ,くるふし,ひし,てくひ,あしくひ,ゆひさき,つまさき,のとほとけ,まふた,えりあし,そはかす,えくほ,しやむ,つけもの,おかし,けちやつふ,まよねす,ふりかけ".split(','); // 清音正規化済み 2〜8文字名詞（もじがえしプロト由来483語＋2026-07-08拡張分、計1258語）
 const DICT_SET = new Set(DICT_WORDS);
 const DECK_DEF = {"か":3,"し":3,"き":3,"た":3,"み":2,"ん":2,"こ":2,"う":2,"く":2,"い":2,"は":2,"な":1,"と":1,"ま":1,"り":1,"つ":1,"ち":1,"す":1,"ひ":1,"も":1,"お":1,"さ":1,"あ":1,"ゆ":1,"や":1,"ふ":1,"ね":1,"わ":1,"け":1,"ろ":1,"ら":1,"の":1,"ほ":1,"め":1,"る":1,"よ":1,"せ":1,"て":1,"そ":1,"え":1,"に":1,"む":1,"れ":1,"ぬ":1,"へ":1};
 const TOPICS = [
@@ -193,8 +198,12 @@ const TOPICS = [
   "夏っぽいもの","あまいもの","赤いもの","においが強いもの"
 ];
 /* CPUの判定（あり/ないでしょ投票）に「お題との定番の相性」を持たせるための最小限の手掛かり。
-   16お題のうち、色・味・手触り・音・匂い・季節感という客観的な属性を持つ6つだけを対象にする
-   （冷蔵庫/学校/かばん等の文脈系お題は、何が定番かが主観に依りすぎるため対象外＝辞書判定のみに留める）。
+   v0.5では色・味・手触り・音・匂い・季節感という客観的な属性を持つ6お題のみが対象で、
+   冷蔵庫/学校/かばん等の文脈系10お題は「何が定番かが主観に依りすぎる」として対象外にしていた。
+   2026-07-08の辞書拡張（1258語）に合わせて、残り10お題にも代表的な語をあてがい16お題全てを対象化した。
+   ただし文脈系お題（冷蔵庫にありがちなもの、等）は依然として主観の余地が大きく、ここに挙げた語は
+   「代表例のごく一部」に過ぎない。辞書に載っているがここに無い妥当な語まで機械的に疑わしくなる
+   （cpuVote参照）のは変わらぬ既知の限界として残る。
    ここに載っている語は「このお題の定番」として通りやすく、逆に辞書には載っているがここに無い語は
    「本当にこのお題に合っているか怪しい出まかせ」として通りにくくなる（cpuVote参照）。
    全語を厳密に採点したものではなく、あくまで代表的な語を拾った目安。 */
@@ -205,6 +214,17 @@ const TOPIC_HINTS = {
   "音がうるさいもの": ["かみなり","たいふう","からす","きつつき","いぬ","ひこうき","くうこう"],
   "においが強いもの": ["さかな","さんま","たまねき","くつした","しようゆ"],
   "夏っぽいもの": ["なつ","たいよう","ゆうひ","ひまわり","はなひ","まつり","ゆかた","うちわ","たいふう"]
+  ,
+  "冷蔵庫にありがちなもの": ["たまこ","きゆうにゆう","はた","ちす","とうふ","なつとう","しやむ","つけもの","みそ","しようゆ","のみもの","やさい"],
+  "学校にあったもの": ["こくはん","つくえ","いす","きゆうしよく","らんとせる","きようかしよ","のと","えんひつ","けしこむ","ろつか","たいいくかん","こうてい","としよしつ","せんせい","うんとうかい","ふんかさい"],
+  "かばんに入っているもの": ["さいふ","はんかち","ていつしゆ","すまほ","かき","めかね","くし","あめ","かむ","しゆうてんき","のと","きつて"],
+  "コンビニで買えるもの": ["おにきり","へんとう","さんといつち","あいすくりむ","かむ","のみもの","さつし","しんふん","てんち","こひき"],
+  "旅行に持っていくもの": ["すつけす","はすほと","きつふ","かめら","ちす","かいとふつく","きかえ","はふらし","しゆうてんき","おみやけ"],
+  "公園にあるもの": ["すへりたい","ふらんこ","しやんくるしむ","てつほう","すなは","しそ","へんち","ふんすい","はな","とり"],
+  "朝にすること・見るもの": ["あさひ","はふらし","しんふん","とうこう","はん","きゆうにゆう"],
+  "お祭りにあるもの": ["やたい","たこやき","わたあめ","はなひ","みこし","ちようちん","ゆかた","きんきよ","うちわ","せんす"],
+  "家にひとつはあるもの": ["てれひ","れいそうこ","せんたくき","かさ","とけい","かかみ","てんわ","ふとん","けんかん","かき"],
+  "ちょっとうれしいこと・もの": ["ふれせんと","たんしようひ","おかし","てかみ","にし","はれ","おもいて"]
 };
 
 /* ===== 正規化（ローカル版と同一） ===== */
@@ -234,10 +254,11 @@ const Engine = {
   },
 
   newGame(cfg,specs){
-    const S={cfg,players:specs.map(sp=>({name:sp.name,isCPU:!!sp.isCPU,policy:sp.policy||'smart',hand:[]})),
+    const exMax=(cfg&&cfg.exchangeMax!=null)?cfg.exchangeMax:2;
+    const S={cfg,players:specs.map(sp=>({name:sp.name,isCPU:!!sp.isCPU,policy:sp.policy||'smart',hand:[],exchangeLeft:exMax})),
       deck:Engine.makeDeck(cfg),discard:[],topicDeck:shuffle(TOPICS.slice()),topicDiscard:[],topic:'',topicCycle:0,
       used:[],over:false,winners:[],judgeSeq:0,
-      stats:{answers:0,accepted:0,topicChanges:0,deadRounds:0,gap0:0,gapAns:0,wildUsed:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
+      stats:{answers:0,accepted:0,topicChanges:0,deadRounds:0,gap0:0,gapAns:0,wildUsed:0,exchangeUsed:0,exchangeActions:0,judgeEvents:[],topicSeq:0,perTopicIdx:0}};
     S.players.forEach(p=>{for(let i=0;i<cfg.handSize;i++)p.hand.push(Engine.drawRaw(S));});
     S.topic=S.topicDeck.pop();
     return S;
@@ -309,6 +330,26 @@ const Engine = {
     return {ok,ari,nasi,split,gapDraw,penalized,newTopic};
   },
 
+  // 手札交換（救済）: 使いにくい字を最大exchangeCap枚まで捨てて同数を山から引き直す。
+  // 1ゲーム中の使用回数はexchangeMaxで上限（既定2回）。オールマイティ(★)は交換対象外。
+  exchangeHand(S,seat,letters){
+    const p=S.players[seat];
+    if(!letters||letters.length===0) return {err:'交換する文字を選んで'};
+    if(p.exchangeLeft<=0) return {err:'交換はもう使い切った（残り0回）'};
+    if(letters.length>S.cfg.exchangeCap) return {err:'交換は1回に'+S.cfg.exchangeCap+'枚まで'};
+    const cnt={}; p.hand.forEach(c=>cnt[c]=(cnt[c]||0)+1);
+    for(const ch of letters){
+      if(ch==='★') return {err:'★オールマイティは交換できない'};
+      if(!cnt[ch]) return {err:'手札に無い文字が含まれてる'};
+      cnt[ch]--;
+    }
+    for(const ch of letters){ const k=p.hand.indexOf(ch); p.hand.splice(k,1); S.discard.push(ch); }
+    const drawn=Engine.drawTo(S,seat,letters.length);
+    p.exchangeLeft--;
+    S.stats.exchangeUsed+=letters.length; S.stats.exchangeActions++;
+    return {ok:true,discarded:letters.length,drawn,left:p.exchangeLeft};
+  },
+
   gauss(){ return (Math.random()+Math.random()+Math.random()-1.5); },
   cpuCandidates(S,seat){
     const out=[];
@@ -322,15 +363,25 @@ const Engine = {
   cpuDecide(S,seat){
     const p=S.players[seat];
     const cands=Engine.cpuCandidates(S,seat);
-    if(cands.length===0) return {kind:'skip'};
     if(p.policy==='smart'){
       let best=null,bs=-1e9;
       for(const c of cands){
         const sc=c.use.length*2 + (c.wild?c.wild.length:0)*1.8 + c.w.length*0.3 - c.gaps*1.2 + Engine.gauss()*1.0;
         if(sc>bs){bs=sc;best=c;}
       }
+      // 候補が無い、またはスコアが弱い（すきま頼みが多い等の手詰まり感）ときは、
+      // 交換が残っていれば手札の中で最も使いにくい（枚数の少ない=レアな）字を入れ替える。
+      if((cands.length===0||bs<1.0) && p.exchangeLeft>0){
+        const nonWild=p.hand.filter(c=>c!=='★');
+        if(nonWild.length>0){
+          const sorted=[...nonWild].sort((a,b)=>(DECK_DEF[a]||1)-(DECK_DEF[b]||1));
+          return {kind:'exchange',letters:sorted.slice(0,Math.min(S.cfg.exchangeCap,sorted.length))};
+        }
+      }
+      if(cands.length===0) return {kind:'skip'};
       return {kind:'answer',val:best};
     }
+    if(cands.length===0) return {kind:'skip'};
     if(Math.random()<0.15) return {kind:'skip'};
     return {kind:'answer',val:cands[rnd(cands.length)]};
   },
@@ -369,11 +420,34 @@ let S=null, J=null;               // host側のみ実体を持つ
 let mySeat=-1, myHand=[], myVotedSeq=-1, curPub=null;
 let cpuEpoch=0, deadTimer=null;   // scheduleRound()の世代管理・安全弁タイマー
 let myDraft='', lastPhase=null;   // 入力途中に誰かに先を越されても打ち込んだ内容を保持・再表示するための状態
+let myExchangeSel=new Set();      // 手札交換で選択中のインデックス（手札が変わるたびリセット）
 
 function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
 function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
 function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'naku-'+r; }
-function chipHand(hand){ return hand.map(c=>`<span class="chipL${c==='★'?' wild':''}">${c}</span>`).join(''); }
+function chipHand(hand,selectable){
+  // mini_dom制約(教訓): querySelector系は使わないので、選択したい要素には個別idを振り、
+  // idで直接bindする（ふたりのまほうのcardHTML/hand{hi}パターンに合わせる。ローカル版chipHandと同一方針）。
+  return hand.map((c,i)=>{
+    const cls=`chipL${c==='★'?' wild':''}${selectable&&myExchangeSel.has(i)?' selD':''}`;
+    const idAttr=selectable?` id="hchip${i}"`:'';
+    return `<span class="${cls}"${idAttr}>${c}</span>`;
+  }).join('');
+}
+function bindHandChipClicks(cap){
+  myHand.forEach((c,i)=>{
+    const sp=$('hchip'+i); if(!sp) return;
+    sp.onclick=()=>{
+      if(myExchangeSel.has(i)) myExchangeSel.delete(i);
+      else{
+        if(myHand[i]==='★'){ log('★オールマイティは交換できません'); return; }
+        if(myExchangeSel.size>=cap){ log(`交換は1回に${cap}枚まで`); return; }
+        myExchangeSel.add(i);
+      }
+      if(curPub) renderMyTurn(curPub);
+    };
+  });
+}
 
 /* ---------- ホスト ---------- */
 function createRoom(){
@@ -471,7 +545,7 @@ function buildPub(){
     deckLeft:S.deck.length,
     discard:S.discard.slice(),
     used:S.used.map(u=>u.w),
-    players:S.players.map(p=>({name:p.name,isCPU:p.isCPU,handCount:p.hand.length})),
+    players:S.players.map(p=>({name:p.name,isCPU:p.isCPU,handCount:p.hand.length,exchangeLeft:p.exchangeLeft})),
     cfg:S.cfg,
     judging: J?{seat:J.seat,name:S.players[J.seat].name,word:J.val.w,gaps:J.val.gaps,seq:J.seq}:null
   };
@@ -485,7 +559,8 @@ function hostStart(){
   if(total<3||total>5){ $('lobbyErr').textContent=`合計3〜5人にしてください（今: 人間${humans}+CPU${ncpu}）`; return; }
   $('lobbyErr').textContent='';
   const cfg={handSize:+$('handSize').value,gapMax:+$('gapMax').value,gapCost:+$('gapCost').value,
-    minorPen:+$('minorPen').value,cpuThink:+$('cpuThink').value,wildN:+$('wildN').value,tieWin:$('tieWin').checked};
+    minorPen:+$('minorPen').value,cpuThink:+$('cpuThink').value,wildN:+$('wildN').value,
+    exchangeMax:+$('exchangeMax').value,exchangeCap:+$('exchangeCap').value,tieWin:$('tieWin').checked};
   const specs=[{name:myName+'（ホスト）',isCPU:false}];
   hostConns.filter(c=>c.alive).forEach(c=>specs.push({name:c.name,isCPU:false}));
   for(let i=0;i<ncpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true,policy:'smart'});
@@ -526,15 +601,24 @@ function scheduleRound(){
   let anyoneCanAnswer=false;
   S.players.forEach((p,seat)=>{
     const cands=Engine.cpuCandidates(S,seat); // 手札+辞書だけの客観判定（CPU方策には依らない）
-    if(cands.length===0) return;
-    anyoneCanAnswer=true;
-    if(!p.isCPU) return; // 人間はボタン操作で自分から宣言する。ここではCPUの反応だけを予約する
-    const dec=Engine.cpuDecide(S,seat);
-    if(dec.kind!=='answer') return;
+    if(cands.length>0) anyoneCanAnswer=true;
+    if(!p.isCPU) return; // 人間はボタン操作で自分から動く。ここではCPUの反応だけを予約する
+    const dec=Engine.cpuDecide(S,seat); // 'answer' | 'exchange'（手詰まり時の救済）| 'skip'
+    if(dec.kind==='skip') return;
     const jitter=0.6+Math.random()*1.3;
     const delay=Math.max(200,base*jitter); // 200ms床: cpuThink=0でも人間が反応する隙は最低限確保する
     setTimeout(()=>{
-      if(myEpoch!==cpuEpoch||!S||S.over||J) return; // 世代が古い・既に他の宣言で決着済みなら何もしない
+      if(myEpoch!==cpuEpoch||!S||S.over||J) return; // 世代が古い・既に他の宣言/交換で決着済みなら何もしない
+      if(dec.kind==='exchange'){
+        const res=Engine.exchangeHand(S,seat,dec.letters);
+        if(res.ok){
+          log(`🔁 ${S.players[seat].name} が手札を交換（${dec.letters.length}枚、残り交換${res.left}回）`);
+          hostSendHand(seat);
+          broadcastPub();
+          scheduleRound(); // 手札が変わったので次のCPU候補を再評価
+        }
+        return;
+      }
       hostDeclare(seat,dec.val);
     },delay);
   });
@@ -581,6 +665,16 @@ function hostHandleMsg(seat,d){
     onVote(seat,!!d.value);
     return;
   }
+  if(d.t==='exchange'){
+    const v=Engine.exchangeHand(S,seat,d.letters);
+    if(v.err){ deliverToSeat(seat,{t:'exchangeResult',ok:false,err:v.err}); return; }
+    log(`🔁 ${S.players[seat].name} が手札を交換（${v.discarded}枚、残り交換${v.left}回）`);
+    hostSendHand(seat);
+    deliverToSeat(seat,{t:'exchangeResult',ok:true,left:v.left});
+    broadcastPub();
+    scheduleRound();
+    return;
+  }
 }
 function onVote(seat,value){
   if(!J||!J.order.includes(seat)) return;
@@ -625,6 +719,7 @@ function hostFinish(){
     order:order.map(o=>({name:S.players[o.i].name,n:o.n})),
     answers:st.answers, accepted:st.accepted,
     fhR,shR,splitRate,topicChanges:st.topicChanges,deadRounds:st.deadRounds,wildUsed:st.wildUsed,
+    exchangeActions:st.exchangeActions,exchangeUsed:st.exchangeUsed,
     gap0Rate: st.answers?Math.round(100*st.gap0/st.answers):0
   };
   hostBroadcastAll({t:'result',d});
@@ -682,14 +777,15 @@ function onClientMsg(d){
     return;
   }
   if(d.t==='start'){
-    mySeat=d.seat; myHand=d.hand.slice(); myVotedSeq=-1; myDraft=''; lastPhase=null;
+    mySeat=d.seat; myHand=d.hand.slice(); myVotedSeq=-1; myDraft=''; lastPhase=null; myExchangeSel=new Set();
     $('log').innerHTML=''; log('ゲーム開始！');
     show('game');
     return;
   }
   if(d.t==='pub'){ curPub=d.snap; renderGame(); return; }
-  if(d.t==='hand'){ myHand=d.hand.slice(); if(curPub)renderGame(); return; }
+  if(d.t==='hand'){ myHand=d.hand.slice(); myExchangeSel=new Set(); if(curPub)renderGame(); return; }
   if(d.t==='checkResult'){ applyCheckResult(d); return; }
+  if(d.t==='exchangeResult'){ if(!d.ok) log('✖ '+d.err); return; }
   if(d.t==='result'){ renderResult(d.d); return; }
   if(d.t==='note'){ log(d.msg); return; }
 }
@@ -762,8 +858,14 @@ function renderAction(snap){
   renderMyTurn(snap);
 }
 function renderMyTurn(snap){
+  const exLeft=snap.players[mySeat]?snap.players[mySeat].exchangeLeft:0;
+  const cap=snap.cfg.exchangeCap;
   setAction(`
-    <div>あなたの手札（${myHand.length}枚）: ${chipHand(myHand)}</div>
+    <div>あなたの手札（${myHand.length}枚）: <span id="handChips">${chipHand(myHand,true)}</span></div>
+    <div class="hint" id="exHint">使いにくい字はクリックで選択→「手札交換」（残り${exLeft}回・1回${cap}枚まで）</div>
+    <div class="row" style="margin:6px 0 10px">
+      <button id="exchangeBtn" class="ghost small" ${exLeft<=0?'disabled':''}>手札交換</button>
+    </div>
     <div class="row" style="margin:10px 0">
       <input id="ansInput" class="txt2" placeholder="お題への答え（ひらがな）">
       <button id="checkBtn" class="ghost small">チェック</button>
@@ -774,6 +876,13 @@ function renderMyTurn(snap){
   $('ansInput').oninput=()=>{ myDraft=$('ansInput').value; $('declareBtn').disabled=true; };
   $('checkBtn').onclick=()=>mySend({t:'checkAnswer',text:$('ansInput').value});
   $('declareBtn').onclick=()=>{ if(!$('declareBtn').disabled){ myDraft=''; mySend({t:'declareAnswer',text:$('ansInput').value}); } };
+  bindHandChipClicks(cap);
+  $('exchangeBtn').onclick=()=>{
+    if(myExchangeSel.size===0){ log('交換する字を選んでください'); return; }
+    const letters=[...myExchangeSel].map(i=>myHand[i]);
+    myExchangeSel=new Set();
+    mySend({t:'exchange',letters});
+  };
 }
 function applyCheckResult(d){
   if(!$('declareBtn')) return; // 画面が切り替わった後の遅延到着は無視
@@ -799,6 +908,7 @@ function renderResult(d){
       <tr><td>①枯渇の傾斜</td><td>判定割れ 前半${d.fhR}% → 後半${d.shR}%</td><td>全体${d.splitRate}%（目標30〜60%）</td></tr>
       <tr><td>②すきま0回答率</td><td>${d.gap0Rate}%</td><td>目標40%以上</td></tr>
       <tr><td>★オールマイティ使用</td><td>${d.wildUsed}枚（宣言${d.answers}回中）</td><td>参考値</td></tr>
+      <tr><td>🔁 手札交換</td><td>${d.exchangeActions}回・${d.exchangeUsed}枚</td><td>参考値</td></tr>
     </table>`;
   if(role==='host'){
     html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>`;
