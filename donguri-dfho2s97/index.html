@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>どんぐりのわけっこ ― テストプレイ版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  ルール_どんぐりのわけっこ_v0.6 のHTML再現。ゲームID: donguri
+  スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
+  検証したい問い: ①リーダー独走(得点が多い人ほど入札も強い逆キャッチアップ)は素の実装でどの程度起きるか
+                 ②得点を使うか温存するかの判断が終盤ほど重くなる実感があるか ③目標点数までのトリック数が15分に収まるか
+  ※シークレットページ: 現時点ではローカル対戦・CPU対戦のみ（オンライン対戦版は未実装）
+-->
+<style>
+  :root{
+    --bg:#f6f3ea; --panel:#fffdf7; --ink:#3a352c; --sub:#8a8272;
+    --line:#e6dfcf; --accent:#e8a33d; --accent2:#6fae7a;
+    --good:#6fae7a; --bad:#d96b6b; --chip:#d98fb0; --shadow:0 2px 8px rgba(120,100,60,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0}
+  header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+              padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+  h2{font-size:16px;margin:0 0 12px}
+  h3{font-size:14px;margin:16px 0 8px;color:var(--sub)}
+  label{font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .num{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;font-size:13px;text-align:center}
+  select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:9px 16px;
+         font-size:14px;font-weight:600;background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  button.small{padding:5px 11px;font-size:13px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub)}
+  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+  .pl.turn{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,163,61,.25)}
+  .pl.dealer{background:#fef6e6}
+  .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .pl .score{font-size:22px;font-weight:800;color:var(--accent)}
+  .pl .mini{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .badge{font-size:10px;background:#eee;color:#666;padding:1px 6px;border-radius:10px}
+  .bot{background:#eaf3ec;color:#3f7a4e}
+  .dealer-badge{background:var(--accent);color:#fff}
+  .log{height:170px;overflow-y:auto;background:#fbf8ef;border:1px solid var(--line);border-radius:10px;
+       padding:10px;font-size:13px}
+  .log div{padding:2px 0;border-bottom:1px dashed #eee5cf}
+  .step{display:inline-block;font-size:11px;background:var(--accent2);color:#fff;padding:1px 8px;border-radius:20px;margin-right:6px}
+  .step.bad{background:var(--bad)}
+  .hidden{display:none}
+  .banner{background:linear-gradient(90deg,#fef3d9,#f4fbf5);border:1px solid var(--line);border-radius:12px;
+          padding:12px 16px;margin-bottom:14px;font-weight:700}
+  .flex-split{display:flex;gap:16px;flex-wrap:wrap}
+  .flex-split>*{flex:1;min-width:260px}
+  table.rules{font-size:12px;border-collapse:collapse;width:100%}
+  table.rules td{border:1px solid var(--line);padding:3px 7px}
+  table.res{font-size:13px;border-collapse:collapse;width:100%}
+  table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+  .foot{font-size:11px;color:var(--sub);margin-top:8px}
+  .mask{padding:30px;text-align:center}
+  .rowcards{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  .acorn{width:54px;height:72px;border-radius:10px;background:#fff;border:2px solid var(--line);
+         display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;box-shadow:var(--shadow)}
+  .acorn .em{font-size:18px}
+  .gapbtn{padding:3px 7px;font-size:11px;background:#fff;color:var(--ink);border:1px solid var(--line);
+          box-shadow:none;border-radius:8px}
+  .gapbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .piles{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+  .pilebox{border:2px solid var(--line);border-radius:12px;padding:8px;background:#fff;min-width:130px;transition:transform .1s}
+  .pilebox.avail{cursor:pointer}
+  .pilebox.avail:hover{transform:translateY(-3px)}
+  .pilebox.taken{opacity:.5}
+  .pilebox .sum{font-weight:800;color:var(--accent);font-size:16px;margin-bottom:4px}
+  .pilebox .tag{font-size:11px;color:var(--sub)}
+  .pilebox .cards{display:flex;gap:3px;flex-wrap:wrap}
+  .pilebox .mini{width:34px;height:44px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌰 どんぐりのわけっこ</h1>
+  <span class="tag">開発プロトタイプ v0.6</span>
+  <span class="tag">ゲームID: donguri</span>
+  <span class="tag">リーダー独走・入札の効き 検証用</span>
+</header>
+
+<div class="wrap">
+
+  <div id="setup" class="card-panel">
+    <h2>セットアップ</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="4" value="1"></label>
+      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="4" value="3"></label>
+      <span class="hint">合計3〜4人。人間2人以上はパス&プレイ（入札時だけ画面を渡す）。人間0で観戦デモ。</span>
+    </div>
+    <h3>調整レバー</h3>
+    <div class="grid">
+      <label>目標点数 <input id="targetScore" class="num" type="number" min="5" max="60" value="21"></label>
+      <label>どんぐりの構成（各値×枚） <input id="copies" class="num" type="number" min="2" max="10" value="6"></label>
+      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="900"></label>
+      <label>入札上限（上限固定モード用） <input id="capBid" class="num" type="number" min="1" max="20" value="3"></label>
+      <label>ビハインド係数（ビハインドボーナス用） <input id="behindRate" class="num" type="number" min="0" max="2" step="0.1" value="0.5"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>リーダー独走への対処
+        <select id="leaderCurbMode">
+          <option value="none" selected>なし（素の実装）</option>
+          <option value="cap">🧪 入札上限を固定</option>
+          <option value="behind">🧪 ビハインドボーナス</option>
+        </select>
+      </label>
+    </div>
+    <div class="foot">既定値＝v0.6・対処なし。検証したい問い: ①リーダー独走はどの程度起きるか（対処なしの素の実装でまず確認） ②得点を使うか温存するかの判断が終盤ほど重くなる実感があるか ③目標点数までのトリック数が15分に収まるか。</div>
+
+    <h3>ルール要約</h3>
+    <table class="rules">
+      <tr><td>1. 切る</td><td>分け役が「人数+2枚」を引いて並べ、連続区間で人数分の山に切る（全部公開・伏せ札なし）</td></tr>
+      <tr><td>2. 入札</td><td>分け役以外の全員が、選ぶ順を勝ち取るため自分の今の得点から使う分を同時に伏せて提示</td></tr>
+      <tr><td>3. 解決</td><td>入札額が高い順に選ぶ。入札に使った得点はその場で失う</td></tr>
+      <tr><td>4. 残り</td><td>最後に残った山は分け役が受け取る</td></tr>
+      <tr><td>終了</td><td>誰かの累計得点が目標点数に達したら終了、最高得点者の勝ち</td></tr>
+    </table>
+
+    <div class="row" style="margin-top:16px">
+      <button id="startBtn">▶ ゲーム開始</button>
+      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="banner" class="banner"></div>
+    <div class="card-panel">
+      <h2>今回のどんぐり <span class="hint" id="drawInfo"></span></h2>
+      <div class="rowcards" id="rowArea"></div>
+      <div class="piles hidden" id="pileArea"></div>
+    </div>
+    <div class="flex-split">
+      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
+      <div class="card-panel"><h2>ログ</h2><div class="log" id="log"></div></div>
+    </div>
+    <div class="card-panel" id="actionPanel">
+      <h2 id="turnTitle"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="row">
+      <button class="ghost small" id="backSetup">← 設定に戻す</button>
+      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    </div>
+  </div>
+
+  <div id="result" class="hidden card-panel"></div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+function choose(nTotal,k){
+  const res=[];
+  function rec(start,combo){
+    if(combo.length===k){res.push(combo.slice());return;}
+    for(let i=start;i<nTotal;i++){combo.push(i);rec(i+1,combo);combo.pop();}
+  }
+  rec(0,[]);
+  return res;
+}
+
+/* ===== Engine（純ロジック。DOMを触らない。シミュ・テストから直接呼ぶ） ===== */
+const Engine = {
+  buildDeck(cfg){
+    const deck=[];
+    for(let v=1;v<=5;v++) for(let k=0;k<cfg.copies;k++) deck.push({v});
+    return shuffle(deck);
+  },
+  newGame(cfg,specs){
+    const players=specs.map((s,i)=>({id:i,name:s.name,isCPU:s.isCPU,policy:s.policy||'smart',score:0}));
+    return {cfg,players,deck:Engine.buildDeck(cfg),dealerIdx:0,trick:null,trickCount:0,
+            leaderLog:[],totalBidSpent:0,maxSingleBid:0};
+  },
+  ensureDeck(S,need){ if(S.deck.length<need){ S.deck=Engine.buildDeck(S.cfg); } },
+  startTrick(S){
+    const n=S.players.length, need=n+2;
+    Engine.ensureDeck(S,need);
+    const row=[]; for(let i=0;i<need;i++) row.push(S.deck.pop());
+    S.trick={dividerIdx:S.dealerIdx,row,cuts:null,piles:null,bids:null,order:null,bidsSpent:0};
+    return S.trick;
+  },
+  groupsFromCuts(row,cutsSorted){
+    const groups=[]; let start=0;
+    cutsSorted.forEach(b=>{ groups.push(row.slice(start,b+1)); start=b+1; });
+    groups.push(row.slice(start));
+    return groups;
+  },
+  cpuCut(S){
+    const row=S.trick.row, n=S.players.length, nb=row.length-1;
+    const combos=choose(nb,n-1);
+    let bestScore=-Infinity, cands=[];
+    combos.forEach(combo=>{
+      const cuts=combo.slice().sort((a,b)=>a-b);
+      const groups=Engine.groupsFromCuts(row,cuts);
+      const sums=groups.map(g=>g.reduce((a,c)=>a+c.v,0));
+      const minSum=Math.min(...sums);
+      if(minSum>bestScore){bestScore=minSum;cands=[cuts];}
+      else if(minSum===bestScore){cands.push(cuts);}
+    });
+    return cands[rnd(cands.length)];
+  },
+  applyCut(S,cuts){
+    const groups=Engine.groupsFromCuts(S.trick.row,cuts.slice().sort((a,b)=>a-b));
+    S.trick.cuts=cuts;
+    S.trick.piles=groups.map(g=>({cards:g,sum:g.reduce((a,c)=>a+c.v,0),takenBy:null}));
+  },
+  maxAllowed(S,idx){
+    const p=S.players[idx];
+    if(S.cfg.leaderCurbMode==='cap') return Math.max(0,Math.min(p.score,S.cfg.capBid));
+    return Math.max(0,p.score);
+  },
+  effectiveBid(S,idx,realBid){
+    let e=realBid;
+    if(S.cfg.leaderCurbMode==='behind'){
+      e += S.cfg.behindRate*Math.max(0,S.cfg.targetScore-S.players[idx].score);
+    }
+    return e;
+  },
+  cpuBid(S,idx){
+    const p=S.players[idx], policy=p.policy||'smart', max=Engine.maxAllowed(S,idx);
+    if(max<=0) return 0;
+    if(policy==='random') return rnd(max+1);
+    const sums=S.trick.piles.map(pl=>pl.sum).slice().sort((a,b)=>b-a);
+    const best=sums[0]||0, restAvg=sums.length>1?sums.slice(1).reduce((a,b)=>a+b,0)/(sums.length-1):0;
+    const desire=Math.max(0,best-restAvg);
+    const noise=0.5+Math.random();
+    const raw=Math.round(desire*noise*0.8);
+    return Math.max(0,Math.min(max,raw));
+  },
+  resolveBids(S,bids){
+    const nonDividerIdxs=S.players.map((_,i)=>i).filter(i=>i!==S.trick.dividerIdx);
+    nonDividerIdxs.forEach(i=>{
+      const real=Math.max(0,Math.min(bids[i]||0,Engine.maxAllowed(S,i)));
+      bids[i]=real;
+      S.players[i].score-=real;
+      S.trick.bidsSpent+=real;
+      if(real>S.maxSingleBid) S.maxSingleBid=real;
+    });
+    const withEff=nonDividerIdxs.map(i=>({i,eff:Engine.effectiveBid(S,i,bids[i])+Math.random()*0.001}));
+    withEff.sort((a,b)=>b.eff-a.eff);
+    S.trick.order=withEff.map(x=>x.i);
+    S.trick.bids=bids;
+    return S.trick.order;
+  },
+  cpuPickPile(S){
+    const piles=S.trick.piles;
+    let bestI=-1,bestV=-Infinity;
+    piles.forEach((pl,i)=>{ if(pl.takenBy===null && pl.sum>bestV){bestV=pl.sum;bestI=i;} });
+    return bestI;
+  },
+  applyPick(S,idx,pileI){
+    const pl=S.trick.piles[pileI];
+    pl.takenBy=idx;
+    S.players[idx].score+=pl.sum;
+  },
+  finishTrick(S){
+    const left=S.trick.piles.findIndex(p=>p.takenBy===null);
+    if(left>=0){ S.trick.piles[left].takenBy=S.trick.dividerIdx; S.players[S.trick.dividerIdx].score+=S.trick.piles[left].sum; }
+    S.totalBidSpent+=S.trick.bidsSpent;
+    const scores=S.players.map(p=>p.score);
+    S.leaderLog.push(scores.indexOf(Math.max(...scores)));
+    S.trickCount++;
+    S.dealerIdx=(S.dealerIdx+1)%S.players.length;
+  },
+  isOver(S){ return S.players.some(p=>p.score>=S.cfg.targetScore); },
+  winnerIdx(S){ let bi=0; S.players.forEach((p,i)=>{ if(p.score>S.players[bi].score) bi=i; }); return bi; },
+  leaderChanges(S){
+    let c=0; for(let i=1;i<S.leaderLog.length;i++) if(S.leaderLog[i]!==S.leaderLog[i-1]) c++;
+    return c;
+  },
+  playAuto(cfg,specs){
+    const S=Engine.newGame(cfg,specs);
+    let safety=0;
+    while(!Engine.isOver(S) && safety++<800){
+      Engine.startTrick(S);
+      const cuts=Engine.cpuCut(S);
+      Engine.applyCut(S,cuts);
+      const bids={};
+      S.players.forEach((p,i)=>{ if(i!==S.trick.dividerIdx) bids[i]=Engine.cpuBid(S,i); });
+      Engine.resolveBids(S,bids);
+      S.trick.order.forEach(i=>{ const pk=Engine.cpuPickPile(S); Engine.applyPick(S,i,pk); });
+      Engine.finishTrick(S);
+    }
+    return S;
+  }
+};
+
+/* ===== UI ===== */
+let S=null, cutSel=new Set(), bidHumanQueue=[], pendingBids={}, pickSel=null;
+
+function readCfg(){
+  const c={};
+  ['nHuman','nCpu','targetScore','copies','cpuThink','capBid'].forEach(i=>c[i]=+$(i).value);
+  c.behindRate=+$('behindRate').value;
+  c.leaderCurbMode=$('leaderCurbMode').value||'none';
+  return c;
+}
+function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
+function fmtAcorn(c){ return `🌰${c.v}`; }
+
+function startGame(){
+  const cfg=readCfg();
+  const total=cfg.nHuman+cfg.nCpu;
+  if(total<3||total>4){ alert('合計3〜4人で設定してください。'); return; }
+  const specs=[];
+  for(let i=0;i<cfg.nHuman;i++) specs.push({name:'あなた'+(cfg.nHuman>1?(i+1):''),isCPU:false});
+  for(let i=0;i<cfg.nCpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true,policy: i%2===0?'smart':'smart'});
+  shuffle(specs);
+  S=Engine.newGame(cfg,specs);
+  $('log').innerHTML='';
+  log(`ゲーム開始（${total}人 / 目標${cfg.targetScore}点 / 対処:${cfg.leaderCurbMode}）`);
+  $('setup').classList.add('hidden'); $('result').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  beginTrick();
+}
+
+function beginTrick(){
+  Engine.startTrick(S);
+  const d=S.players[S.trick.dividerIdx];
+  $('banner').textContent=`トリック ${S.trickCount+1} ― 分け役: ${d.name}`;
+  $('drawInfo').textContent=` ― 山札残${S.deck.length}枚`;
+  $('pileArea').classList.add('hidden');
+  renderRowStatic();
+  renderAll();
+  cutPhase();
+}
+
+function renderRowStatic(){
+  const wrap=$('rowArea');
+  wrap.innerHTML = S.trick.row.map(c=>`<div class="acorn"><div class="em">🌰</div><div>${c.v}</div></div>`).join('');
+}
+
+function cutPhase(){
+  const dIdx=S.trick.dividerIdx, d=S.players[dIdx];
+  if(d.isCPU){
+    $('turnTitle').textContent=`${d.name}（分け役）が切っています…`;
+    $('actionBody').innerHTML='<div class="mask">🤔 切り方を考え中…</div>';
+    setTimeout(()=>{
+      const cuts=Engine.cpuCut(S);
+      Engine.applyCut(S,cuts);
+      log(`<span class="step">切った</span>${d.name} が ${S.players.length}つの山に切り分けました`);
+      renderPiles(false);
+      biddingPhase();
+    }, Math.max(200,S.cfg.cpuThink*0.6));
+    return;
+  }
+  renderCutUI(dIdx);
+}
+
+function renderCutUI(dIdx){
+  cutSel=new Set();
+  const need=S.players.length-1;
+  $('turnTitle').textContent=`${S.players[dIdx].name}（分け役）― 並び順を変えずに${S.players.length}つの山に切る`;
+  const row=S.trick.row;
+  let html=`<div class="hint">カードの間の「切る」ボタンを${need}か所選んでください（${need}か所選ぶと確定できます）。</div><div class="rowcards">`;
+  row.forEach((c,i)=>{
+    html+=`<div class="acorn"><div class="em">🌰</div><div>${c.v}</div></div>`;
+    if(i<row.length-1) html+=`<button class="gapbtn" id="cutToggle${i}">切る</button>`;
+  });
+  html+=`</div><div class="row" style="margin-top:10px"><button id="cutConfirmBtn" disabled>この切り方に決めた</button></div>`;
+  $('actionBody').innerHTML=html;
+  for(let i=0;i<row.length-1;i++){
+    $('cutToggle'+i).onclick=()=>{
+      if(cutSel.has(i)) cutSel.delete(i); else cutSel.add(i);
+      $('cutToggle'+i).classList.toggle('on');
+      $('cutConfirmBtn').disabled = cutSel.size!==need;
+    };
+  }
+  $('cutConfirmBtn').onclick=()=>{
+    Engine.applyCut(S,[...cutSel]);
+    log(`<span class="step">切った</span>${S.players[dIdx].name} が ${S.players.length}つの山に切り分けました`);
+    renderPiles(false);
+    biddingPhase();
+  };
+}
+
+function biddingPhase(){
+  pendingBids={};
+  bidHumanQueue=[];
+  const nonDividerIdx=S.players.map((_,i)=>i).filter(i=>i!==S.trick.dividerIdx);
+  nonDividerIdx.forEach(i=>{
+    if(S.players[i].isCPU) pendingBids[i]=Engine.cpuBid(S,i);
+    else bidHumanQueue.push(i);
+  });
+  nextBidder();
+}
+
+function nextBidder(){
+  if(bidHumanQueue.length===0){
+    $('turnTitle').textContent='';
+    $('actionBody').innerHTML='<div class="mask">🤫 入札を集計しています…</div>';
+    setTimeout(resolveBidsPhase, Math.max(150,S.cfg.cpuThink*0.3));
+    return;
+  }
+  const idx=bidHumanQueue[0];
+  if(S.cfg.nHuman>1){
+    $('turnTitle').textContent='';
+    $('actionBody').innerHTML=`<div class="mask"><b>${S.players[idx].name}</b> に画面を渡してください（入札は他の人に見せない）<br><br>
+      <button id="readyBtn">じゅんび OK</button></div>`;
+    $('readyBtn').onclick=()=>renderBidUI(idx);
+  } else {
+    renderBidUI(idx);
+  }
+}
+
+function renderBidUI(idx){
+  const p=S.players[idx], max=Engine.maxAllowed(S,idx);
+  $('turnTitle').textContent=`${p.name} ― 選ぶ順を勝ち取るための入札（他の人には見せない）`;
+  $('actionBody').innerHTML=`<div class="hint">今の得点: ${p.score}点 ／ 入札できる上限: ${max}点</div>
+    <div class="row" style="margin-top:8px">
+      <label>入札額 <input id="bidInput" class="num" type="number" min="0" max="${max}" value="0"></label>
+      <button id="bidConfirmBtn">この額で入札</button>
+    </div>`;
+  $('bidConfirmBtn').onclick=()=>{
+    const v=Math.max(0,Math.min(max,Math.round(+$('bidInput').value)||0));
+    pendingBids[idx]=v;
+    bidHumanQueue.shift();
+    $('actionBody').innerHTML='<div class="mask">入札を受け付けました</div>';
+    nextBidder();
+  };
+}
+
+function resolveBidsPhase(){
+  Engine.resolveBids(S,pendingBids);
+  S.trick.order.forEach(i=>{
+    log(`<span class="step">入札</span>${S.players[i].name}: ${S.trick.bids[i]}点`);
+  });
+  log(`<span class="step">選ぶ順</span>${S.trick.order.map(i=>S.players[i].name).join(' → ')}`);
+  renderAll();
+  pickingPhase(0);
+}
+
+function pickingPhase(i){
+  const order=S.trick.order;
+  if(i>=order.length){
+    Engine.finishTrick(S);
+    renderPiles(false);
+    renderAll();
+    afterTrick();
+    return;
+  }
+  const idx=order[i];
+  if(S.players[idx].isCPU){
+    $('turnTitle').textContent=`${S.players[idx].name} が選んでいます…`;
+    $('actionBody').innerHTML='<div class="mask">🤔…</div>';
+    setTimeout(()=>{
+      const pk=Engine.cpuPickPile(S);
+      Engine.applyPick(S,idx,pk);
+      log(`<span class="step">とった</span>${S.players[idx].name} が ${S.trick.piles[pk].sum}点の山を取りました`);
+      renderPiles(false);
+      pickingPhase(i+1);
+    }, Math.max(150,S.cfg.cpuThink*0.5));
+    return;
+  }
+  renderPickUI(idx,i);
+}
+
+function renderPickUI(idx,i){
+  pickSel=null;
+  $('turnTitle').textContent=`${S.players[idx].name} ― 欲しい山をひとつ選ぶ`;
+  renderPiles(true);
+  $('actionBody').innerHTML=`<div class="hint">上の山から選んでクリックしてください。</div>
+    <div class="row" style="margin-top:8px"><button id="pickConfirmBtn" disabled>この山に決めた</button></div>`;
+  S.trick.piles.forEach((pl,k)=>{
+    if(pl.takenBy!==null) return;
+    const el=$('pilechoice'+k);
+    if(el) el.onclick=()=>{
+      pickSel=k;
+      S.trick.piles.forEach((_,kk)=>{ const e=$('pilechoice'+kk); if(e) e.classList.toggle('sel',kk===k); });
+      $('pickConfirmBtn').disabled=false;
+    };
+  });
+  $('pickConfirmBtn').onclick=()=>{
+    if(pickSel===null) return;
+    Engine.applyPick(S,idx,pickSel);
+    log(`<span class="step">とった</span>${S.players[idx].name} が ${S.trick.piles[pickSel].sum}点の山を取りました`);
+    renderPiles(false);
+    pickingPhase(i+1);
+  };
+}
+
+function afterTrick(){
+  if(Engine.isOver(S)){
+    $('turnTitle').textContent='';
+    $('actionBody').innerHTML='<div class="mask">目標点数に到達！ 集計します…</div>';
+    setTimeout(finish,600);
+    return;
+  }
+  const anyHuman=S.cfg.nHuman>0;
+  $('turnTitle').textContent=`トリック ${S.trickCount} の結果`;
+  if(anyHuman){
+    $('actionBody').innerHTML='<div class="mask"><button id="nextTrickBtn">次のトリックへ ▶</button></div>';
+    $('nextTrickBtn').onclick=beginTrick;
+  } else {
+    $('actionBody').innerHTML='<div class="mask">（観戦モード）自動で進みます…</div>';
+    setTimeout(beginTrick, Math.max(250,S.cfg.cpuThink*0.4));
+  }
+}
+
+/* ---------- rendering ---------- */
+function renderPiles(clickable){
+  const area=$('pileArea');
+  area.classList.remove('hidden');
+  $('rowArea').innerHTML='';
+  let html='';
+  S.trick.piles.forEach((pl,k)=>{
+    const taken = pl.takenBy!==null;
+    const cls='pilebox'+(taken?' taken':(clickable?' avail':''));
+    const cardsHtml = pl.cards.map(c=>`<div class="acorn mini">${c.v}</div>`).join('');
+    const tag = taken? `${S.players[pl.takenBy].name} が獲得` : (clickable?'クリックで選択':'');
+    html+=`<div class="${cls}" id="pilechoice${k}"><div class="sum">${pl.sum}点</div><div class="cards">${cardsHtml}</div><div class="tag">${tag}</div></div>`;
+  });
+  area.innerHTML=html;
+}
+
+function renderAll(){
+  const box=$('players'); box.innerHTML='';
+  S.players.forEach((p,i)=>{
+    const d=document.createElement('div');
+    const isDealer = S.trick && S.trick.dividerIdx===i;
+    d.className='pl'+(isDealer?' dealer':'');
+    d.innerHTML=`<div class="name"><span>${p.name} ${p.isCPU?'<span class="badge bot">BOT</span>':''}${isDealer?'<span class="badge dealer-badge">分け役</span>':''}</span><span class="score">${p.score}</span></div>`;
+    box.appendChild(d);
+  });
+}
+
+/* ---------- finish ---------- */
+function finish(){
+  $('game').classList.add('hidden');
+  const ranked=S.players.map(p=>p).sort((a,b)=>b.score-a.score);
+  const winnerIdx=Engine.winnerIdx(S);
+  let html=`<h2>🏆 結果</h2>`;
+  html+=`<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>得点</th></tr>`;
+  ranked.forEach((p,i)=>{
+    html+=`<tr><td>${i+1}</td><td>${p.name}${p.isCPU?' 🤖':''}${p.id===winnerIdx?' 👑':''}</td><td><b>${p.score}</b></td></tr>`;
+  });
+  html+='</table>';
+  const diff=ranked.length>1?(ranked[0].score-ranked[1].score):0;
+  const avgBid = (S.totalBidSpent/Math.max(1,S.trickCount*(S.players.length-1))).toFixed(2);
+  html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度） ／ トリック数：<b>${S.trickCount}</b> ／
+    入札総額：${S.totalBidSpent}点（平均${avgBid}点/人・トリック、最大1回入札${S.maxSingleBid}点） ／
+    リーダー交代回数：<b>${Engine.leaderChanges(S)}</b>回（0や1に近いほどリーダー独走の疑いが強い）</div>`;
+  html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1戦</button><button class="ghost" id="setupBtn2">設定を変える</button></div>`;
+  const r=$('result'); r.innerHTML=html; r.classList.remove('hidden');
+  $('againBtn').onclick=startGame;
+  $('setupBtn2').onclick=()=>{r.classList.add('hidden');$('setup').classList.remove('hidden');};
+}
+
+/* ---------- setup buttons ---------- */
+$('startBtn').onclick=startGame;
+$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
+$('restartSame').onclick=startGame;
+const DEF={nHuman:1,nCpu:3,targetScore:21,copies:6,cpuThink:900,capBid:3,behindRate:0.5};
+$('resetDefaults').onclick=()=>{
+  Object.entries(DEF).forEach(([k,v])=>$(k).value=v);
+  $('leaderCurbMode').value='none';
+};
+
+window.__engine=Engine;
+</script>
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです（現在はローカル対戦・CPU対戦のみ、オンライン対戦版は未実装）。URLの共有・SNSへの投稿はご遠慮ください。 ／ © ゆるるかなアイキュ〜</footer>
+</body>
+</html>
