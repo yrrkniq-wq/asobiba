@@ -189,6 +189,20 @@ const TOPICS = [
   "家にひとつはあるもの","ちょっとうれしいこと・もの","やわらかいもの","音がうるさいもの",
   "夏っぽいもの","あまいもの","赤いもの","においが強いもの"
 ];
+/* CPUの判定（あり/ないでしょ投票）に「お題との定番の相性」を持たせるための最小限の手掛かり。
+   16お題のうち、色・味・手触り・音・匂い・季節感という客観的な属性を持つ6つだけを対象にする
+   （冷蔵庫/学校/かばん等の文脈系お題は、何が定番かが主観に依りすぎるため対象外＝辞書判定のみに留める）。
+   ここに載っている語は「このお題の定番」として通りやすく、逆に辞書には載っているがここに無い語は
+   「本当にこのお題に合っているか怪しい出まかせ」として通りにくくなる（cpuVote参照）。
+   全語を厳密に採点したものではなく、あくまで代表的な語を拾った目安。 */
+const TOPIC_HINTS = {
+  "赤いもの": ["あか","いちこ","たいよう","ゆうひ","あさひ","ほのお","もみし","かに","たこ"],
+  "あまいもの": ["あめ","あんこ","はちみつ","さとう","わたあめ","いちこ","みかん","もも","みつ","くり"],
+  "やわらかいもの": ["ふとん","わた","もち","くらけ","ひよこ","ねこ","いぬ","わたあめ","くも"],
+  "音がうるさいもの": ["かみなり","たいふう","からす","きつつき","いぬ","ひこうき","くうこう"],
+  "においが強いもの": ["さかな","さんま","たまねき","くつした","しようゆ"],
+  "夏っぽいもの": ["なつ","たいよう","ゆうひ","ひまわり","はなひ","まつり","ゆかた","うちわ","たいふう"]
+};
 
 /* ===== 正規化（ローカル版と同一） ===== */
 const DAKU={'が':'か','ぎ':'き','ぐ':'く','げ':'け','ご':'こ','ざ':'さ','じ':'し','ず':'す','ぜ':'せ','ぞ':'そ',
@@ -315,6 +329,13 @@ const Engine = {
     const known = DICT_SET.has(val.w);
     let pr = known ? 0.88 : 0.32;
     pr -= 0.15*val.gaps; // すきまで無理やり作った感が強いほど疑わしくなる
+    // お題との定番の相性がわかる語（TOPIC_HINTS）が定義されているお題では、それも判定材料にする。
+    // これが無いと「辞書に載ってさえいればお題を無視してあり判定される」という別の常識ズレが起きる。
+    const hints=TOPIC_HINTS[S.topic];
+    if(hints){
+      if(hints.includes(val.w)) pr += 0.10;
+      else if(known) pr -= 0.28; // 辞書語だが、このお題の定番からは外れている＝怪しさが増す
+    }
     if(j.policy!=='smart') pr=0.55;
     pr=Math.max(0.03,Math.min(0.97,pr+Engine.gauss()*0.08));
     return Math.random()<pr;
@@ -665,12 +686,18 @@ function renderGame(){
   // 自分が入力中に他の誰か（CPU含む）が先に宣言してaction→judgeへ切り替わった場合、
   // 入力欄が問答無用で消えて「反応がない」ように見えてしまうのを防ぐ：
   // 打ちかけの文字を保存し、次に自分の番の画面へ戻ったときに復元する＋一言ログを出す。
-  if(lastPhase==='action' && snap.phase==='judge' && snap.judging && snap.judging.seat!==mySeat){
-    const live=$('ansInput');
-    if(live && live.value) myDraft=live.value;
-    log(`😮 ${esc(snap.judging.name)} に先を越されました（入力中の内容は次のお題で復元します）`);
-  }
+  // ここでの想定外エラーが下の本体描画（入力欄の再生成含む）を巻き込んで画面を固まらせないよう、
+  // try/catchで隔離し、万一失敗してもlastPhaseだけは必ず更新する（無限に固まり続けるのを防ぐ）。
+  const prevPhase=lastPhase;
   lastPhase=snap.phase;
+  try{
+    if(prevPhase==='action' && snap.phase==='judge' && snap.judging && snap.judging.seat!==mySeat){
+      const live=$('ansInput');
+      if(live && live.value) myDraft=live.value;
+      log(`😮 ${esc(snap.judging.name)} に先を越されました（入力中の内容は次のお題で復元します）`);
+    }
+  }catch(e){ if(window.console) console.error('interrupt-note error', e); }
+  try{
   $('topicBox').textContent=snap.topic;
   $('drawInfo').textContent=`お題山 残り${snap.topicDeckLeft}${snap.topicCycle?'（2巡目）':''} ／ 文字の山 残り${snap.deckLeft}枚`;
   $('discardRow').innerHTML = snap.discard.length
@@ -690,6 +717,12 @@ function renderGame(){
     : `お題「${snap.topic}」 ― 誰でも早い者勝ちで宣言できます`;
   $('turnTitle').textContent = snap.phase==='judge' ? '判定タイム' : '答えが浮いたら宣言しよう';
   renderAction(snap);
+  }catch(e){
+    // 描画中の想定外エラーで画面が固まったまま二度と更新されない事態を避けるため、
+    // ログに見える形でエラーを出す（devtoolsを開けないプレイヤーでも状況を報告できるように）。
+    if(window.console) console.error('renderGame error', e);
+    try{ log('🐛 表示エラーが発生しました。リロードしてお試しください: '+(e&&e.message?e.message:e)); }catch(e2){}
+  }
 }
 function setAction(html){ $('actionBody').innerHTML=''; $('actionBody').innerHTML=html; }
 function renderAction(snap){
@@ -710,11 +743,12 @@ function renderMyTurn(snap){
   setAction(`
     <div>あなたの手札（${myHand.length}枚）: ${chipHand(myHand)}</div>
     <div class="row" style="margin:10px 0">
-      <input id="ansInput" class="txt2" placeholder="お題への答え（ひらがな）" value="${esc(myDraft)}">
+      <input id="ansInput" class="txt2" placeholder="お題への答え（ひらがな）">
       <button id="checkBtn" class="ghost small">チェック</button>
       <button id="declareBtn" disabled>宣言する</button>
     </div>
     <div class="hint" id="ansPreview">答えを入れて「チェック」→ 手札で作れるか確認 → 宣言（早い者勝ち）</div>`);
+  if(myDraft) $('ansInput').value=myDraft; // HTML属性文字列に埋め込まず、プロパティ代入で安全に復元する
   $('ansInput').oninput=()=>{ myDraft=$('ansInput').value; $('declareBtn').disabled=true; };
   $('checkBtn').onclick=()=>mySend({t:'checkAnswer',text:$('ansInput').value});
   $('declareBtn').onclick=()=>{ if(!$('declareBtn').disabled){ myDraft=''; mySend({t:'declareAnswer',text:$('ansInput').value}); } };
