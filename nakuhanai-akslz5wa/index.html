@@ -733,8 +733,17 @@ function renderAction(snap){
       すきま${snap.judging.gaps}個 ／ これは…<br><br>
       <button id="voteAri">あり</button>
       <button id="voteNasi" class="ghost">ないでしょ</button></div>`);
-    $('voteAri').onclick=()=>{ myVotedSeq=snap.judging.seq; mySend({t:'vote',value:true}); renderAction(snap); };
-    $('voteNasi').onclick=()=>{ myVotedSeq=snap.judging.seq; mySend({t:'vote',value:false}); renderAction(snap); };
+    // mySend後にrenderAction(snap)と「投票した瞬間の古いスナップショット」で再描画すると、
+    // 自分がホストの場合に問題が起きる：ホストの投票がその判定を成立させる最後の1票だった場合、
+    // mySend→hostHandleMsg→maybeResolveJudge→broadcastPub→(自分自身へのdeliverToSeatは同期)renderGame
+    // という連鎖が全部同期的に完了し、curPubは既に次のお題のaction画面用に更新されている。
+    // それにも関わらずここで古いsnap（判定中のまま）を使って再描画すると、せっかく進んだ画面を
+    // 「🤫投票ずみ。他の人を待っています…」という古い判定中の表示で上書きしてしまい、
+    // 次のお題に答えられない（実質、入力欄が永久に出てこない）ように見えるバグになる。
+    // curPub（最新の状態）から再描画すれば、ホストは進んだ後の画面に、ゲストは投票直後の
+    // 「待っています」表示（本物のpubが届くまでの暫定表示）に、それぞれ正しくなる。
+    $('voteAri').onclick=()=>{ myVotedSeq=snap.judging.seq; mySend({t:'vote',value:true}); renderGame(); };
+    $('voteNasi').onclick=()=>{ myVotedSeq=snap.judging.seq; mySend({t:'vote',value:false}); renderGame(); };
     return;
   }
   renderMyTurn(snap);
