@@ -4,167 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>ちゃばん ― テストプレイ版</title>
+<title>ちゃばん ― オンライン対戦(テストプレイ版)</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
-<!-- ※シークレットページ: 現時点ではローカル対戦・CPU対戦のみ（オンライン対戦版は未実装）。OGPメタは意図的に付けない(リンクプレビューで内容が漏れないように) -->
+<!-- ※シークレットページ: OGPメタは意図的に付けない(リンクプレビューで内容が漏れないように) -->
 <!--
-  ルール_ちゃばん_v0.6 のHTML再現。ゲームID: chaban（v0.5からの改修版）
-  スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
-  v0.6の核: 記憶の霧を捨て「全公開×格×標的毒」に刷新(2026-07-11 kaiyo判断)。
-            比較用に「記憶モード=v0.5相当」レバー(公開モード)を残す。
-  検証したい問い(出口条件・v0.6): ①切りの旨みの回復(毒配置込み最善vs毒なし均等≧1点/席。v0.4=0.86/v0.5=0.44)
-                                  ②countmaxの抑制(毒単独でx1.0以下)+毒の照準分布(厚い山狙い一辺倒でないか)
-                                  ③格の均衡(各菓子特化CPUがx0.9〜1.1。少食削除でシナジー消滅の検証)
-                                  ※記憶の腕差条件は廃止(全公開のため。記憶モードでの比較のみ任意で可)
-
-  【仮置き解釈(ルールの曖昧さに対する実装判断。ルール本文は書き換えていない)】
-  1. 各梯子の「達している最大の段」は、対象の菓子の実枚数＋その拝見時に割り振ったワイルド(四季)枚数の合計で判定する。
-     ワイルドの割り振りは拝見の瞬間にEngineが半端減点も込みで全探索して最適化する(プレイヤーは選ばない)。
-  2. 「亭主が黒文字で人数分に切る」は、盛った列(既定=7枚固定。レバーで6〜8枚に変更可)の中の隙間から
-     人数-1か所を選ぶ実装。1枚だけの山も可(ルール通り)。
-  3. 「全員に見せてから懐紙へ」の一時公開は、人間が卓にいれば「見た」ボタンのクリックで確定、
-     観戦(全CPU)のみの卓ではタイマーで自動確定する。確定後、種類情報は「恒久ログ」には一切残さない(枚数のみ)。
-     ただしv0.3では確定後もすぐ懐紙(非公開)へは行かず、いったん余韻ゾーン(表向き・公開)を経由する(仮置き解釈10参照)。
-  4. 亭主の残り1山も、客の取り分と全く同じ「一時公開→確定→余韻ゾーン」の演出を通す(記憶機会の公平性のため)。
-  5. デッキが「席数×seatSize」に対して不足する極端なレバー設定のときは、山札を作り直して継続する
-     (既定値の56枚・4人=8席×7枚/3人=6席×7枚=42枚ちょうど使い切る構成では発生しない)。
-  6. パス&プレイの手番受け渡しマスクは、亭主の切り・客の選ぶ、どちらの人間手番の前にも挿入する
-     (選ぶ行為自体は公開情報だが、どんぐりプロトの方式を踏襲するのと、手番中だけ出す「懐紙を見る」ボタンを
-     安全に提示するため)。
-  7. CPUの記憶精度「減衰」は、「懐紙(非公開)に格納された席」を基準に「現在の席を含む直近2席以内に懐紙入りした
-     観測は正確に、それより前は種類を忘れて枚数だけ覚えている」と定義した(コード中 buildBelief 参照。
-     v0.3で余韻ゾーンが導入されたため、基準点を「取った席」から「懐紙に入った席」に変更=仮置き解釈13)。
-  8. 亭主CPUの切り方選択は、客の実際の手番アルゴリズムと同じ評価関数を使って「客が盤面の公開情報から
-     合理的に選ぶ」ことを予測する。客の非公開の懐紙を覗き見しているのではなく、亭主AIの計画用ヒューリスティック
-     (客本人の懐紙は「客自身が知っていて当然の情報」を使った予測に過ぎず、UI/ログには一切出ない)。
-  9. 「格の均衡」検証用に、特定の菓子を偏重するCPU方策(focusType)をEngineに追加した。UIのレバーには出さず、
-     シミュ専用の指定方法(specsにfocusTypeを与える)としている。
-  10. 「余韻」の「次の席の開始時に懐紙へ」は、Engine.startSitting実行時(盆に次の列を配る前)に、
-      「現在の席番号－取った席番号 ≧ 余韻レバーの席数」を満たす余韻ゾーンの中身を懐紙へ移す処理として実装した
-      (matureYoin)。余韻レバー=0のときはこの経路自体を通らず、取った瞬間に直接懐紙へ入る(v0.2相当)。
-  11. 最終席の菓子は「次の席」が存在せず成熟イベントが起きないため、ゲーム終了時点でも余韻ゾーンに表向きのまま
-      残り続ける。得点計算(scoreOf)は「懐紙＋自分の余韻ゾーン」を合算して行う(allTypesOf)ため、
-      「最終席の菓子は表のまま拝見へ」でも梯子判定・半端減点に正しく参入される。
-  12. 半端減点は「四季ワイルド割当後の最終枚数がちょうど1枚」の種にのみ適用する(0枚は「無い」であって
-      「半端」ではないので対象外)。四季を1種に複数枚割り振って2枚以上にすれば救済される。
-  13. 余韻ゾーンにある間の情報は「記憶モデルによらず全員が正確に知っている」(公開情報・仮置き解釈7)として実装。
-      buildBeliefは余韻ゾーンの中身を無記憶(none)モデルでも無条件に加算し、懐紙化した後の観測についてのみ
-      記憶モデル(完全/減衰/無記憶)を適用する。
-  14. 半端リスク評価は、既存のcpuEvaluatePile(取る前後のbestWildAssignment.total差分)がそのまま半端減点を
-      内包する形にした(typeTotal関数がladderScoreに半端減点を足し込む)。「1枚だけ残る種類を取ると損をする」
-      ことが加点・減点の差分として自然に評価値へ反映されるため、別立てのヒューリスティック項は追加していない。
-  15. 枚数マキシマイズ方策(policy:'countmax')は、選ぶ局面で常に最大枚数の山を選択(同枚数はランダムタイブレーク)、
-      亭主局面ではevenCut(均等切り)を採用する簡易方策としてEngineに追加した。UIレバーには出さずシミュ専用
-      (specsにpolicy:'countmax'を与える。仮置き解釈9のfocusTypeと同じ位置づけ)。
-  16. 1席の枚数レバーは「人数+□」から「固定枚数(6/7/8)」に変更したため、v0.2のseatExtraを廃止しseatSizeに
-      置き換えた。startSittingは常にcfg.seatSize枚を盛る。
-  17. 【シミュ計測アーティファクトの修正・v0.2から持ち越し】亭主の初期値(hostIdx)を0固定から乱数に変更した。
-      固定だと「座席番号ごとに、情報の少ない開幕直後sittingで正客(1番手)になる/情報が積み上がった終盤sittingで
-      正客になる、という組み合わせが常に同じ座席に張り付く」ため、実物のプレイでは起こらない座席有利不利が
-      シミュ上にだけ現れる(N=8000で検証: hostIdx=0固定だとS2席がx1.22、乱数化でx0.99に収束)。ゲームルール上の
-      挙動(1ゲーム内で全員が亭主を規定回数務める・正客は亭主の左隣から時計回り)は変更していない。
-  18. 【v0.3実装時の追加・smartCPUの評価項】VOLUME_WEIGHT: 山の枚数そのものへの穏やかな加点(0.25)。
-      枚数マキシマイズ方策への部分的な対抗策(単独ではx1.0以下まで抑え切れず、v0.4の①②で構造対応)。
-  19. 【v0.4】譲り合いの正客: 「最も枚数の少ない山を取った客」の判定は、finishSitting時に客の取り分だけを
-      対象に行う(亭主の残り物は対象外)。タイは「現正客から時計回りで先の者」=その席のorder配列で先の者。
-      授与された客が次席の亭主と重なる場合はnull(=従来どおり亭主の左隣が正客)にフォールバックする。
-  20. 【v0.4】少食ボーナスは finalScores(拝見)でのみ加算する相対ボーナス(懐紙+余韻の合計枚数が最少の人。
-      同数最少は全員が受け取る)。途中経過の「現在得点」表示には含めない(終了時にしか確定しないため)。
-  21. 【v0.4】枚数の公開(countPublic): UI表示に加え、CPUの信念(buildBelief)でも「無記憶」モデルに
-      他人の懐紙の枚数(unknownCount)だけは与える(束の厚みは見れば分かる、の実装)。OFFにするとv0.3相当。
-  22. 【v0.4】枚数ミニマイズ方策(policy:'countmin')は「常に最小枚数の山を選ぶ(タイはランダム)・亭主は均等切り」。
-      シミュ専用(譲り合い+少食ボーナスの重ね掛けで「小さく取り続ける」が支配戦略化しないかの検証用)。
-  23. 【v0.4・kaiyo要望】点数傾斜表はゲーム中いつでも開ける公開リファレンス(製品ではカード印字想定)。
-      「現在の自分の得点」トグルは既定OFF・本人の手番UI内にのみ表示・「懐紙見返し不可」レバー時は無効化
-      (見返せないはずの中身が得点数字から漏れるため)。表示値は懐紙+余韻の四季最適配分。税・毒・少食は含まない
-      →v0.5改め: 毒は自分が食べた事実が公開情報のため表示値に含める(税・少食のみ含まない)。
-  24. 【v0.4・kaiyo指示(同日追加)】半端減点はルールから外す(レバーとして残置、既定0=なし。A/B比較用)。
-      代わりに「到達税」: 最初に10点(reachThreshold)に達した人は拝見で−2、2番目・3番目に達した人は−1、
-      最後に達した人と未到達の人は0。到達の判定はEngineが山を受け取るたびに自動で行い、到達した瞬間に
-      「宣言」としてログに公開する(紙で遊ぶ場合は「10点に達したら申告する」運用の再現。得点の中身や種類は
-      公開しない。到達順だけが公開情報になり、記憶の目印にもなる)。到達順のランクは cfg.reachTaxFirst(−2)/
-      reachTaxMid(−1)で調整可。得点が後から下がって10点を割っても到達済み扱いは取り消さない(宣言は一度きり)。
-  25. 【v0.4】CPUの山評価にも到達税を織り込む(cpuChoosePileScore内reachTaxDelta): この山を取ると
-      今この瞬間に10点へ到達してしまう場合、現時点の到達順に応じた税額をそのまま評価から差し引く近似。
-  26. 【v0.5・kaiyo指示】格システム廃止=4種とも13枚・共通梯子。譲り合いの正客は廃止(レバー残置・既定OFF)。
-      到達税は税0が既定(宣言=記憶の補助マーカーとしては存続。kaiyoの当初意図を汲む。−2/−1はレバーで復元可)。
-  27. 【v0.5・kaiyoアイデア】毒: 亭主は切るとき盆のカード1枚に毒を置ける(任意・公開)。毒カードは種類に数えず、
-      口にした人は拝見で−2点(レバー)。亭主も残り物で自分の毒を受け得る。毒カードも枚数(少食判定・公開枚数)には
-      物理カードとして数える。誰が毒を口にしたかは公開(バッジ表示)。秘密の毒はギブトレの伏せ札に戻るため不採用。
-  28. 【v0.5】亭主AIの毒配置は二段ヒューリスティック: まず毒なしで切りを選び、その切りに対して毒位置(なし含む)を
-      全評価して残り物EVが最大の位置を選ぶ。切り×毒の全組み合わせ同時最適化は計算量の都合で行わない。
-  29. 【v0.6・毒AIの標的型化】hostChooseDokuの評価を「自分の残り物EVの最大化」単独から、
-      「自分のEV − Σ(客が取ると予測される山からの純増 × その客の現在到達度による重み)」に変更した。
-      重みは各客の現在得点(scoreOf.total、0未満は0に丸め)をその席の全プレイヤー中の最大値で正規化し
-      0.3〜1.0の範囲に収める(得点0の客でも0.3倍は妨害対象になる。トップに近いほど1.0に近づく)。
-      「枚数の多い山」ではなく「梯子が進んでいる(＝得点が伸びている)客」を照準にする、という
-      kaiyo指摘(「枚数多いところに入れがち」)の解消を狙った変更。客の予測取り分は仮置き解釈8と同じ
-      「亭主AIの計画用ヒューリスティック」(客の真の手を覗くのではなく、客が公開情報から合理的に選ぶ様子の予測)
-      を流用しており、新たに覗き見の性質を追加してはいない。DOKU_TARGET_WEIGHTは新設の内部チューニング定数
-      (PILE_TEMP等と同じ位置づけでUIレバーには出さない)。
-  30. 【v0.6・全公開モード】cfg.openMode='full'(既定)のとき、buildBeliefは記憶モデル(memoryModel)を無視し、
-      対象プレイヤーの懐紙・余韻ゾーンの真の中身をそのまま返す(取った菓子が表向きのまま各自の前に並ぶ、
-      というルール変更をCPUの認知にも一致させるだけで、覗き見のロジックを追加したわけではない)。
-      cfg.openMode='memory'を選ぶとv0.5相当(記憶モデルどおりの信念)に戻る。
-  31. 【v0.6・全公開モードでの無効化】cfg.openMode='full'のときは、UI層(readCfg)がreachThreshold=0・
-      selfKaishiView=falseを強制する(宣言・懐紙見返しは「全部見えている」前提と両立しないため)。
-      Engine.applyDefaults自体はこれらの既定値を変えていない(直接Engineを叩くテスト・シミュは
-      openModeに関わらず個別に指定した値がそのまま使える)。少食ボーナスの既定値は0(v0.6でルールから
-      実質削除。レバーとしては残置し比較用に4等へ戻せる)。
-  32. 【v0.6・格の復活】デッキ枚数はv0.3/v0.4と同じ(桜16/水14/栗12/椿10+四季4=56枚)。v0.5で対称化
-      (4種とも13枚・共通梯子)した結果、切りEVが1.43→0.44点/席まで落ちた実証があるため、全公開下でも
-      価値の非対称(格)を切り・毒の燃料として維持する。ただし梯子(得点表)はv0.3/v0.4の値そのままだと
-      少食ボーナス撤廃後は椿(急)が強すぎ・桜(緩)が弱すぎになりFAIL(桜x0.58〜0.71/椿x1.19〜1.29@N=1200〜2500)。
-      桜の上段を強化・椿の上段を弱化する形でv0.6用に再調整し、格の均衡(x0.9〜1.1)を確認済み
-      (N=3500でx0.96/0.96/0.98/1.10)。少食ボーナスという「格を壊す真犯人」(v0.4の教訓)を除いても、
-      梯子の絶対値そのものは少食の有無で釣り合いが変わる=独立した再調整が要ることが分かった。
-  33. 【v0.7試作・毒か粋か(kaiyo発案・2026-07-12。同日の修正を経て第3案=在庫制が現行)】cfg.dokuStyle='iki'の
-      とき、各プレイヤーは印の在庫(markStock=毒・粋 各markEach個。持ち数は仮置き解釈37=既定は各2の
-      第4案)を持ち、**自分が亭主の番ごとに在庫からmin(markEach,残り)個を選んで
-      盆の1枚に必ず伏せて置く**(kaiyo指示=「自分の亭主の番でどっちか一つ・ゲーム中に1回ずつ」。
-      既定hostRounds=2なので2回の亭主番で毒と粋を1回ずつ。どちらを先に使うかは自由=タイミングが資源)。
-      在庫が尽きた亭主番(hostRounds>2の場合)は置かない。印の位置は全員に公開。符号は**取った本人だけが
-      取った瞬間に確認できる**(kaiyo指示)。他の人には拝見まで非公開。
-      推理の構造(第3案の核): 印の残数は公開情報(置いた回数は数えられる)。ある亭主の1枚目の印を食べた人は
-      その符号を知る=**その亭主の2枚目の符号が補集合で確定する**(player.knownSignsに記録し、CPUも
-      「2枚目の印×1枚目を知っている観測者」は確定値で評価する)。知らない観測者は期待値
-      (markEV=markPrior0.5×毒+0.5×粋)で評価。この席の亭主(置いた本人)は常に真値で評価。
-      player.marksに真の符号を積み、scoreOf.totalは真値。公開画面(プレイヤー欄)はmarkTotalを除いた
-      得点+「❓印×n」+「🎴印のこり×n」。本人だけの私的画面(🤫印の確認・懐紙見返し・得点行)では真値と
-      補集合推理(「つまり◯◯の残りは✨」)を見せる。印カードの種類の扱いは仮置き解釈34(既定=数えない)。
-      dokuMode='secret'は'iki'では'open'に読み替え。
-      亭主AIは(在庫の符号)×(位置)の全組を評価し、自分の残り物は真値・客に渡る印は真値を客の純増に
-      足し込んで標的評価する(2枚目を置くときは「1枚目を食べた客に読まれている」前提で客の選択を予測)。
-      leadWeightの現在得点はpublicScoreOfを使う。
-      plain型(v0.6既定)の挙動・評価式は一切変えていない(v0.6シミュ結果の再現性維持)。
-  34. 【v0.7試作・第2案・印カードの種類の扱い(markCountsType)】既定true=印カードもふつうに種類として
-      数える(±トークンが上に乗るだけ。カード自体は盆で全員が見ていた公開情報なので秘匿は壊れない)。
-      v0.5毒の「毒カードは種類に数えない」を継承すると印カードが種類の経済から消えて格が歪むため
-      一時「数える」を試したが、印の実質税が軽くなりcountmaxがx1.3〜1.7で支配化して不採用。
-      既定はfalse(数えない)のまま、格の歪みは仮置き解釈35の梯子補正で直す。trueは実験用レバー。
-  35. 【v0.7試作・iki型専用の梯子補正(ikiLadders)】印カード(第3案=8枚/ゲーム)が種類に数えられない
-      ぶん、標準梯子(v0.6)では格が歪む(水x0.85/椿x1.15でFAIL)。iki型ではladdersを明示しない限り
-      桜[8枚=13点][10枚=18点]・椿[5枚=11点]に補正した梯子を既定にする(v0.6の格再調整と同じ手筋。
-      補正後は桜1.07/水0.91/栗1.03/椿0.99で帯内)。
-  36. 【v0.7試作・亭主の回り順(hostOrder)と順番公平性】第3案では「最初の亭主」が構造的に不利になる
-      順番差をシミュで確認(forward: 3人戦で1番手x0.71/2番手x1.28。v0.6毒のみでは差がない=毎席の毒が
-      初手の正客有利を抑えていた)。iki型の既定はhostOrder='snake'(2巡目の亭主は逆回り。折り返しでは
-      同じ人が2席連続亭主)で、順番差はおおむね半減する(3人戦1番手x0.71→0.88)が、2番手(最初の正客)有利は
-      x1.1〜1.2残る=既知の未解決課題としてルールノートに記載。取り順まで逆にする案は悪化(x1.35)で不採用。
-      少食+2(kaiyo指示の再検討で採用)はcountmax抑制の補助で、順番差への効果は小さい。
-  37. 【v0.7試作・印の持ち数(markEach)とバッグモデル推理】cfg.markEach=1(第3案・既定)/2(第4案試作:
-      毒2粋2を持ち亭主番ごとに2個必置。初番の組み合わせ 毒毒/毒粋/粋粋 の3択が生まれ、2番目の番は
-      残りの複集合で縛られる)。これに伴い推理をバッグモデルに一般化: 観測者は「置き手の全体構成
-      (毒markEach・粋markEach)から自分が実際に見た符号を引いた残り」からの一様抽選として未見の印を
-      期待値評価する(player.seenMarksに見た数を記録)。markEach=1では第3案の補集合推理と厳密に一致。
-      戦略的な選び方による偏り(毒温存等)は織り込まない素朴モデル(markPrior同様の仮置き)。
-  38. 【v0.7追記・自分の印の私的表示(kaiyo指示・2026-07-12)】自分が取った印の中身(☠️/✨)は取った本人には
-      分かり続けるべき情報(本人は🤫画面で一度見ている=記憶ゲーにしない)なので、UI層でだけ本人に見せる:
-      nHuman=1なら画面の観客は本人だけなので、プレイヤー欄の自分の印チップを❓でなく真の符号
-      (種類×符号ごとに ☠️=赤枠/✨=緑枠のチップ)で常時表示+「あなたにだけ表示」の注記(selfMarkVisible)。
-      nHuman>=2(パス&プレイ)では欄は全員❓のまま、本人の手番UI(切るUI・選ぶUI。手渡しマスクの内側)に
-      「🤫自分の取った印」の一行(myMarksLineHtml)でだけ見せる。🤫確認画面・懐紙見返しにも種類×符号の
-      内訳を追加。すべて表示だけの変更でEngine・CPU評価・ログ・拝見までの他者秘匿は不変。
+  ちゃばん オンライン対戦版（ゲームID: chaban・v0.7第4案「毒か粋か」対応・全公開）
+  ルール正本: Resources/ルール_ちゃばん_v0.6.md（末尾の第4案が現行既定。ローカル比較レバーはローカル版参照）
+  ルールはローカル版プロトタイプ（ちゃばん_プロトタイプ.html）と同一ロジック（Engineをそのままコピー・二重管理しない）。
+  仕組み: PeerJS（無料P2P仲介）でホストの部屋に接続。ホスト＝Engineを持つ進行役（タブを閉じると部屋終了）。
+  印の中身(☠️毒/✨粋)は「取った本人」の端末にだけ配信する(privペイロード)。他の人には❓のまま、拝見で開示。
+  自分が取った印はプレイヤー欄に中身つきで表示され続ける(2026-07-12 kaiyo指示の私的表示・オンラインでは自分の端末=常時安全)。
+  切断者はCPUが代打ち(手番中の切断は cut/pick はCPU代行・peek はスキップ)。
+  オンライン版は全公開(v0.6/v0.7の現行形)固定。記憶モード・余韻・宣言・半端等の比較レバーはローカル版だけに残す。
+  実ネットワークでの接続はkaiyoの実機確認待ち（同じファイルを2端末で開いて部屋コードを入れるだけ）。
 -->
 <style>
   :root{
@@ -242,105 +94,76 @@
   .pilebox .sum{font-weight:800;color:var(--accent);font-size:14px;margin-bottom:4px}
   .pilebox .tag{font-size:11px;color:var(--sub)}
   .pilebox .cards{display:flex;gap:3px;flex-wrap:wrap}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;background:#fdf3e2;border:1px dashed var(--accent);
+        border-radius:10px;padding:6px 18px;display:inline-block}
+  input.txt2{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:16px;width:230px}
+  .err{color:var(--bad);font-size:13px;font-weight:700}
+  .badge.ok{background:var(--good);color:#fff}
 </style>
 </head>
 <body>
 <header>
   <h1>🍵 ちゃばん</h1>
-  <span class="tag">開発プロトタイプ v0.6</span>
+  <span class="tag">オンライン対戦（部屋コード式）</span>
   <span class="tag">ゲームID: chaban</span>
-  <span class="tag">全公開×格×標的毒 検証用</span>
+  <span class="tag">開発中プロトタイプ</span>
 </header>
 
 <div class="wrap">
 
-  <div id="setup" class="card-panel">
-    <h2>セットアップ</h2>
-    <div class="row" style="margin-bottom:12px">
-      <label>人間 <input id="nHuman" class="num" type="number" min="0" max="4" value="1"></label>
-      <label>CPU <input id="nCpu" class="num" type="number" min="0" max="4" value="3"></label>
-      <span class="hint">合計3〜4人。人間2人以上はパス&プレイ（手番ごとに画面を渡す）。人間0で観戦デモ。</span>
+  <div id="home" class="card-panel">
+    <h2>あそぶ</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label>なまえ <input id="nameInput" class="txt2" maxlength="8" placeholder="8文字まで"></label>
     </div>
-    <h3>調整レバー</h3>
-    <div class="grid">
-      <label>四季(ワイルド)の枚数 <input id="shikiCount" class="num" type="number" min="0" max="6" value="4"></label>
-      <label>1席の枚数(固定) <input id="seatSize" class="num" type="number" min="6" max="8" value="7"></label>
-      <label>亭主の巡数 <input id="hostRounds" class="num" type="number" min="1" max="3" value="2"></label>
-      <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="700"></label>
+    <div class="row" style="margin-bottom:6px">
+      <button id="createBtn">部屋を作る（ホスト）</button>
+      <span class="hint">部屋コードが出るので、友だちに送ってください。</span>
     </div>
-    <div class="row" style="margin-top:10px">
-      <label>公開モード
-        <select id="openMode">
-          <option value="full" selected>全公開(既定・v0.6)</option>
-          <option value="memory">記憶(v0.5相当・比較用)</option>
-        </select>
-      </label>
-      <label>半端の減点(1枚だけの種類)
-        <select id="hanpaPenalty">
-          <option value="0" selected>0(なし=既定・v0.4で廃止)</option>
-          <option value="-1">−1/種(v0.3相当・比較用)</option>
-          <option value="-2">−2/種</option>
-        </select>
-      </label>
-      <span class="hint">全公開では取った菓子が「種類×枚数」のまとめ表示で常に見えます(宣言・記憶精度・懐紙見返し・得点トグル・余韻は無効)。「記憶」を選ぶとv0.5相当で比較できます。</span>
+    <div class="row">
+      <input id="roomInput" class="txt2" placeholder="部屋コード (cha-xxxxx)">
+      <button class="ghost" id="joinBtn">部屋に入る</button>
     </div>
-    <div class="row hidden" id="memoryOnlyRow" style="margin-top:10px">
-      <label>自分の懐紙 <input id="selfKaishiView" type="checkbox" checked> 見返しを許可(既定=可)</label>
-      <label>CPU記憶精度
-        <select id="cpuMemory">
-          <option value="decay" selected>減衰(既定)</option>
-          <option value="perfect">完全</option>
-          <option value="none">無記憶</option>
-        </select>
-      </label>
-      <label>余韻(表向きで置く席数)
-        <select id="yoinSeats">
-          <option value="0">0(即しまう=v0.2相当)</option>
-          <option value="1" selected>1(既定)</option>
-          <option value="2">2(ほぼ公開ゲーム化)</option>
-        </select>
-      </label>
-      <label>到達宣言のしきい値 <input id="reachThreshold" class="num" type="number" min="0" max="20" value="10"> 点(達したら宣言=記憶の目印。税は既定0・cfgで復元可。0=宣言なし)</label>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <label>☠️毒
-        <select id="dokuMode">
-          <option value="open" selected>公開(既定): 毒の位置は全員に見える</option>
-          <option value="secret">非公開: 位置は秘密。「盛った」ことだけ公開され、席の終わりに誰が口にしたか開示</option>
-          <option value="off">なし</option>
-        </select> 毒は−2点</label>
-      <label>毒の型
-        <select id="dokuStyle">
-          <option value="plain" selected>毒のみ(v0.6既定)</option>
-          <option value="iki">毒か粋か(v0.7試作): 亭主は手持ちの毒1・粋1から毎番1つを必ず伏せて置く(中身は取った本人だけ確認)</option>
-        </select></label>
-      <label class="hidden" id="ikiValRow">☠️毒 <input id="dokuValueIn" class="num" type="number" min="-6" max="0" value="-2"> 点 ／ ✨粋 <input id="ikiValueIn" class="num" type="number" min="0" max="4" value="1"> 点 ／ 持ち数
-        <select id="markEach">
-          <option value="2" selected>各2(第4案・既定): 亭主番ごとに2個(毒毒/毒粋/粋粋の択)</option>
-          <option value="1">各1(第3案・比較用): 亭主番ごとに1個</option>
-        </select> <span class="hint">(位置は常に公開・毎番必置)</span></label>
-      <label>譲り合いの正客 <input id="yuzuriai" type="checkbox"> (v0.5で廃止・既定OFF。ON=v0.4比較用)</label>
-      <label>少食ボーナス <input id="shoshokuBonus" class="num" type="number" min="0" max="8" value="0"> 点(拝見時、枚数最少の人へ。毒のみ=0が既定。毒か粋か型は+4推奨=枚数どり抑制の補助。型を切り替えると自動で連動)</label>
-      <label>枚数の公開 <input id="countPublic" type="checkbox" checked> 合計枚数を常時表示(既定=ON。記憶モード時のみ意味を持つ)</label>
-    </div>
-    <div class="foot">既定＝v0.6(全公開×格×標的毒)。検証したい問い: ①切りの旨みの回復(毒配置込み最善vs毒なし均等≧1点/席) ②countmaxの抑制(毒単独でx1.0以下)+毒の照準分布(厚い山狙い一辺倒でないか) ③格の均衡(各菓子特化CPUがx0.9〜1.1)。</div>
+    <div class="err" id="homeErr" style="margin-top:8px"></div>
+    <div class="hint" style="margin-top:10px">3〜4人（CPUで埋めてもOK）。P2P通信のため、会社ネットワーク等では繋がらないことがあります（スマホ回線なら概ねOK）。ホストがタブを閉じると部屋は終了します。</div>
+  </div>
 
-    <h3>ルール要約</h3>
-    <table class="rules">
-      <tr><td>1. 盛る</td><td>亭主が山札から「7枚」(レバーで6〜8枚に変更可)をめくり、盆に一列に並べる</td></tr>
-      <tr><td>2. 切る</td><td>亭主が黒文字を隙間に置き、並び順を変えずに人数分の山に切る(1枚の山も可)。<b>このとき盆のカード1枚に毒を置いてよい(任意・公開)</b></td></tr>
-      <tr><td>3. 選ぶ</td><td>正客(亭主の左隣)から時計回りに、客が1山ずつ取る</td></tr>
-      <tr><td>4. 並べる(全公開)</td><td>取った菓子は自分の前に<b>表向き</b>で並べる。懐紙に隠さず、拝見前でも全員の得点は常時わかる</td></tr>
-      <tr><td>5. 亭主の取り分</td><td>残った1山を亭主が受け取り、同じく表向きで並べる。亭主は時計回りに交代</td></tr>
-      <tr><td>終了</td><td>全員が亭主を規定回数(既定2回)務めたら「拝見」。梯子(菓子ごとの枚数・傾斜)＋四季の自動最適配分 −毒(1つ−2点)</td></tr>
-      <tr><td>記憶モード(比較用)</td><td>「公開モード」を「記憶」に切り替えるとv0.5相当(懐紙は非公開・余韻ゾーン経由・記憶精度・到達宣言あり)で比較できる</td></tr>
-      <tr><td>毒か粋か(v0.7試作)</td><td>「毒の型」を「毒か粋か」にすると、各プレイヤーは<b>毒(−2)×2と粋(+1)×2の印</b>を持ち、自分が亭主の番ごとに<b>2個を選んで盆の別々のカードに必ず伏せて置く</b>(毒毒/毒粋/粋粋から選ぶ。2回の番で4個を使い切る)。位置は全員に見えるが、中身は<b>取った本人だけ</b>がその場で確認できる(自分が取った印は以後も自分の画面にだけ中身が表示され続ける。ほかの人には❓のまま)。見た印の分だけ、その亭主の残りの印を絞り込める(持ち数「各1」にすると第3案=1個ずつ・残りが確定型の推理になる)</td></tr>
-    </table>
-
-    <div class="row" style="margin-top:16px">
-      <button id="startBtn">▶ ゲーム開始</button>
-      <button class="ghost small" id="resetDefaults">既定値に戻す</button>
+  <div id="lobby" class="card-panel hidden">
+    <h2>ロビー</h2>
+    <div class="row" style="margin-bottom:8px">
+      <span id="roleTag" class="hint"></span>
+      <span class="code" id="roomCodeView"></span>
+      <span class="hint">← この部屋コードを共有</span>
     </div>
+    <div class="players" id="lobbyPlayers" style="margin-bottom:10px"></div>
+    <div id="hostCfg" class="hidden">
+      <h3>設定（ホストのみ）</h3>
+      <div class="grid">
+        <label>CPUの人数 <input id="nCpu" class="num" type="number" min="0" max="3" value="1"></label>
+        <label>四季(ワイルド) <input id="shikiCount" class="num" type="number" min="0" max="6" value="4"></label>
+        <label>1席の枚数 <input id="seatSize" class="num" type="number" min="6" max="8" value="7"></label>
+        <label>亭主の巡数 <input id="hostRounds" class="num" type="number" min="1" max="3" value="2"></label>
+        <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="700"></label>
+        <label>少食ボーナス <input id="shoshokuBonus" class="num" type="number" min="0" max="8" value="0"></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label>毒の型
+          <select id="dokuStyle">
+            <option value="plain" selected>毒のみ(v0.6既定)</option>
+            <option value="iki">毒か粋か(v0.7): 印を伏せて置く(中身は取った本人だけ確認)</option>
+          </select></label>
+        <label class="hidden" id="ikiValRow">☠️毒 <input id="dokuValueIn" class="num" type="number" min="-6" max="0" value="-2"> 点 ／ ✨粋 <input id="ikiValueIn" class="num" type="number" min="0" max="4" value="1"> 点 ／ 持ち数
+          <select id="markEach">
+            <option value="2" selected>各2(第4案・既定)</option>
+            <option value="1">各1(第3案・比較用)</option>
+          </select></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="startBtn">▶ ゲーム開始</button>
+        <span class="err" id="lobbyErr"></span>
+      </div>
+    </div>
+    <div class="hint" id="lobbyHint" style="margin-top:8px"></div>
   </div>
 
   <div id="game" class="hidden">
@@ -348,8 +171,7 @@
     <div class="card-panel">
       <h2>点数表
         <button class="ghost small" id="refBtn">開く</button>
-        <label id="scoreToggleWrap" style="font-size:12px;font-weight:400;margin-left:14px">💯 現在の自分の得点を表示 <input id="scoreToggle" type="checkbox"> <span class="hint" id="scoreToggleHint">(自分の手番の画面にだけ出ます)</span></label>
-        <span class="hint" id="scoreAlwaysHint" style="margin-left:14px">全員の現在得点はプレイヤー欄に常時表示されています</span>
+        <span class="hint" style="margin-left:14px">全員の現在得点はプレイヤー欄に常時表示されています（❓印ぶんはのぞく）</span>
       </h2>
       <div id="refPanel" class="hidden"></div>
     </div>
@@ -360,15 +182,11 @@
     </div>
     <div class="flex-split">
       <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
-      <div class="card-panel"><h2>ログ(種類は記録しません)</h2><div class="log" id="log"></div></div>
+      <div class="card-panel"><h2>ログ(印の中身は記録しません)</h2><div class="log" id="log"></div></div>
     </div>
     <div class="card-panel" id="actionPanel">
       <h2 id="turnTitle"></h2>
       <div id="actionBody"></div>
-    </div>
-    <div class="row">
-      <button class="ghost small" id="backSetup">← 設定に戻す</button>
-      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
     </div>
   </div>
 
@@ -376,6 +194,7 @@
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -1289,69 +1108,6 @@ const Engine = {
   }
 };
 
-/* ===== UI（Engineを呼ぶだけ。数値は必ず +$(id).value で読む） ===== */
-let S=null, cutSel=new Set(), pickSel=null;
-
-function memLabel(m){ return m==='perfect'?'完全':m==='none'?'無記憶':'減衰'; }
-function cardHtml(type,mini,doku){
-  const m=TYPE_META[type];
-  // v0.7試作(iki型): 符号は非公開なので、印はどちらか分からない「❓」で描く(☠️を出すと符号が漏れる)
-  const iki = S && S.cfg && S.cfg.dokuStyle==='iki';
-  const mark=doku?`<div style="position:absolute;top:-6px;right:-6px;font-size:15px">${iki?'❓':'☠️'}</div>`:'';
-  return `<div class="gcard t-${type}${mini?' mini':''}" style="position:relative${doku?';border-color:var(--bad)':''}">${mark}<div class="em">${m.emoji}</div>${mini?'':`<div style="font-size:10px">${m.label}</div>`}</div>`;
-}
-function readCfg(){
-  const c={};
-  ['nHuman','nCpu','shikiCount','seatSize','hostRounds','cpuThink','shoshokuBonus','reachThreshold'].forEach(i=>c[i]=+$(i).value);
-  c.selfKaishiView=$('selfKaishiView').checked;
-  c.cpuMemory=$('cpuMemory').value||'decay';
-  c.yoinSeats=+$('yoinSeats').value;
-  c.hanpaPenalty=+$('hanpaPenalty').value;
-  c.yuzuriai=$('yuzuriai').checked;
-  c.countPublic=$('countPublic').checked;
-  c.dokuMode=$('dokuMode').value||'open';
-  c.dokuStyle=$('dokuStyle').value||'plain';
-  // v0.7試作: 毒か粋か型のときだけ±入力を読む(plain型は従来どおりEngine既定-2)
-  if(c.dokuStyle==='iki'){ c.dokuValue=+$('dokuValueIn').value; c.ikiValue=+$('ikiValueIn').value; c.markEach=(+$('markEach').value)||2; }
-  c.openMode=$('openMode').value||'full';
-  // v0.6(仮置き解釈31): 全公開モードでは宣言・懐紙見返しは意味を失うため無効化する
-  // (Engine.applyDefaults自体は変えない。直接Engineを叩くテスト・シミュはopenModeに関わらず個別指定が生きる)
-  // v0.7(kaiyo指示・2026-07-12): 余韻も全公開では不要(常に全部見えている)ので0=取った瞬間に懐紙へ。
-  // 余韻は記憶モード専用のレバーとして残す。エンジン上は全公開なら余韻の有無で挙動が変わらない(表示だけの差)。
-  if(c.openMode==='full'){ c.reachThreshold=0; c.selfKaishiView=false; c.yoinSeats=0; }
-  return c;
-}
-function log(msg){ const el=$('log'); el.innerHTML+=`<div>${msg}</div>`; el.scrollTop=el.scrollHeight; }
-function logTaken(name,n){ log(`<span class="step">受け取った</span>${name} が山（${n}枚）を受け取りました`); }
-
-function startGame(){
-  const cfg=readCfg();
-  const total=cfg.nHuman+cfg.nCpu;
-  if(total<3||total>4){ alert('合計3〜4人で設定してください。'); return; }
-  const specs=[];
-  for(let i=0;i<cfg.nHuman;i++) specs.push({name:'あなた'+(cfg.nHuman>1?(i+1):''),isCPU:false});
-  for(let i=0;i<cfg.nCpu;i++) specs.push({name:'CPU'+(i+1),isCPU:true,memoryModel:cfg.cpuMemory});
-  shuffle(specs);
-  S=Engine.newGame(cfg,specs);
-  $('log').innerHTML='';
-  log(`ゲーム開始（${total}人 / 公開モード:${cfg.openMode==='full'?'全公開':'記憶('+memLabel(cfg.cpuMemory)+')'} / 1席${cfg.seatSize}枚 / ワイルド${cfg.shikiCount}枚 / 亭主${cfg.hostRounds}巡 / 余韻${cfg.yoinSeats}席 / 半端減点${cfg.hanpaPenalty} / 毒${S.cfg.dokuOn?(S.cfg.dokuStyle==='iki'?`か粋か(${S.cfg.dokuValue}／+${S.cfg.ikiValue})`:'ON'):'OFF'} / 少食+${cfg.shoshokuBonus} / 枚数公開${cfg.countPublic?'ON':'OFF'} / 宣言しきい値${cfg.reachThreshold}点 / 譲り合い${cfg.yuzuriai?'ON':'OFF'}）`);
-  // v0.4: 点数傾斜表を今回のcfgで生成。得点トグルは毎ゲームOFFに戻し、見返し不可なら無効化(仮置き解釈23)
-  $('refPanel').innerHTML=buildRefTable(S.cfg);
-  $('refPanel').classList.add('hidden'); $('refBtn').textContent='開く';
-  $('scoreToggle').checked=false;
-  $('scoreToggle').disabled=!S.cfg.selfKaishiView;
-  $('scoreToggleHint').textContent = S.cfg.selfKaishiView
-    ? '(自分の手番の画面にだけ出ます。切り替えは次の描画から)'
-    : '(「懐紙見返し不可」のため使えません)';
-  // v0.6: 全公開モードでは得点トグル(自分限定)を隠し、代わりに全員常時表示の案内を出す
-  const openFull = S.cfg.openMode==='full';
-  $('scoreToggleWrap').classList.toggle('hidden',openFull);
-  $('scoreAlwaysHint').classList.toggle('hidden',!openFull);
-  $('setup').classList.add('hidden'); $('result').classList.add('hidden');
-  $('game').classList.remove('hidden');
-  beginSitting();
-}
-
 /* v0.4: 点数傾斜表(公開リファレンス・kaiyo要望)。製品ではカード印字を想定する公開情報 */
 function buildRefTable(cfg){
   let html='<table class="rules">';
@@ -1379,533 +1135,648 @@ function buildRefTable(cfg){
   return html;
 }
 
-/* v0.4: 現在の自分の得点(トグルON・見返し可のときのみ。本人の手番UI内限定=パス&プレイでも安全) */
-function scoreLineHtml(idx){
-  if(!S || !S.cfg.selfKaishiView) return '';
-  if(!$('scoreToggle') || !$('scoreToggle').checked) return '';
-  const sc=Engine.scoreOf(S.players[idx],S.cfg);
-  // iki型(第2案): 印の中身は取った本人が知っている(kaiyo指示)。本人の手番UI内なので真値で表示してよい
-  const markNote=sc.markCount?`（うち印 ☠️×${sc.markDoku}・✨×${sc.markIki}=${sc.markTotal>0?'+':''}${sc.markTotal}点。ほかの人には秘密）`:'';
-  return `<div class="hint" id="scoreLine">💯 ${S.players[idx].name} の現在得点(参考): <b>${sc.total}</b>点${markNote} ― 四季最適配分ずみ／到達税・少食ボーナスは終了時判定のため含みません</div>`;
-}
+/* ===== オンライン層（ホスト権威型・じゅんばんちょう/なくはないオンラインと同型） =====
+   ホスト＝Engineを持つ進行役。ゲストは公開スナップショット＋「自分の私的情報(印の中身)」だけを受け取る。
+   教訓の適用: ①手番UIはmyTurnとして保持しapplySnapの最後に復元(逐次手番オンラインの教訓)
+              ②actを適用したら同じ同期ブロック内でFlowを無効化(重複act対策の教訓) */
+let role=null, myName='', roomId='';
+let peer=null, hostConns=[], guestConn=null;
+let S=null;                 // hostのみ(真の状態)
+let Flow=null;              // hostのみ: {phase:'cut'|'pick'|'peek', waiting:seat, orderPos?, cont?}
+let hostLog=[], sentLog=0;
+let mySeat=-1, curSnap=null, curPriv=null, myCfg=null, myTurn=null;
 
-/* v0.7追記(kaiyo指示・2026-07-12/仮置き解釈38): 自分が取った印の中身(☠️/✨)を本人にだけ見せる。
-   - nHuman=1: 画面の観客は本人だけなので、プレイヤー欄の自分の印チップを真の符号で常時表示(selfMarkVisible)
-   - nHuman>=2(パス&プレイ): 欄は全員❓のまま。本人の手番UI内の一行(myMarksLineHtml)でだけ見せる
-   どちらもEngineは触らない表示だけの変更。CPUの評価・ログ・拝見までの秘匿は従来どおり。 */
-function selfMarkVisible(idx){
-  return !!(S && S.cfg.dokuStyle==='iki' && S.cfg.dokuOn && S.cfg.nHuman===1 && !S.players[idx].isCPU);
+function log(msg){ const el=$('log'); el.innerHTML+='<div>'+msg+'</div>'; el.scrollTop=el.scrollHeight; }
+function show(id){ ['home','lobby','game','result'].forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); }
+function setAction(html){ $('actionBody').innerHTML=html; }
+function randCode(){ const s='abcdefghjkmnpqrstuvwxyz23456789'; let r=''; for(let i=0;i<5;i++) r+=s[rnd(s.length)]; return 'cha-'+r; }
+function cpuMs(){ return (role==='host')?Math.max(0,+$('cpuThink').value||0):700; }
+function stepTag(t){ return '<span class="step">'+t+'</span>'; }
+
+/* ---------- 共通の描画部品 ---------- */
+function cardHtml(c,mini){
+  const m=TYPE_META[c.type];
+  const mark=c.mark?'<div style="position:absolute;top:-6px;right:-6px;font-size:15px">❓</div>':'';
+  return '<div class="gcard t-'+c.type+(mini?' mini':'')+'" style="position:relative'+(c.mark?';border-color:var(--bad)':'')+'">'+mark+'<div class="em">'+m.emoji+'</div>'+(mini?'':'<div style="font-size:10px">'+m.label+'</div>')+'</div>';
 }
-function myMarkParts(idx){
+function marksPartsOf(marks){
   const g={};
-  (S.players[idx].marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
+  (marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
   return Object.entries(g).map(([k,n])=>{
     const [ty,sign]=k.split('|');
-    return `${TYPE_META[ty].emoji}${sign==='doku'?'☠️':'✨'}${n>1?'×'+n:''}`;
+    return TYPE_META[ty].emoji+(sign==='doku'?'☠️':'✨')+(n>1?'×'+n:'');
   });
 }
-function myMarksLineHtml(idx){
-  if(!S || S.cfg.dokuStyle!=='iki' || !S.cfg.dokuOn) return '';
-  if(S.cfg.nHuman<2) return ''; // nHuman=1はプレイヤー欄で常時見えている(重複表示を避ける)
-  const parts=myMarkParts(idx);
-  if(!parts.length) return '';
-  return `<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます): ${parts.join(' ・ ')} ― ほかの人には❓のまま</div>`;
+function renderRowAndPiles(snap){
+  if(snap.row){
+    $('rowArea').innerHTML=snap.row.map(c=>cardHtml(c,false)).join('');
+    $('pileArea').classList.add('hidden');
+  } else { $('rowArea').innerHTML=''; }
+  if(snap.piles){
+    $('pileArea').classList.remove('hidden');
+    let html='';
+    snap.piles.forEach((pl,k)=>{
+      const taken=pl.takenBy!==null&&pl.takenBy!==undefined;
+      const clickable=!!(myTurn&&myTurn.data&&myTurn.data.sub==='pick'&&!taken&&snap.actor===mySeat);
+      const cls='pilebox'+(taken?' taken':(clickable?' avail':''));
+      const dokuTag=pl.dokuCount?' <span style="color:var(--bad)">❓印×'+pl.dokuCount+'</span>':'';
+      const tag=taken?(snap.players[pl.takenBy].name+' が獲得'):(clickable?'クリックで選択':'');
+      html+='<div class="'+cls+'" id="pilechoice'+k+'"><div class="sum">'+pl.cards.length+'枚'+dokuTag+'</div><div class="cards">'+pl.cards.map(c=>cardHtml(c,true)).join('')+'</div><div class="tag">'+tag+'</div></div>';
+    });
+    $('pileArea').innerHTML=html;
+  } else if(!snap.row){ $('pileArea').classList.add('hidden'); $('pileArea').innerHTML=''; }
 }
-
-function beginSitting(){
-  Engine.startSitting(S);
-  const host=S.players[S.sitting.hostIdx];
-  const seikyaku=S.players[S.sitting.order[0]];
-  $('banner').textContent=`席 ${S.sittingIndex+1}/${S.totalSittings} ― 亭主: ${host.name} ／ 正客: ${seikyaku.name}`;
-  $('drawInfo').textContent=` ― 山札残${S.deck.length}枚`;
-  $('pileArea').classList.add('hidden');
-  renderRowStatic();
-  renderAll();
-  cutPhase();
-}
-function dokuVisible(c){ return c.doku && S.cfg.dokuMode==='open'; }
-function renderRowStatic(){
-  $('rowArea').innerHTML = S.sitting.row.map(c=>cardHtml(c.type,false,dokuVisible(c))).join('');
-}
-function renderPiles(clickable){
-  const area=$('pileArea');
-  area.classList.remove('hidden');
-  $('rowArea').innerHTML='';
+function renderPlayers(snap,priv){
   let html='';
-  S.sitting.piles.forEach((pl,k)=>{
-    const taken=pl.takenBy!==null;
-    const cls='pilebox'+(taken?' taken':(clickable?' avail':''));
-    const cardsHtml=pl.cards.map(c=>cardHtml(c.type,true,dokuVisible(c))).join('');
-    const dokuTag = (pl.dokuCount && S.cfg.dokuMode==='open')
-      ? (S.cfg.dokuStyle==='iki'?` <span style="color:var(--bad)">❓印×${pl.dokuCount}</span>`:` <span style="color:var(--bad)">☠️毒入り</span>`)
-      : '';
-    const tag = taken ? `${S.players[pl.takenBy].name} が獲得` : (clickable?'クリックで選択':'');
-    html+=`<div class="${cls}" id="pilechoice${k}"><div class="sum">${pl.cards.length}枚${dokuTag}</div><div class="cards">${cardsHtml}</div><div class="tag">${tag}</div></div>`;
-  });
-  area.innerHTML=html;
-}
-function renderAll(){
-  let html='';
-  const openFull = S.cfg.openMode==='full';
-  S.players.forEach((p,i)=>{
-    const isHost=S.sitting && S.sitting.hostIdx===i;
-    const isSeikyaku=S.sitting && S.sitting.order[0]===i;
-    // v0.6: 全公開モードでは記憶精度バッジは意味を失うため出さない(仮置き解釈30)
-    const memTag=(p.isCPU && !openFull)?`<span class="badge">${memLabel(p.memoryModel)}</span>`:'';
-    const yoinN=p.yoinZone.reduce((s,e)=>s+e.types.length,0);
-    const yoinCards=p.yoinZone.flatMap(e=>e.types).map(ty=>cardHtml(ty,true)).join('');
-    const dokuBadge = (p.dokuCount||0)>0 ? `<span class="badge" style="background:var(--bad);color:#fff">☠️×${p.dokuCount}</span>` : '';
-    // v0.7試作(iki型): 印は「持っていること」だけ公開。符号(毒か粋か)は拝見まで出さない
-    const nMarks=(p.marks||[]).length;
-    const markBadge = nMarks>0 ? `<span class="badge" style="background:#8a8272;color:#fff">❓印×${nMarks}</span>` : '';
-    // 第3案: 手持ちの印の残数は公開情報(何を置いたかは秘密でも「何回置いたか」は数えられる)
-    const stockBadge = (S.cfg.dokuStyle==='iki' && S.cfg.dokuOn) ? `<span class="badge">🎴印のこり×${(p.markStock||[]).length}</span>` : '';
-    let kaishiSection;
-    if(openFull){
-      // v0.6(d): 全公開モードでは懐紙も表向きで、現在得点を全員ぶん常時表示する。
-      // v0.7(kaiyo指示): 取ったカードは1枚ずつ並べず「種類×枚数」にまとめて表示し、
-      // 得点は毒・粋(未開示の印の±)をのぞいた値を出す。全公開では余韻も廃止(=懐紙に直行)。
-      const allT=Engine.tallyTypes(Engine.allTypesOf(p));
-      const chips=TYPES4.concat(['wild']).filter(ty=>(ty==='wild'?allT.wild:allT[ty])>0)
-        .map(ty=>`<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}×${ty==='wild'?allT.wild:allT[ty]}</div></div>`)
-        .join('');
-      // 印つきカード: カード自体は卓に残り種類は公開(コマが乗っているだけ)。符号だけが秘密→❓を添えて別チップ
-      // v0.7追記(kaiyo指示・2026-07-12/仮置き解釈38): 卓の人間が自分ひとり(nHuman=1)なら、この画面の観客は
-      // 本人だけなので、自分の印チップは真の符号(☠️/✨)で描く。CPU・パス&プレイの他人には引き続き❓のまま。
-      const selfMarkView = selfMarkVisible(i);
-      const markChips = selfMarkView
-        ? (()=>{ const g={};
-            (p.marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
-            return Object.entries(g)
-              .map(([k,n])=>{ const [ty,sign]=k.split('|'); const em=sign==='doku'?'☠️':'✨';
-                return `<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed;border-color:${sign==='doku'?'var(--bad)':'var(--good)'}"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}${em}×${n}</div></div>`; })
-              .join('');
-          })()
-        : Object.entries((()=>{ const g={}; (p.marks||[]).forEach(m=>{ g[m.type]=(g[m.type]||0)+1; }); return g; })())
-            .map(([ty,n])=>`<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}❓×${n}</div></div>`)
-            .join('');
-      const selfMarkNote = (selfMarkView && nMarks>0)
-        ? `<div class="mini2" style="margin-top:2px">🤫 印の中身はあなたにだけ表示(ほかの人には❓のまま)</div>` : '';
-      // 表示得点は公開情報のみ(印つきカードの種類・±は拝見までノーカウント。符号漏洩防止)
-      const dispScore = Engine.publicVisibleScore(p,S.cfg);
-      const totalCards=Engine.allTypesOf(p).length+(p.dokuCount||0)+nMarks;
-      kaishiSection=`
-      <div class="mini2">取った菓子(公開) ${totalCards}枚</div>
-      <div class="rowcards" style="margin:4px 0 0">${(chips+markChips) || '<span class="hint">―</span>'}</div>
-      ${selfMarkNote}
-      <div class="mini2" style="margin-top:4px">💯 現在得点(${nMarks>0?'❓印ぶんをのぞく・':''}参考・少食等は拝見時に確定): <b>${dispScore}</b></div>`;
+  snap.players.forEach((p,i)=>{
+    const isHost=snap.hostIdx===i, isSeikyaku=snap.seikyaku===i;
+    const markBadge=p.nMarks>0?'<span class="badge" style="background:#8a8272;color:#fff">❓印×'+p.nMarks+'</span>':'';
+    const stockBadge=(snap.iki&&snap.dokuOn)?'<span class="badge">🎴印のこり×'+p.stockLeft+'</span>':'';
+    const chips=TYPES4.concat(['wild']).filter(ty=>(ty==='wild'?p.chips.wild:p.chips[ty])>0)
+      .map(ty=>'<div class="gcard t-'+ty+' mini" style="width:auto;min-width:34px;padding:0 6px"><div class="em" style="font-size:14px">'+TYPE_META[ty].emoji+'×'+(ty==='wild'?p.chips.wild:p.chips[ty])+'</div></div>')
+      .join('');
+    // 印つきカードのチップ: 自分の席だけ真の符号(☠️/✨)で描く(このセッションの核機能)。他人は❓のまま
+    let markChips='', selfMarkNote='';
+    if(i===mySeat && priv && (priv.marks||[]).length){
+      const g={};
+      priv.marks.forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
+      markChips=Object.entries(g).map(([k,n])=>{
+        const [ty,sign]=k.split('|'); const em=sign==='doku'?'☠️':'✨';
+        return '<div class="gcard t-'+ty+' mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed;border-color:'+(sign==='doku'?'var(--bad)':'var(--good)')+'"><div class="em" style="font-size:14px">'+TYPE_META[ty].emoji+em+'×'+n+'</div></div>';
+      }).join('');
+      selfMarkNote='<div class="mini2" style="margin-top:2px">🤫 印の中身はあなたにだけ表示(ほかの人には❓のまま)</div>';
     } else {
-      // v0.4 枚数の公開(仮置き解釈21): ONなら懐紙の枚数と合計を表示、OFF(v0.3相当)なら懐紙は?枚
-      const nMarksPhys = nMarks; // 印つきカードはmarksが持つ(懐紙とは別勘定)
-      const kaishiTxt = S.cfg.countPublic ? `${p.kaishi.length+(p.dokuCount||0)+nMarksPhys}枚` : '?枚';
-      const totalTxt = S.cfg.countPublic ? ` ／ 合計 ${p.kaishi.length+yoinN+(p.dokuCount||0)+nMarksPhys}枚` : '';
-      kaishiSection=`<div class="mini2">懐紙(中身は非公開) ${kaishiTxt}${totalTxt}</div>`;
+      markChips=Object.entries(p.markG||{}).map(([ty,n])=>'<div class="gcard t-'+ty+' mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed"><div class="em" style="font-size:14px">'+TYPE_META[ty].emoji+'❓×'+n+'</div></div>').join('');
     }
-    // v0.7: 余韻の表示は記憶モードのみ(全公開では廃止=取った瞬間に懐紙へ直行)
-    const yoinSection = openFull ? '' : `
-      <div class="mini2">余韻(表向き・公開) ${yoinN}枚</div>
-      <div class="rowcards" style="margin:4px 0 0">${yoinCards || '<span class="hint">―</span>'}</div>`;
-    html+=`<div class="pl${isHost?' dealer':''}">
-      <div class="name"><span>${p.name}</span>${p.isCPU?'<span class="badge bot">BOT</span>':''}${memTag}${isHost?'<span class="badge dealer-badge">亭主</span>':''}${isSeikyaku?'<span class="badge" style="background:var(--accent2);color:#fff">正客</span>':''}${(S.cfg.reachThreshold&&S.reachLog.includes(i))?`<span class="badge" style="background:#8a8272;color:#fff">${S.cfg.reachThreshold}点済(${S.reachLog.indexOf(i)+1}番)</span>`:''}${dokuBadge}${markBadge}${stockBadge}</div>
-      ${kaishiSection}${yoinSection}
-    </div>`;
+    html+='<div class="pl'+(isHost?' dealer':'')+'">'
+      +'<div class="name"><span>'+p.name+(i===mySeat?'（あなた）':'')+'</span>'+(p.isCPU?'<span class="badge bot">BOT</span>':'')
+      +(isHost?'<span class="badge dealer-badge">亭主</span>':'')+(isSeikyaku?'<span class="badge" style="background:var(--accent2);color:#fff">正客</span>':'')
+      +markBadge+stockBadge+'</div>'
+      +'<div class="mini2">取った菓子(公開) '+p.totalCards+'枚</div>'
+      +'<div class="rowcards" style="margin:4px 0 0">'+((chips+markChips)||'<span class="hint">―</span>')+'</div>'
+      +selfMarkNote
+      +'<div class="mini2" style="margin-top:4px">💯 現在得点('+(p.nMarks>0?'❓印ぶんをのぞく・':'')+'参考・少食等は拝見時に確定): <b>'+p.dispScore+'</b></div>'
+      +'</div>';
   });
   $('players').innerHTML=html;
 }
-
-/* ---------- 切る(亭主) ---------- */
-function cutPhase(){
-  const hostIdx=S.sitting.hostIdx, host=S.players[hostIdx];
-  if(host.isCPU){
-    $('turnTitle').textContent=`${host.name}（亭主）が切っています…`;
-    $('actionBody').innerHTML='<div class="mask">🤔 切り方を考え中…</div>';
-    setTimeout(()=>{
-      const cuts=Engine.hostChooseCut(S);
-      const doku=Engine.hostChooseDoku(S,cuts);
-      Engine.applyCut(S,cuts,doku);
-      log(`<span class="step">切った</span>${host.name} が ${S.players.length}つの山に切り分けました${cutDokuLogTag()}`);
-      renderPiles(false);
-      pickingPhase(0);
-    }, Math.max(200,S.cfg.cpuThink*0.6));
-    return;
-  }
-  if(S.cfg.nHuman>=2){
-    $('turnTitle').textContent='';
-    $('actionBody').innerHTML=`<div class="mask">画面を <b>${host.name}</b> さんに渡してください（亭主）<br><br><button id="readyBtn">じゅんび OK</button></div>`;
-    $('readyBtn').onclick=()=>renderCutUI(hostIdx);
+function applySnap(snap,lines,priv){
+  curSnap=snap; if(priv) curPriv=priv;
+  (lines||[]).forEach(l=>log(l));
+  const hostName=(snap.hostIdx>=0&&snap.players[snap.hostIdx])?snap.players[snap.hostIdx].name:'-';
+  const skName=(snap.seikyaku>=0&&snap.players[snap.seikyaku])?snap.players[snap.seikyaku].name:'-';
+  $('banner').textContent=(snap.phase==='over')?'🍵 拝見します…':('席 '+Math.min(snap.sittingIndex+1,snap.total)+'/'+snap.total+' ― 亭主: '+hostName+' ／ 正客: '+skName);
+  $('drawInfo').textContent=' ― 山札残'+snap.deckLeft+'枚';
+  renderRowAndPiles(snap);
+  renderPlayers(snap,curPriv);
+  if(snap.actor>=0&&snap.actor===mySeat&&myTurn){ renderMyTurn(); return; }
+  if(snap.actor>=0&&snap.actor!==mySeat){
+    myTurn=null;
+    $('turnTitle').textContent=snap.players[snap.actor].name+' の番…';
+    setAction('<span class="hint">待っています…</span>');
+  } else if(snap.actor<0){
+    myTurn=null;
+    $('turnTitle').textContent=snap.note||'…';
+    setAction('<span class="hint">'+(snap.note?'':'…')+'</span>');
   } else {
-    renderCutUI(hostIdx);
+    $('turnTitle').textContent='…'; setAction('<span class="hint">…</span>');
   }
 }
-/* 切りログの毒/印の注記。iki型では符号の割り当てを絶対に書かない(取った本人以外には拝見までの秘密) */
-function cutDokuLogTag(){
+function sendAct(a){ if(role==='host')hostApplyAct(mySeat,a); else if(guestConn)guestConn.send({t:'act',a}); }
+function renderMyTurn(){ if(!myTurn)return; renderTurnUI(myTurn.data); }
+
+/* ---------- 手番UI（ホスト自席もゲストも同じ描画・送信だけ共通sendAct） ---------- */
+function renderTurnUI(data){
+  const cfg=myCfg||{};
+  if(data.sub==='cut'){
+    const ui=myTurn.ui||(myTurn.ui={cuts:{},marks:{}});
+    const need=data.need, markNeed=data.markNeed||0;
+    $('turnTitle').textContent='あなたが亭主 ― 並び順を変えずに'+(need+1)+'つの山に切る';
+    const stockLabel=(data.stock||[]).map(s=>s==='doku'?('☠️毒('+cfg.dokuValue+')'):('✨粋(+'+cfg.ikiValue+')')).join('と');
+    const dokuHint=!data.dokuOn?'' :(data.iki
+      ? ((data.stock||[]).length? '手持ちの印は '+stockLabel+'。カードの下のボタンで<b>'+markNeed+'個選んで必ず</b>伏せて置きます(位置は全員に公開・中身は取った本人だけが確認)。':'印は使い切りました(この席は置けません)。')
+      : 'カードの下の「☠️」で毒を1枚置けます(任意・全員に公開されます)。');
+    let h='<div class="hint">カードの間の「切る」ボタンを'+need+'か所選んでください。'+dokuHint+'</div><div class="rowcards">';
+    const showMarkBtns=data.dokuOn&&(!data.iki||(data.stock||[]).length>0);
+    data.row.forEach((ty,i)=>{
+      h+='<div style="display:flex;flex-direction:column;align-items:center;gap:2px">'+cardHtml({type:ty},false)+(showMarkBtns?'<button class="gapbtn" id="dokuToggle'+i+'">'+(data.iki?'印':'☠️')+'</button>':'')+'</div>';
+      if(i<data.row.length-1)h+='<button class="gapbtn" id="cutToggle'+i+'">切る</button>';
+    });
+    h+='</div><div class="row" style="margin-top:10px"><button id="cutConfirmBtn" disabled>この切り方に決めた</button></div>';
+    h+=myMarksLineHtml();
+    setAction(h);
+    const updateConfirm=()=>{
+      const cuts=Object.keys(ui.cuts).filter(k=>ui.cuts[k]);
+      let ok=cuts.length===need;
+      if(ok&&data.dokuOn&&data.iki&&(data.stock||[]).length){
+        const vals=Object.values(ui.marks).filter(v=>v!=null);
+        const nD=vals.filter(v=>v==='doku').length,nI=vals.filter(v=>v==='iki').length;
+        const sD=data.stock.filter(s=>s==='doku').length,sI=data.stock.filter(s=>s==='iki').length;
+        ok=vals.length===markNeed&&nD<=sD&&nI<=sI;
+      }
+      $('cutConfirmBtn').disabled=!ok;
+    };
+    for(let i=0;i<data.row.length-1;i++){
+      $('cutToggle'+i).onclick=()=>{ ui.cuts[i]=!ui.cuts[i]; $('cutToggle'+i).classList.toggle('on',!!ui.cuts[i]); updateConfirm(); };
+    }
+    if(showMarkBtns){
+      for(let i=0;i<data.row.length;i++){
+        $('dokuToggle'+i).onclick=()=>{
+          if(data.iki){
+            const kinds=[...new Set(data.stock)];
+            const cycle=[null].concat(kinds);
+            const cur=ui.marks[i]===undefined?null:ui.marks[i];
+            const next=cycle[(cycle.indexOf(cur)+1)%cycle.length];
+            if(markNeed===1&&next!==null){
+              Object.keys(ui.marks).forEach(k=>{ delete ui.marks[k]; const b2=$('dokuToggle'+k); if(b2){b2.textContent='印';b2.classList.remove('on');} });
+            }
+            if(next===null)delete ui.marks[i]; else ui.marks[i]=next;
+            const b=$('dokuToggle'+i);
+            b.textContent=next===null?'印':(next==='doku'?'☠️':'✨');
+            b.classList.toggle('on',next!==null);
+          } else {
+            ui.doku=(ui.doku===i)?null:i;
+            for(let k2=0;k2<data.row.length;k2++){ const b=$('dokuToggle'+k2); if(b)b.classList.toggle('on',ui.doku===k2); }
+          }
+          updateConfirm();
+        };
+      }
+    }
+    $('cutConfirmBtn').onclick=()=>{
+      const cuts=Object.keys(ui.cuts).filter(k=>ui.cuts[k]).map(Number);
+      const marks=data.iki?Object.entries(ui.marks).filter(([,v])=>v!=null).map(([k,v])=>({pos:+k,sign:v})):null;
+      sendAct({type:'cut',cuts,marks,doku:(!data.iki&&ui.doku!=null)?ui.doku:null});
+    };
+    return;
+  }
+  if(data.sub==='pick'){
+    $('turnTitle').textContent='あなたの番 ― 欲しい山をひとつ選ぶ';
+    const ui=myTurn.ui||(myTurn.ui={sel:null});
+    setAction('<div class="hint">上の山から選んでクリックしてください。</div><div class="row" style="margin-top:8px"><button id="pickConfirmBtn" '+(ui.sel==null?'disabled':'')+'>この山に決めた</button></div>'+myMarksLineHtml());
+    (curSnap&&curSnap.piles||[]).forEach((pl,k)=>{
+      if(pl.takenBy!==null&&pl.takenBy!==undefined)return;
+      const el=$('pilechoice'+k);
+      if(el){
+        el.classList.add('avail');
+        el.classList.toggle('sel',ui.sel===k);
+        el.onclick=()=>{ ui.sel=k; (curSnap.piles||[]).forEach((_,kk)=>{ const e=$('pilechoice'+kk); if(e)e.classList.toggle('sel',kk===k); }); $('pickConfirmBtn').disabled=false; };
+      }
+    });
+    $('pickConfirmBtn').onclick=()=>{ if(ui.sel!=null)sendAct({type:'pick',k:ui.sel}); };
+    return;
+  }
+  if(data.sub==='peek'){
+    // 印の中身の本人確認(オンラインでは自分の端末=そのまま私的画面。手渡しマスクは不要)
+    const cfg2=myCfg||{};
+    const line=(data.signs||[]).map(g=>g==='doku'?('☠️毒('+cfg2.dokuValue+'点)'):('✨粋(+'+cfg2.ikiValue+'点)')).join(' と ');
+    $('turnTitle').textContent='あなただけがこっそり確認';
+    setAction('<div class="mask"><div style="font-size:16px">いま取った印は <b>'+line+'</b> でした</div>'
+      +(data.deduce?'<div class="hint" style="margin-top:6px">'+data.deduce+'</div>':'')
+      +'<div class="hint" style="margin-top:8px">これまでの自分の印: '+((data.parts||[]).join(' ・ ')||'―')+'（☠️×'+data.cumD+'・✨×'+data.cumI+'／印込みの参考得点: '+data.trueTotal+'点）<br>ほかの人には拝見まで秘密です(自分の懐紙には中身つきで表示され続けます)</div>'
+      +'<button id="markSeenBtn" style="margin-top:10px">🤫 見た（ここだけの話）</button></div>');
+    $('markSeenBtn').onclick=()=>sendAct({type:'sawMark'});
+    return;
+  }
+}
+/* 自分の取った印の一行(手番UI内)。プレイヤー欄にも常時出るが、手番中に視線移動なしで確認できるように添える */
+function myMarksLineHtml(){
+  const parts=marksPartsOf(curPriv&&curPriv.marks);
+  if(!parts.length)return '';
+  return '<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます): '+parts.join(' ・ ')+' ― ほかの人には❓のまま</div>';
+}
+
+/* ---------- ホスト ---------- */
+function createRoom(){
+  myName=($('nameInput').value||'ホスト').trim()||'ホスト';
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='host'; roomId=randCode();
+  $('homeErr').textContent='';
+  peer=new window.Peer(roomId);
+  peer.on('open',()=>{
+    show('lobby');
+    $('roleTag').textContent='あなたがホスト（進行役）です';
+    $('roomCodeView').textContent=roomId;
+    $('hostCfg').classList.remove('hidden');
+    $('lobbyHint').textContent='全員が入ったら「ゲーム開始」。CPUを足して人数を埋めることもできます（合計3〜4人）。';
+    renderLobby();
+  });
+  peer.on('connection',conn=>{
+    conn.on('data',d=>onHostData(conn,d));
+    conn.on('close',()=>onGuestLeave(conn));
+  });
+  peer.on('error',e=>{
+    if(String(e&&e.type)==='unavailable-id'){ roomId=randCode(); peer=null; createRoom(); return; }
+    $('homeErr').textContent='接続エラー: '+(e&&e.type?e.type:e);
+  });
+}
+function lobbyNames(){
+  const names=[{name:myName+'（ホスト）',isCPU:false}];
+  hostConns.filter(c=>c.alive).forEach(c=>names.push({name:c.name,isCPU:false}));
+  const ncpu=+$('nCpu').value;
+  for(let i=0;i<ncpu;i++) names.push({name:'CPU'+(i+1),isCPU:true});
+  return names;
+}
+function onHostData(conn,d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='hello'){
+    if(S){ conn.send({t:'busy'}); return; }
+    if(hostConns.filter(c=>c.alive).length>=3){ conn.send({t:'full'}); return; }
+    let nm=String(d.name||'ゲスト').slice(0,8);
+    const exist=lobbyNames().map(x=>x.name);
+    if(exist.includes(nm)) nm=nm+'2';
+    hostConns.push({conn,seat:-1,name:nm,alive:true});
+    broadcastLobby();
+  }
+  if(d.t==='act'){
+    const rec=hostConns.find(c=>c.conn===conn&&c.alive);
+    if(!rec||rec.seat<0) return;
+    hostApplyAct(rec.seat,d.a||{});
+  }
+}
+function onGuestLeave(conn){
+  const rec=hostConns.find(c=>c.conn===conn);
+  if(!rec||!rec.alive) return;
+  rec.alive=false;
+  if(S&&rec.seat>=0&&!Engine.isOver(S)){
+    S.players[rec.seat].isCPU=true;
+    hostLog.push('⚠️ '+rec.name+' が切断 → CPUが代わりに打ちます');
+    if(Flow&&Flow.waiting===rec.seat){
+      const F=Flow; Flow=null; // 教訓: 適用前に無効化
+      if(F.phase==='cut'){ cpuCut(); }
+      else if(F.phase==='pick'){ cpuPickAt(F.waiting,F.orderPos); }
+      else if(F.phase==='peek'){ sync(); F.cont(); }
+    } else { sync(); }
+  } else {
+    broadcastLobby();
+  }
+}
+function hostBroadcast(msg){ hostConns.filter(c=>c.alive).forEach(c=>{ try{ c.conn.send(msg); }catch(e){} }); }
+function sendTo(seat,msg){ const rec=hostConns.find(c=>c.alive&&c.seat===seat); if(rec){ try{ rec.conn.send(msg); }catch(e){} } }
+function broadcastLobby(){ hostBroadcast({t:'lobby',names:lobbyNames()}); renderLobby(); }
+function renderLobby(){
+  const box=$('lobbyPlayers'); box.innerHTML='';
+  const names=(role==='host')?lobbyNames():(curSnap&&curSnap.lobbyNames)||[];
+  names.forEach(n=>{
+    const div=document.createElement('div');
+    div.className='pl';
+    div.innerHTML='<div class="name"><span>'+n.name+(n.isCPU?' <span class="badge bot">BOT</span>':'')+'</span><span class="badge ok">参加中</span></div>';
+    box.appendChild(div);
+  });
+}
+let curNote=null;
+function buildSnap(){
+  const st=S.sitting;
+  const over=Engine.isOver(S);
+  return {
+    phase:over?'over':(st&&st.piles?'piles':'row'),
+    actor:(Flow&&Flow.waiting!=null)?Flow.waiting:-1,
+    note:curNote,
+    sittingIndex:S.sittingIndex, total:S.totalSittings, deckLeft:S.deck.length,
+    hostIdx:st?st.hostIdx:-1, seikyaku:(st&&st.order)?st.order[0]:-1,
+    row:(st&&!st.piles)?st.row.map(c=>({type:c.type})):null,
+    piles:(st&&st.piles)?st.piles.map(pl=>({cards:pl.cards.map(c=>({type:c.type,mark:!!c.doku})),dokuCount:pl.dokuCount,takenBy:pl.takenBy})):null,
+    iki:S.cfg.dokuStyle==='iki', dokuOn:!!S.cfg.dokuOn,
+    players:S.players.map(p=>{
+      const markG={}; (p.marks||[]).forEach(m=>{ markG[m.type]=(markG[m.type]||0)+1; });
+      return { name:p.name, isCPU:p.isCPU,
+        chips:Engine.tallyTypes(Engine.allTypesOf(p)), markG,
+        nMarks:(p.marks||[]).length, stockLeft:(p.markStock||[]).length,
+        dispScore:Engine.publicVisibleScore(p,S.cfg),
+        totalCards:Engine.allTypesOf(p).length+(p.dokuCount||0)+((p.marks||[]).length) };
+    })
+  };
+}
+function privOf(seat){ const p=S.players[seat]; return {marks:(p.marks||[]).map(m=>({type:m.type,sign:m.sign}))}; }
+function sync(){
+  const snap=buildSnap();
+  const lines=hostLog.slice(sentLog); sentLog=hostLog.length;
+  hostConns.filter(c=>c.alive&&c.seat>=0).forEach(c=>{ try{ c.conn.send({t:'snap',snap,log:lines,priv:privOf(c.seat)}); }catch(e){} });
+  applySnap(snap,lines,privOf(mySeat));
+}
+function readHostCfg(){
+  const c={};
+  ['nCpu','shikiCount','seatSize','hostRounds','cpuThink','shoshokuBonus'].forEach(i=>c[i]=+$(i).value);
+  c.dokuStyle=$('dokuStyle').value||'plain';
+  if(c.dokuStyle==='iki'){ c.dokuValue=+$('dokuValueIn').value; c.ikiValue=+$('ikiValueIn').value; c.markEach=(+$('markEach').value)||2; }
+  // オンライン版はv0.6/v0.7の現行形(全公開)に固定。記憶モード・余韻・宣言・半端はローカル版の比較用レバー
+  c.dokuMode='open'; c.openMode='full'; c.yoinSeats=0; c.reachThreshold=0; c.hanpaPenalty=0;
+  c.yuzuriai=false; c.countPublic=true;
+  return c;
+}
+function hostStart(){
+  const humans=1+hostConns.filter(c=>c.alive).length;
+  const ncpu=+$('nCpu').value;
+  const total=humans+ncpu;
+  if(total<3||total>4){ $('lobbyErr').textContent='合計3〜4人にしてください（今: 人間'+humans+'+CPU'+ncpu+'）'; return; }
+  $('lobbyErr').textContent='';
+  beginGame();
+}
+function beginGame(){
+  const cfg=readHostCfg();
+  const specs=[{kind:'host',name:myName+'（ホスト）'}];
+  hostConns.filter(c=>c.alive).forEach(c=>specs.push({kind:'guest',name:c.name,rec:c}));
+  const ncpu=+$('nCpu').value;
+  for(let i=0;i<ncpu;i++) specs.push({kind:'cpu',name:'CPU'+(i+1)});
+  shuffle(specs); // 席順シャッフル(ローカル版と同じ)
+  S=Engine.newGame(cfg,specs.map(s=>({name:s.name,isCPU:s.kind==='cpu'})));
+  myCfg=S.cfg;
+  mySeat=specs.findIndex(s=>s.kind==='host');
+  specs.forEach((s,i)=>{ if(s.kind==='guest'){ s.rec.seat=i; s.rec.conn.send({t:'start',seat:i,cfg:S.cfg}); } });
+  hostLog=[]; sentLog=0; myTurn=null; Flow=null; curNote=null; curPriv=null;
+  $('log').innerHTML='';
+  log('ゲーム開始（'+S.players.length+'人 / 全公開 / 1席'+S.cfg.seatSize+'枚 / 亭主'+S.cfg.hostRounds+'巡 / '+(S.cfg.dokuStyle==='iki'?('毒か粋か 毒'+S.cfg.dokuValue+'／粋+'+S.cfg.ikiValue+'・各'+S.cfg.markEach+'個'):'毒のみ(−2)')+' / 少食+'+S.cfg.shoshokuBonus+'）');
+  $('refPanel').innerHTML=buildRefTable(S.cfg);
+  $('refPanel').classList.add('hidden'); $('refBtn').textContent='開く';
+  show('game');
+  beginSitting();
+}
+function cutLogTag(){
   if(S.cfg.dokuStyle==='iki'){
     if(S.sitting.dokuIdx==null) return '';
     const n=S.sitting.markList?S.sitting.markList.length:1;
-    return `（❓印を${n}つ仕込みました[${S.sitting.markPlacement}番目の亭主番]…中身は取った人だけが知る）`;
+    return '（❓印を'+n+'つ仕込みました['+S.sitting.markPlacement+'番目の亭主番]…中身は取った人だけが知る）';
   }
   if(S.sitting.dokuIdx==null) return '';
-  return S.cfg.dokuMode==='secret'?'（☠️どこかに毒を盛りました）':'（☠️毒を盛りました）';
+  return '（☠️毒を盛りました）';
 }
-let dokuSel=null, markSel={};
-function renderCutUI(hostIdx){
-  cutSel=new Set(); dokuSel=null; markSel={};
-  const need=S.players.length-1;
-  const row=S.sitting.row;
-  $('turnTitle').textContent=`${S.players[hostIdx].name}（亭主）― 並び順を変えずに${S.players.length}つの山に切る`;
+function beginSitting(){
+  if(Engine.isOver(S)){ hostFinish(); return; }
+  Engine.startSitting(S);
+  const host=S.players[S.sitting.hostIdx];
+  if(host.isCPU){
+    Flow=null; curNote=host.name+'（亭主）が切っています…'; sync(); curNote=null;
+    setTimeout(cpuCut,Math.max(200,cpuMs()*0.6));
+  } else {
+    Flow={phase:'cut',waiting:S.sitting.hostIdx};
+    pushTurn(S.sitting.hostIdx,buildCutData(S.sitting.hostIdx));
+  }
+}
+function buildCutData(hostIdx){
+  const host=S.players[hostIdx];
   const styleIki=S.cfg.dokuStyle==='iki';
-  const hostStock=styleIki?(S.players[hostIdx].markStock||[]):[];
-  const markNeed=styleIki?Math.min(S.cfg.markEach,hostStock.length):0;
-  const stockLabel=hostStock.map(s=>s==='doku'?`☠️毒(${S.cfg.dokuValue})`:`✨粋(+${S.cfg.ikiValue})`).join('と');
-  const dokuHint = !S.cfg.dokuOn ? ''
-    : styleIki ? (hostStock.length
-        ? `手持ちの印は ${stockLabel}。カードの下のボタンで<b>${markNeed}個選んで必ず</b>伏せて置きます（どれを今使うかはあなた次第。残りは次の亭主番で）。位置は全員に公開されますが、中身は取った本人しか分かりません。`
-        : '印は使い切りました（この席は置けません）。')
-    : (S.cfg.dokuMode==='secret'?'カードの下の「☠️」で毒を1枚置けます（任意・位置は秘密、「盛った」ことだけ公開）。':'カードの下の「☠️」で毒を1枚置けます（任意・全員に公開されます）。');
-  let html=`<div class="hint">カードの間の「切る」ボタンを${need}か所選んでください（選ぶと確定できます）。${dokuHint}</div><div class="rowcards">`;
-  const showMarkBtns=S.cfg.dokuOn && (!styleIki || hostStock.length>0);
-  row.forEach((c,i)=>{
-    html+=`<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${cardHtml(c.type,false)}${showMarkBtns?`<button class="gapbtn" id="dokuToggle${i}">${styleIki?'印':'☠️'}</button>`:''}</div>`;
-    if(i<row.length-1) html+=`<button class="gapbtn" id="cutToggle${i}">切る</button>`;
-  });
-  html+=`</div><div class="row" style="margin-top:10px"><button id="cutConfirmBtn" disabled>この切り方に決めた</button>`;
-  if(S.cfg.selfKaishiView) html+=`<button class="ghost small" id="viewKaishiBtn">👀 自分の懐紙を見る</button>`;
-  html+=`</div>`;
-  html+=scoreLineHtml(hostIdx); // v0.4: 現在得点トグル(本人の手番UI内のみ)
-  html+=myMarksLineHtml(hostIdx); // v0.7追記(仮置き解釈38): パス&プレイでは手番UI内でだけ自分の印の中身を見せる
-  $('actionBody').innerHTML=html;
-  // 確定可否: 切りがneedか所、かつiki型で在庫があれば印がmarkNeed個・在庫の範囲内で置かれていること(必置)
-  const updateConfirm=()=>{
-    let ok = cutSel.size===need;
-    if(ok && S.cfg.dokuOn && styleIki && hostStock.length){
-      const vals=Object.values(markSel).filter(v=>v!=null);
-      const nD=vals.filter(v=>v==='doku').length, nI=vals.filter(v=>v==='iki').length;
-      const sD=hostStock.filter(s=>s==='doku').length, sI=hostStock.filter(s=>s==='iki').length;
-      ok = vals.length===markNeed && nD<=sD && nI<=sI;
-    }
-    $('cutConfirmBtn').disabled=!ok;
-  };
-  for(let i=0;i<row.length-1;i++){
-    $('cutToggle'+i).onclick=()=>{
-      if(cutSel.has(i)) cutSel.delete(i); else cutSel.add(i);
-      $('cutToggle'+i).classList.toggle('on');
-      updateConfirm();
-    };
-  }
-  if(showMarkBtns){
-    for(let i=0;i<row.length;i++){
-      $('dokuToggle'+i).onclick=()=>{
-        if(styleIki){
-          // 手持ちの印の種類を 印なし→(☠️)→(✨)→印なし でサイクル。markNeed個そろい在庫内なら確定できる
-          const kinds=[...new Set(hostStock)];
-          const cycle=[null].concat(kinds);
-          const cur=markSel[i]===undefined?null:markSel[i];
-          const next=cycle[(cycle.indexOf(cur)+1)%cycle.length];
-          if(markNeed===1 && next!==null){
-            // 1個モード(第3案)では他のカードの選択をクリアして付け替えを楽にする
-            Object.keys(markSel).forEach(k=>{ delete markSel[k]; const b2=$('dokuToggle'+k); if(b2){ b2.textContent='印'; b2.classList.remove('on'); } });
-          }
-          if(next===null) delete markSel[i]; else markSel[i]=next;
-          const b=$('dokuToggle'+i);
-          b.textContent = next===null?'印':(next==='doku'?'☠️':'✨');
-          b.classList.toggle('on', next!==null);
-        } else {
-          dokuSel = (dokuSel===i)? null : i;
-          for(let k2=0;k2<row.length;k2++){ const b=$('dokuToggle'+k2); if(b) b.classList.toggle('on',dokuSel===k2); }
-        }
-        updateConfirm();
-      };
-    }
-  }
-  if(S.cfg.selfKaishiView){
-    $('viewKaishiBtn').onclick=()=>showKaishiOverlay(hostIdx,()=>renderCutUI(hostIdx));
-  }
-  $('cutConfirmBtn').onclick=()=>{
-    // v0.7試作(iki型): {marks:[{pos,sign},...]}で渡す(plain型は従来どおり位置|null)
-    let dokuArg=dokuSel;
-    if(S.cfg.dokuOn && styleIki){
-      const marks=Object.entries(markSel).filter(([,v])=>v!=null).map(([k,v])=>({pos:+k,sign:v}));
-      dokuArg = marks.length ? {marks} : null;
-    }
-    Engine.applyCut(S,[...cutSel],dokuArg);
-    log(`<span class="step">切った</span>${S.players[hostIdx].name} が ${S.players.length}つの山に切り分けました${cutDokuLogTag()}`);
-    renderPiles(false);
-    pickingPhase(0);
-  };
+  return { sub:'cut', row:S.sitting.row.map(c=>c.type), need:S.players.length-1,
+    dokuOn:!!S.cfg.dokuOn, iki:styleIki,
+    stock:styleIki?(host.markStock||[]).slice():[],
+    markNeed:styleIki?Math.min(S.cfg.markEach,(host.markStock||[]).length):0 };
 }
-
-/* ---------- 選ぶ(客) ---------- */
+function cpuCut(){
+  if(!S||Engine.isOver(S)||!S.sitting||S.sitting.piles) return;
+  const host=S.players[S.sitting.hostIdx];
+  const cuts=Engine.hostChooseCut(S);
+  const doku=Engine.hostChooseDoku(S,cuts);
+  Engine.applyCut(S,cuts,doku);
+  hostLog.push(stepTag('切った')+host.name+' が '+S.players.length+'つの山に切り分けました'+cutLogTag());
+  sync();
+  pickingPhase(0);
+}
+function pushTurn(seat,data){
+  if(seat===mySeat){ myTurn={data}; sync(); }
+  else { myTurn=null; sync(); sendTo(seat,{t:'turn',data}); }
+}
 function pickingPhase(i){
   const order=S.sitting.order;
-  if(i>=order.length){ afterAllPicks(); return; }
+  if(i>=order.length){ leftoverPhase(); return; }
   const idx=order[i], p=S.players[idx];
   if(p.isCPU){
-    $('turnTitle').textContent=`${p.name} が選んでいます…`;
-    $('actionBody').innerHTML='<div class="mask">🤔…</div>';
-    setTimeout(()=>{
-      const k=Engine.cpuPickForIdx(S,idx);
-      revealThenApply(idx,k,()=>pickingPhase(i+1));
-    }, Math.max(150,S.cfg.cpuThink*0.5));
+    Flow=null; curNote=p.name+' が選んでいます…'; sync(); curNote=null;
+    setTimeout(()=>cpuPickAt(idx,i),Math.max(150,cpuMs()*0.5));
     return;
   }
-  if(S.cfg.nHuman>=2){
-    $('turnTitle').textContent='';
-    $('actionBody').innerHTML=`<div class="mask">画面を <b>${p.name}</b> さんに渡してください<br><br><button id="readyBtn">じゅんび OK</button></div>`;
-    $('readyBtn').onclick=()=>renderPickUI(idx,i);
+  Flow={phase:'pick',waiting:idx,orderPos:i};
+  pushTurn(idx,{sub:'pick'});
+}
+function cpuPickAt(idx,orderPos){
+  if(!S||!S.sitting||!S.sitting.piles) return;
+  if(S.sitting.piles.every(pl=>pl.takenBy!==null)) return;
+  const k=Engine.cpuPickForIdx(S,idx);
+  applyPickAndLog(idx,k);
+  proceedAfterPick(idx,S.sitting.piles[k],orderPos);
+}
+function applyPickAndLog(idx,k){
+  const pile=S.sitting.piles[k];
+  Engine.applyPick(S,idx,k);
+  hostLog.push(stepTag('受け取った')+S.players[idx].name+' が山（'+pile.cards.length+'枚）を受け取りました');
+  if(pile.dokuCount&&S.cfg.dokuStyle==='iki') hostLog.push(stepTag('❓印')+S.players[idx].name+' が印付きの菓子(×'+pile.dokuCount+')を受け取りました（中身は本人だけ確認・ほかの人には拝見で開示）');
+  else if(pile.dokuCount&&S.cfg.dokuOn) hostLog.push('<span class="step bad">☠️毒</span>'+S.players[idx].name+' が毒を口にしました（拝見で'+S.cfg.dokuValue+'点）');
+}
+function proceedAfterPick(idx,pile,orderPos){
+  sync();
+  if(S.cfg.dokuStyle==='iki'&&pile.dokuCount&&!S.players[idx].isCPU){
+    startPeek(idx,pile,()=>pickingPhase(orderPos+1));
   } else {
-    renderPickUI(idx,i);
+    pickingPhase(orderPos+1);
   }
 }
-function renderPickUI(idx,i){
-  pickSel=null;
-  const p=S.players[idx];
-  $('turnTitle').textContent=`${p.name} ― 欲しい山をひとつ選ぶ`;
-  renderPiles(true);
-  let extra = S.cfg.selfKaishiView ? `<button class="ghost small" id="viewKaishiBtn">👀 自分の懐紙を見る</button>` : '';
-  $('actionBody').innerHTML=`<div class="hint">上の山から選んでクリックしてください。</div>
-    <div class="row" style="margin-top:8px"><button id="pickConfirmBtn" disabled>この山に決めた</button>${extra}</div>
-    ${scoreLineHtml(idx)}${myMarksLineHtml(idx)}`;
-  S.sitting.piles.forEach((pl,k)=>{
-    if(pl.takenBy!==null) return;
-    const el=$('pilechoice'+k);
-    if(el) el.onclick=()=>{
-      pickSel=k;
-      S.sitting.piles.forEach((_,kk)=>{ const e=$('pilechoice'+kk); if(e) e.classList.toggle('sel',kk===k); });
-      $('pickConfirmBtn').disabled=false;
-    };
-  });
-  if(S.cfg.selfKaishiView){
-    $('viewKaishiBtn').onclick=()=>showKaishiOverlay(idx,()=>renderPickUI(idx,i));
-  }
-  $('pickConfirmBtn').onclick=()=>{
-    if(pickSel===null) return;
-    const k=pickSel;
-    revealThenApply(idx,k,()=>pickingPhase(i+1));
-  };
-}
-
-/* ---------- 一時公開→「見た」→懐紙へ（記憶ゲー最重要部）---------- */
-function revealThenApply(idx,pileIdx,afterFn){
-  const pile=S.sitting.piles[pileIdx];
-  const cardsHtml=pile.cards.map(c=>cardHtml(c.type,false,dokuVisible(c))).join('');
-  const doApply=()=>{
-    const reach=Engine.applyPick(S,idx,pileIdx);
-    logTaken(S.players[idx].name,pile.cards.length);
-    if(pile.dokuCount && S.cfg.dokuStyle==='iki') log(`<span class="step">❓印</span>${S.players[idx].name} が印付きの菓子(×${pile.dokuCount})を受け取りました（中身は本人だけ確認・ほかの人には拝見で開示）`);
-    else if(pile.dokuCount && S.cfg.dokuMode==='open') log(`<span class="step bad">☠️毒</span>${S.players[idx].name} が毒を口にしました（拝見で${S.cfg.dokuValue}点）`);
-    if(reach) log(`<span class="step bad">宣言</span>${S.players[idx].name} が ${S.cfg.reachThreshold}点に到達しました（${reach.rank}番目）`);
-    renderPiles(false);
-    renderAll();
-    // v0.7試作・第2案(kaiyo指示): 印の中身は取った本人だけがその場で確認できる
-    if(S.cfg.dokuStyle==='iki' && pile.dokuCount && !S.players[idx].isCPU){
-      showMarkPeek(idx, pile.markSigns||[], afterFn);
-    } else {
-      afterFn();
-    }
-  };
-  if(S.cfg.nHuman>0){
-    const noteTxt = S.cfg.openMode==='full'
-      ? '全員で確認したら押してください（このあとも懐紙に表向きで並び、見え続けます）'
-      : '全員で確認したら押してください（このあとは種類が記録に残りません）';
-    $('turnTitle').textContent=`${S.players[idx].name} が受け取った山（今だけ全員に公開）`;
-    $('actionBody').innerHTML=`<div class="mask"><div class="row" style="justify-content:center">${cardsHtml}</div>
-      <div class="hint" style="margin-top:8px">${noteTxt}</div>
-      <button id="sawBtn" style="margin-top:10px">👀 見た</button></div>`;
-    $('sawBtn').onclick=doApply;
-  } else {
-    $('turnTitle').textContent=`${S.players[idx].name} が受け取った山`;
-    $('actionBody').innerHTML=`<div class="mask">${cardsHtml}</div>`;
-    setTimeout(doApply, Math.max(120,S.cfg.cpuThink*0.4));
-  }
-}
-
-/* v0.7試作: 取った印の中身を本人だけに見せる画面(パス&プレイは手渡しマスク経由)。
-   自分の累積の印・印込みの真の参考得点に加え、置いた亭主の「まだ見ていない印の内訳」(バッグモデル)も
-   見せる(第3案なら1枚目を見た時点で残りが確定する。本人だけが得る情報なので漏洩ではない) */
-function showMarkPeek(idx,signs,cont){
+function buildPeekData(idx,pile){
   const p=S.players[idx];
   const placer=S.sitting.markPlacerIdx!=null?S.players[S.sitting.markPlacerIdx]:null;
-  const doShow=()=>{
-    const sc=Engine.scoreOf(p,S.cfg);
-    const line=signs.map(g=>g==='doku'?`☠️毒(${S.cfg.dokuValue}点)`:`✨粋(+${S.cfg.ikiValue}点)`).join(' と ');
-    let deduce='';
-    if(placer && placer.id!==idx){
-      const seen=(p.seenMarks||{})[placer.id]||{doku:0,iki:0};
-      const remD=Math.max(0,S.cfg.markEach-(seen.doku||0)), remI=Math.max(0,S.cfg.markEach-(seen.iki||0));
-      if(remD+remI===0) deduce=`${placer.name} の印はこれで全部見ました`;
-      else if(remD===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>✨粋×${remI}で確定</b>`;
-      else if(remI===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>☠️毒×${remD}で確定</b>`;
-      else deduce=`${placer.name} のまだ見ていない印の内訳: ☠️×${remD}・✨×${remI}（どれがどれかは不明）`;
-    }
-    $('turnTitle').textContent=`${p.name} だけがこっそり確認`;
-    $('actionBody').innerHTML=`<div class="mask">
-      <div style="font-size:16px">いま取った印は <b>${line}</b> でした</div>
-      ${deduce?`<div class="hint" style="margin-top:6px">${deduce}</div>`:''}
-      <div class="hint" style="margin-top:8px">これまでの自分の印: ${myMarkParts(idx).join(' ・ ')||'―'}（☠️×${sc.markDoku}・✨×${sc.markIki}／印込みの参考得点: ${sc.total}点）<br>ほかの人には拝見まで秘密です</div>
-      <button id="markSeenBtn" style="margin-top:10px">🤫 見た（ここだけの話）</button></div>`;
-    $('markSeenBtn').onclick=cont;
-  };
-  if(S.cfg.nHuman>=2){
-    $('turnTitle').textContent='';
-    $('actionBody').innerHTML=`<div class="mask">画面を <b>${p.name}</b> さんに渡してください（印の中身は本人だけが見ます）<br><br><button id="readyMarkBtn">じゅんび OK</button></div>`;
-    $('readyMarkBtn').onclick=doShow;
-  } else {
-    doShow();
+  let deduce='';
+  if(placer&&placer.id!==idx){
+    const seen=(p.seenMarks||{})[placer.id]||{doku:0,iki:0};
+    const remD=Math.max(0,S.cfg.markEach-(seen.doku||0)), remI=Math.max(0,S.cfg.markEach-(seen.iki||0));
+    if(remD+remI===0) deduce=placer.name+' の印はこれで全部見ました';
+    else if(remD===0) deduce='つまり '+placer.name+' のまだ見ていない印は <b>✨粋×'+remI+'で確定</b>';
+    else if(remI===0) deduce='つまり '+placer.name+' のまだ見ていない印は <b>☠️毒×'+remD+'で確定</b>';
+    else deduce=placer.name+' のまだ見ていない印の内訳: ☠️×'+remD+'・✨×'+remI+'（どれがどれかは不明）';
   }
+  const sc=Engine.scoreOf(p,S.cfg);
+  return { sub:'peek', signs:(pile.markSigns||[]).slice(), deduce,
+    parts:marksPartsOf(p.marks), cumD:sc.markDoku, cumI:sc.markIki, trueTotal:sc.total };
 }
-
-function afterAllPicks(){
-  const leftoverIdx=S.sitting.piles.findIndex(p=>p.takenBy===null);
+function startPeek(idx,pile,cont){
+  Flow={phase:'peek',waiting:idx,cont};
+  pushTurn(idx,buildPeekData(idx,pile));
+}
+function leftoverPhase(){
+  const leftoverIdx=S.sitting.piles.findIndex(pl=>pl.takenBy===null);
   const hostIdx=S.sitting.hostIdx;
-  if(leftoverIdx>=0){
-    revealThenApply(hostIdx,leftoverIdx,()=>{ Engine.finishSitting(S); afterSitting(); });
+  if(leftoverIdx<0){ afterSittingEnd(); return; }
+  const pile=S.sitting.piles[leftoverIdx];
+  applyPickAndLog(hostIdx,leftoverIdx);
+  sync();
+  if(S.cfg.dokuStyle==='iki'&&pile.dokuCount&&!S.players[hostIdx].isCPU){
+    startPeek(hostIdx,pile,afterSittingEnd);
   } else {
-    Engine.finishSitting(S);
-    afterSitting();
+    afterSittingEnd();
   }
 }
-function afterSitting(){
-  // v0.5 非公開毒の開示(毎席・kaiyo指示)
-  if(S.cfg.dokuMode==='secret' && S.lastDokuReveal){
-    log(`<span class="step bad">☠️開示</span>この席の毒は ${S.players[S.lastDokuReveal.idx].name} が口にしていました（拝見で${S.cfg.dokuValue}点）`);
-  } else if(S.cfg.dokuMode==='secret' && S.sitting && S.sitting.dokuIdx==null){
-    log(`<span class="step">☠️開示</span>この席に毒はありませんでした`);
-  }
-  renderAll();
-  // v0.4 譲り合いの正客: 次席の正客をログと画面に出す(枚数のみ・種類は出さない)
-  if(S.cfg.yuzuriai && S.lastSeikyaku && !Engine.isOver(S)){
-    const ls=S.lastSeikyaku;
-    if(!ls.fallback){
-      log(`<span class="step">譲り合い</span>${S.players[ls.idx].name} が最小の山(${ls.len}枚)を取ったので、次の席の正客になります`);
-    } else if(ls.idx!=null){
-      log(`<span class="step">譲り合い</span>最小の山(${ls.len}枚)を取った ${S.players[ls.idx].name} は次の亭主のため、正客は慣例どおり亭主の左隣に`);
-    }
-  }
+function afterSittingEnd(){
+  Flow=null;
+  Engine.finishSitting(S);
   if(Engine.isOver(S)){
-    $('turnTitle').textContent='';
-    $('actionBody').innerHTML=`<div class="mask">全員の亭主が${S.cfg.hostRounds}巡しました。拝見します…</div>`;
-    setTimeout(finish,500);
+    curNote='全員の亭主が'+S.cfg.hostRounds+'巡しました。拝見します…'; sync(); curNote=null;
+    setTimeout(hostFinish,600);
     return;
   }
-  $('turnTitle').textContent=`席 ${S.sittingIndex}/${S.totalSittings} が終わりました`;
-  if(S.cfg.nHuman>0){
-    $('actionBody').innerHTML='<div class="mask"><button id="nextSittingBtn">次の席へ ▶</button></div>';
-    $('nextSittingBtn').onclick=beginSitting;
-  } else {
-    $('actionBody').innerHTML='<div class="mask">（観戦モード）自動で進みます…</div>';
-    setTimeout(beginSitting, Math.max(250,S.cfg.cpuThink*0.4));
+  hostLog.push(stepTag('席おわり')+'席 '+S.sittingIndex+'/'+S.totalSittings+' が終わりました。次の席へ');
+  curNote='次の席へ…'; sync(); curNote=null;
+  setTimeout(beginSitting,Math.max(900,cpuMs()));
+}
+function hostApplyAct(pi,a){
+  if(!Flow||Flow.waiting!==pi||!a||typeof a!=='object') return;
+  if(Flow.phase==='cut'){
+    if(a.type!=='cut') return;
+    const st=S.sitting; if(!st||st.piles) return;
+    const need=S.players.length-1;
+    const cuts=Array.isArray(a.cuts)?a.cuts.map(Number):[];
+    if(cuts.length!==need||new Set(cuts).size!==need) return;
+    if(cuts.some(c=>!(c>=0&&c<st.row.length-1))) return;
+    let dokuArg=null;
+    if(S.cfg.dokuOn&&S.cfg.dokuStyle==='iki'){
+      const marks=Array.isArray(a.marks)?a.marks.map(m=>({pos:+m.pos,sign:m.sign==='doku'?'doku':'iki'})):[];
+      dokuArg=marks.length?{marks}:null;
+    } else if(S.cfg.dokuOn&&a.doku!=null&&+a.doku>=0&&+a.doku<st.row.length){
+      dokuArg=+a.doku;
+    }
+    try{ Engine.applyCut(S,cuts,dokuArg); }catch(e){ return; } // 必置・在庫の検証はEngineの例外に委ねる
+    if(pi===mySeat)myTurn=null;
+    Flow=null; // 教訓: 適用したら同じ同期ブロックで無効化
+    hostLog.push(stepTag('切った')+S.players[pi].name+' が '+S.players.length+'つの山に切り分けました'+cutLogTag());
+    sync();
+    pickingPhase(0);
+    return;
+  }
+  if(Flow.phase==='pick'){
+    if(a.type!=='pick') return;
+    const k=+a.k;
+    const pile=S.sitting.piles&&S.sitting.piles[k];
+    if(!pile||pile.takenBy!==null) return;
+    const orderPos=Flow.orderPos;
+    if(pi===mySeat)myTurn=null;
+    Flow=null; // 教訓: 適用前に無効化(重複act対策)
+    applyPickAndLog(pi,k);
+    proceedAfterPick(pi,pile,orderPos);
+    return;
+  }
+  if(Flow.phase==='peek'){
+    if(a.type!=='sawMark') return;
+    const cont=Flow.cont;
+    if(pi===mySeat)myTurn=null;
+    Flow=null;
+    sync();
+    cont();
+    return;
   }
 }
-
-/* ---------- 自分の懐紙を見る(手番中のみ・パス&プレイはマスク経由) ---------- */
-function showKaishiOverlay(idx,returnFn){
-  const doShow=()=>{
-    const p=S.players[idx];
-    // 懐紙(非公開・確定分)＋自分の余韻ゾーン(卓上に表向きで既に見えている分)を合算して参考表示する
-    const t=Engine.tallyTypes(Engine.selfTypesOf(p,S.cfg));
-    const sc=Engine.scoreOf(p,S.cfg);
-    $('turnTitle').textContent=`${p.name} の懐紙（自分だけに見えます・余韻ゾーン/自分の印ぶん込み）`;
-    let html='<div class="mask"><table class="rules" style="margin:0 auto;max-width:320px">';
-    TYPES4.forEach(ty=>{
-      const hanpa = sc.hanpaTypes.includes(ty) ? `<span style="color:var(--bad)">（半端${S.cfg.hanpaPenalty}）</span>` : '';
-      html+=`<tr><td>${TYPE_META[ty].emoji}${TYPE_META[ty].label}</td><td>${t[ty]}枚${hanpa}</td></tr>`;
-    });
-    html+=`<tr><td>${TYPE_META.wild.emoji}四季</td><td>${t.wild}枚（拝見時に半端減点も込みで一番得する菓子に自動で割り振ります）</td></tr>`;
-    html+=`</table><div class="hint" style="margin-top:8px">今の内容だけで見た参考得点（懐紙＋余韻ゾーン・拝見時のワイルド最適配分＆半端減点込み）: ${sc.total}点${sc.markCount?`（うち印 ${myMarkParts(idx).join(' ・ ')}=☠️×${sc.markDoku}・✨×${sc.markIki}で${sc.markTotal>0?'+':''}${sc.markTotal}点。取った本人だけが知る情報です）`:''}</div>
-      <div class="row" style="margin-top:10px;justify-content:center"><button id="closeKaishiBtn">閉じる</button></div></div>`;
-    $('actionBody').innerHTML=html;
-    $('closeKaishiBtn').onclick=returnFn;
-  };
-  if(S.cfg.nHuman>=2){
-    $('turnTitle').textContent='';
-    $('actionBody').innerHTML=`<div class="mask">画面を <b>${S.players[idx].name}</b> さんに渡してください（他の人に見せないように）<br><br><button id="readyKaishiBtn">じゅんび OK</button></div>`;
-    $('readyKaishiBtn').onclick=doShow;
-  } else {
-    doShow();
-  }
-}
-
-/* ---------- 拝見(結果) ---------- */
-function finish(){
-  $('game').classList.add('hidden');
+function hostFinish(){
+  Flow=null; myTurn=null;
   const scores=Engine.finalScores(S);
-  const ranked=scores.slice().sort((a,b)=>b.total-a.total);
-  const winnerId=Engine.winnerIdx(S); // 1位タイはランダムに1人だけ王冠(表示上の演出。同点は同点表示のまま)
-  let html='<h2>🍵 拝見 ― 結果</h2>';
-  // v0.7試作(iki型): 拝見で初めて印の符号を開示する
-  if(S.cfg.dokuStyle==='iki'){
-    const revealLines=scores.filter(s=>s.markCount).map(s=>`${s.name}: ☠️毒×${s.markDoku}・✨粋×${s.markIki}(計${s.markTotal>0?'+':''}${s.markTotal}点)`);
-    html+=`<div class="hint" style="margin-bottom:8px">❓印の開示 ― ${revealLines.length?revealLines.join(' ／ '):'誰も印を取りませんでした'}</div>`;
-  }
-  html+=`<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>🌸</th><th>💧</th><th>🌰</th><th>🌺</th><th>🍃</th><th>${S.cfg.dokuStyle==='iki'?'❓印':'☠️毒'}</th><th>枚数</th><th>少食</th><th>得点</th></tr>`;
-  const cell=(s,ty)=>{
-    const allocTxt = s.alloc[ty] ? ('+'+s.alloc[ty]) : '';
-    const hanpaTxt = s.hanpaTypes.includes(ty) ? `<br><span style="color:var(--bad);font-size:10px">半端${S.cfg.hanpaPenalty}</span>` : '';
-    return `<td>${s.base[ty]}${allocTxt}${hanpaTxt}</td>`;
+  const winnerId=Engine.winnerIdx(S);
+  const data={
+    iki:S.cfg.dokuStyle==='iki', dokuValue:S.cfg.dokuValue, ikiValue:S.cfg.ikiValue,
+    sho:S.cfg.shoshokuBonus, sittings:S.sittingIndex, total:S.totalSittings, deckLeft:S.deck.length,
+    rows:scores.slice().sort((x,y)=>y.total-x.total).map(s=>({
+      name:s.name, win:s.id===winnerId, base:s.base, alloc:s.alloc, wild:s.wild,
+      dokuCount:s.dokuCount, dokuTotal:s.dokuTotal, markCount:s.markCount, markDoku:s.markDoku,
+      markIki:s.markIki, markTotal:s.markTotal, cardCount:s.cardCount, shoshoku:!!s.shoshoku, total:s.total }))
   };
-  ranked.forEach((s,i)=>{
-    html+=`<tr><td>${i+1}</td><td>${s.name}${s.id===winnerId?' 👑':''}</td>
-      ${cell(s,'sakura')}${cell(s,'mizu')}${cell(s,'kuri')}${cell(s,'tsubaki')}
-      <td>${s.wild}</td>
-      <td>${s.dokuCount?`<b style="color:var(--bad)">${s.dokuTotal}</b>(×${s.dokuCount})`:''}${s.markCount?`${s.markDoku?`<b style="color:var(--bad)">☠️×${s.markDoku}(${s.markDoku*(S.cfg.dokuValue||0)})</b>`:''}${s.markIki?` <b style="color:var(--good)">✨×${s.markIki}(+${s.markIki*(S.cfg.ikiValue||0)})</b>`:''}`:''}${s.reachTax?`<br><span style="font-size:10px">到達税${s.reachTax}</span>`:''}</td>
-      <td>${s.cardCount}</td>
-      <td>${s.shoshoku?`<b style="color:var(--good)">+${S.cfg.shoshokuBonus}</b>`:''}</td>
-      <td><b>${s.total}</b></td></tr>`;
+  hostBroadcast({t:'result',data});
+  renderResult(data);
+}
+
+/* ---------- ゲスト ---------- */
+function joinRoom(){
+  myName=($('nameInput').value||'ゲスト').trim()||'ゲスト';
+  const code=($('roomInput').value||'').trim();
+  if(!code){ $('homeErr').textContent='部屋コードを入れてください。'; return; }
+  if(typeof window.Peer==='undefined'){ $('homeErr').textContent='通信ライブラリの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。'; return; }
+  role='guest';
+  $('homeErr').textContent='接続中…';
+  peer=new window.Peer();
+  peer.on('open',()=>{
+    guestConn=peer.connect(code,{reliable:true});
+    guestConn.on('open',()=>{ guestConn.send({t:'hello',name:myName}); });
+    guestConn.on('data',onGuestData);
+    guestConn.on('close',()=>{
+      if($('banner'))$('banner').textContent='⚠️ ホストとの接続が切れました（部屋終了）';
+      $('homeErr').textContent='ホストとの接続が切れました。';
+    });
+  });
+  peer.on('error',e=>{
+    const t=e&&e.type?String(e.type):'';
+    $('homeErr').textContent=(t==='peer-unavailable')?'その部屋コードが見つかりません。':('接続エラー: '+(t||e));
+  });
+}
+function onGuestData(d){
+  if(!d||typeof d!=='object') return;
+  if(d.t==='busy'){ $('homeErr').textContent='この部屋はすでにゲーム中です。'; return; }
+  if(d.t==='full'){ $('homeErr').textContent='この部屋は満員です（人間は最大4人）。'; return; }
+  if(d.t==='lobby'){
+    curSnap={lobbyNames:d.names};
+    show('lobby');
+    $('roleTag').textContent='ホストの開始待ち';
+    $('roomCodeView').textContent=($('roomInput').value||'').trim();
+    $('hostCfg').classList.add('hidden');
+    $('lobbyHint').textContent='ホストがゲームを開始するまでお待ちください。';
+    renderLobby();
+  }
+  if(d.t==='start'){
+    mySeat=d.seat; myCfg=d.cfg; myTurn=null; curPriv=null;
+    $('log').innerHTML=''; log('ゲーム開始！');
+    $('refPanel').innerHTML=buildRefTable(myCfg);
+    $('refPanel').classList.add('hidden'); $('refBtn').textContent='開く';
+    show('game');
+  }
+  if(d.t==='snap'){ applySnap(d.snap,d.log,d.priv); }
+  if(d.t==='turn'){ myTurn={data:d.data}; renderMyTurn(); }
+  if(d.t==='result'){ renderResult(d.data); }
+}
+
+/* ---------- 拝見(結果・共通) ---------- */
+function renderResult(d){
+  myTurn=null;
+  show('result');
+  let html='<h2>🍵 拝見 ― 結果</h2>';
+  if(d.iki){
+    const revealLines=d.rows.filter(s=>s.markCount).map(s=>s.name+': ☠️毒×'+s.markDoku+'・✨粋×'+s.markIki+'(計'+(s.markTotal>0?'+':'')+s.markTotal+'点)');
+    html+='<div class="hint" style="margin-bottom:8px">❓印の開示 ― '+(revealLines.length?revealLines.join(' ／ '):'誰も印を取りませんでした')+'</div>';
+  }
+  html+='<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>🌸</th><th>💧</th><th>🌰</th><th>🌺</th><th>🍃</th><th>'+(d.iki?'❓印':'☠️毒')+'</th><th>枚数</th><th>少食</th><th>得点</th></tr>';
+  const cell=(s,ty)=>'<td>'+s.base[ty]+(s.alloc[ty]?('+'+s.alloc[ty]):'')+'</td>';
+  d.rows.forEach((s,i)=>{
+    html+='<tr><td>'+(i+1)+'</td><td>'+s.name+(s.win?' 👑':'')+'</td>'
+      +cell(s,'sakura')+cell(s,'mizu')+cell(s,'kuri')+cell(s,'tsubaki')
+      +'<td>'+s.wild+'</td>'
+      +'<td>'+(s.dokuCount?('<b style="color:var(--bad)">'+s.dokuTotal+'</b>(×'+s.dokuCount+')'):'')
+      +(s.markCount?((s.markDoku?('<b style="color:var(--bad)">☠️×'+s.markDoku+'('+(s.markDoku*(d.dokuValue||0))+')</b>'):'')+(s.markIki?(' <b style="color:var(--good)">✨×'+s.markIki+'(+'+(s.markIki*(d.ikiValue||0))+')</b>'):'')):'')+'</td>'
+      +'<td>'+s.cardCount+'</td>'
+      +'<td>'+(s.shoshoku?('<b style="color:var(--good)">+'+d.sho+'</b>'):'')+'</td>'
+      +'<td><b>'+s.total+'</b></td></tr>';
   });
   html+='</table>';
-  const diff=ranked.length>1?(ranked[0].total-ranked[1].total):0;
-  html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度） ／ 席数：<b>${S.sittingIndex}</b>/${S.totalSittings} ／ 山札残：${S.deck.length}枚 ／ ${S.cfg.dokuStyle==='iki'?`毒${S.cfg.dokuValue}点・粋+${S.cfg.ikiValue}点(伏せ置き)`:`毒は1つ${S.cfg.dokuValue}点`} ／ 少食ボーナスは合計枚数最少の人に+${S.cfg.shoshokuBonus}点(同数最少は全員)${S.cfg.hanpaPenalty?` ／ 半端減点${S.cfg.hanpaPenalty}点/種`:''}${(S.cfg.reachTaxFirst||S.cfg.reachTaxMid)?` ／ 到達税 最初${S.cfg.reachTaxFirst}・あいだ${S.cfg.reachTaxMid}`:''}</div>`;
-  html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1戦</button><button class="ghost" id="setupBtn2">設定を変える</button></div>`;
-  const r=$('result'); r.innerHTML=html; r.classList.remove('hidden');
-  $('againBtn').onclick=startGame;
-  $('setupBtn2').onclick=()=>{r.classList.add('hidden');$('setup').classList.remove('hidden');};
+  const diff=d.rows.length>1?(d.rows[0].total-d.rows[1].total):0;
+  html+='<div class="foot">1位と2位の差：<b>'+diff+'</b>点（接戦度） ／ 席数：<b>'+d.sittings+'</b>/'+d.total+' ／ 山札残：'+d.deckLeft+'枚 ／ '+(d.iki?('毒'+d.dokuValue+'点・粋+'+d.ikiValue+'点(伏せ置き)'):'毒は1つ−2点')+' ／ 少食ボーナスは合計枚数最少の人に+'+d.sho+'点(同数最少は全員)</div>';
+  if(role==='host'){
+    html+='<div class="row" style="margin-top:14px"><button id="againBtn">同じメンバーでもう1戦</button></div>';
+  }else{
+    html+='<div class="foot" style="margin-top:14px">ホストが「もう1戦」を押すと再開します。</div>';
+  }
+  $('result').innerHTML=html;
+  if(role==='host'){ $('againBtn').onclick=beginGame; }
 }
 
-/* ---------- setup buttons ---------- */
-$('startBtn').onclick=startGame;
-$('backSetup').onclick=()=>{$('game').classList.add('hidden');$('result').classList.add('hidden');$('setup').classList.remove('hidden');};
-$('restartSame').onclick=startGame;
-// v0.4: 点数傾斜表の開閉(公開リファレンス)
+/* ---------- ボタン配線 ---------- */
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('startBtn').onclick=hostStart;
 $('refBtn').onclick=()=>{
   const p=$('refPanel');
   const opening=p.classList.contains('hidden');
   p.classList.toggle('hidden');
   $('refBtn').textContent=opening?'閉じる':'開く';
 };
-// v0.6: 公開モードの切り替えで記憶モード専用レバー(memoryOnlyRow)の表示/非表示を切り替える(仮置き解釈31)
-$('openMode').onchange=()=>{
-  $('memoryOnlyRow').classList.toggle('hidden', $('openMode').value!=='memory');
-};
-// v0.7試作: 毒の型の切り替えで±入力行の表示/非表示を切り替え、少食の推奨値(iki=+2/plain=0)も連動させる
-// (手で別の値にしてある場合は触らない)
 $('dokuStyle').onchange=()=>{
-  const iki = $('dokuStyle').value==='iki';
-  $('ikiValRow').classList.toggle('hidden', !iki);
-  if(iki && +$('shoshokuBonus').value===0) $('shoshokuBonus').value=4;
-  if(!iki && +$('shoshokuBonus').value===4) $('shoshokuBonus').value=0;
-};
-const DEF={nHuman:1,nCpu:3,shikiCount:4,seatSize:7,hostRounds:2,cpuThink:700,shoshokuBonus:0,reachThreshold:10};
-$('resetDefaults').onclick=()=>{
-  Object.entries(DEF).forEach(([k,v])=>$(k).value=v);
-  $('selfKaishiView').checked=true;
-  $('cpuMemory').value='decay';
-  $('yoinSeats').value='1';
-  $('hanpaPenalty').value='0';
-  $('yuzuriai').checked=false;
-  $('countPublic').checked=true;
-  $('dokuMode').value='open';
-  $('dokuStyle').value='plain';
-  $('dokuValueIn').value=-2;
-  $('ikiValueIn').value=1;
-  $('markEach').value='2';
-  $('ikiValRow').classList.add('hidden');
-  $('openMode').value='full';
-  $('memoryOnlyRow').classList.add('hidden');
+  const iki=$('dokuStyle').value==='iki';
+  $('ikiValRow').classList.toggle('hidden',!iki);
+  if(iki&&+$('shoshokuBonus').value===0)$('shoshokuBonus').value=4;
+  if(!iki&&+$('shoshokuBonus').value===4)$('shoshokuBonus').value=0;
 };
 
-window.__engine=Engine; // シミュ・テスト用に公開
-window.__getState=()=>S; // デバッグ・テスト用(内部状態の参照)
+// テスト用に公開（UIからは使わない）
+window.__engine=Engine;
+window.__state=()=>({role,roomId,mySeat,S,curSnap,curPriv,Flow,myTurn});
+
 </script>
-<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです（現在はローカル対戦・CPU対戦のみ、オンライン対戦版は未実装）。URLの共有・SNSへの投稿はご遠慮ください。 ／ © ゆるるかなアイキュ〜</footer>
+<footer style="margin:26px auto 40px;max-width:1080px;padding:0 20px;font-size:12px;color:#8a8272;text-align:center;line-height:1.8">🔒 開発中の新作の非公開テストページです。URLの共有・SNSへの投稿はご遠慮ください。P2P通信のため、社内ネットワーク等では繋がらないことがあります(スマホ回線なら概ねOK)。ホストがタブを閉じると部屋終了。 ／ <a href="solo.html" style="color:#8a8272">ひとりで試す(CPU対戦・調整レバー付き開発版)はこちら</a> ／ © ゆるるかなアイキュ〜</footer>
 </body>
 </html>
