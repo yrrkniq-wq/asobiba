@@ -14,6 +14,7 @@
   仕組み: PeerJS（無料P2P仲介）でホストの部屋に接続。ホスト＝Engineを持つ進行役（タブを閉じると部屋終了）。
   印の中身(☠️毒/✨粋)は「取った本人」の端末にだけ配信する(privペイロード)。他の人には❓のまま、拝見で開示。
   自分が取った印はプレイヤー欄に中身つきで表示され続ける(2026-07-12 kaiyo指示の私的表示・オンラインでは自分の端末=常時安全)。
+  さらに各印に「誰の仕込みか」(by=公開情報の座席)を添えて本人にだけ表示する(同日kaiyo指示・符号×出どころの組は本人だけが知る)。
   切断者はCPUが代打ち(手番中の切断は cut/pick はCPU代行・peek はスキップ)。
   オンライン版は全公開(v0.6/v0.7の現行形)固定。記憶モード・余韻・宣言・半端等の比較レバーはローカル版だけに残す。
   実ネットワークでの接続はkaiyoの実機確認待ち（同じファイルを2端末で開いて部屋コードを入れるだけ）。
@@ -47,7 +48,7 @@
   button.small{padding:5px 11px;font-size:13px}
   button:disabled{opacity:.4;cursor:not-allowed}
   .hint{font-size:12px;color:var(--sub)}
-  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .players{display:grid;grid-template-columns:1fr;gap:10px} /* 1人1行=取ったカードの幅を盆と同じに(kaiyo指示 2026-07-12) */
   .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
   .pl.dealer{background:#fef6e6;border-color:var(--accent)}
   .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
@@ -168,6 +169,14 @@
 
   <div id="game" class="hidden">
     <div id="banner" class="banner"></div>
+    <div class="card-panel" id="actionPanel">
+      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
+      <div class="rowcards" id="rowArea"></div>
+      <div class="piles hidden" id="pileArea"></div>
+      <h2 id="turnTitle" style="margin-top:14px"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
     <div class="card-panel">
       <h2>点数表
         <button class="ghost small" id="refBtn">開く</button>
@@ -175,19 +184,7 @@
       </h2>
       <div id="refPanel" class="hidden"></div>
     </div>
-    <div class="card-panel">
-      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
-      <div class="rowcards" id="rowArea"></div>
-      <div class="piles hidden" id="pileArea"></div>
-    </div>
-    <div class="flex-split">
-      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
-      <div class="card-panel"><h2>ログ(印の中身は記録しません)</h2><div class="log" id="log"></div></div>
-    </div>
-    <div class="card-panel" id="actionPanel">
-      <h2 id="turnTitle"></h2>
-      <div id="actionBody"></div>
-    </div>
+    <div class="card-panel"><h2>ログ(印の中身は記録しません)</h2><div class="log" id="log"></div></div>
   </div>
 
   <div id="result" class="hidden card-panel"></div>
@@ -954,7 +951,7 @@ const Engine = {
         // v0.7試作・第3案(仮置き解釈33): 真の符号をmarksに積む(得点への反映はscoreOf)。
         // 印の位置は公開、符号は「取った本人だけが取った瞬間に確認できる」(kaiyo指示)。UI側は
         // 本人だけの確認画面で見せ、公開画面には出さない。
-        (player.marks=player.marks||[]).push(...pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type})));
+        (player.marks=player.marks||[]).push(...pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type,by:S.sitting.markPlacerIdx}))); // by=仕込んだ亭主(公開情報の座席。符号との組み合わせだけが本人private・仮置き解釈39)
         // 推理の種(バッグモデル): 見た符号を置き手ごとに数えて記録。未見の印は
         // 「毒markEach・粋markEachの全体から見た分を引いた残り」からの一様抽選として評価される
         if((pile.markSigns||[]).length && S.sitting.markPlacerIdx!=null){
@@ -1159,14 +1156,17 @@ function cardHtml(c,mini){
   const mark=c.mark?'<div style="position:absolute;top:-6px;right:-6px;font-size:15px">❓</div>':'';
   return '<div class="gcard t-'+c.type+(mini?' mini':'')+'" style="position:relative'+(c.mark?';border-color:var(--bad)':'')+'">'+mark+'<div class="em">'+m.emoji+'</div>'+(mini?'':'<div style="font-size:10px">'+m.label+'</div>')+'</div>';
 }
-function marksPartsOf(marks){
+function marksPartsOf(marks,names){
+  // 仮置き解釈39: カッコ内は仕込んだ亭主。出どころは公開情報だが「符号×出どころ」の組は本人だけが知る
   const g={};
-  (marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
+  (marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign+'|'+(m.by==null?'':m.by); g[k]=(g[k]||0)+1; });
   return Object.entries(g).map(([k,n])=>{
-    const [ty,sign]=k.split('|');
-    return TYPE_META[ty].emoji+(sign==='doku'?'☠️':'✨')+(n>1?'×'+n:'');
+    const [ty,sign,by]=k.split('|');
+    const who=(by===''||!names||!names[+by])?'':'('+names[+by]+')';
+    return TYPE_META[ty].emoji+(sign==='doku'?'☠️':'✨')+who+(n>1?'×'+n:'');
   });
 }
+function snapNames(){ return (curSnap&&curSnap.players)?curSnap.players.map(p=>p.name):[]; }
 function renderRowAndPiles(snap){
   if(snap.row){
     $('rowArea').innerHTML=snap.row.map(c=>cardHtml(c,false)).join('');
@@ -1204,7 +1204,7 @@ function renderPlayers(snap,priv){
         const [ty,sign]=k.split('|'); const em=sign==='doku'?'☠️':'✨';
         return '<div class="gcard t-'+ty+' mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed;border-color:'+(sign==='doku'?'var(--bad)':'var(--good)')+'"><div class="em" style="font-size:14px">'+TYPE_META[ty].emoji+em+'×'+n+'</div></div>';
       }).join('');
-      selfMarkNote='<div class="mini2" style="margin-top:2px">🤫 印の中身はあなたにだけ表示(ほかの人には❓のまま)</div>';
+      selfMarkNote='<div class="mini2" style="margin-top:2px">🤫 '+marksPartsOf(priv.marks,snap.players.map(pp=>pp.name)).join(' ・ ')+' ― 印の中身はあなたにだけ表示(カッコ内は仕込んだ人・ほかの人には❓のまま)</div>';
     } else {
       markChips=Object.entries(p.markG||{}).map(([ty,n])=>'<div class="gcard t-'+ty+' mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed"><div class="em" style="font-size:14px">'+TYPE_META[ty].emoji+'❓×'+n+'</div></div>').join('');
     }
@@ -1330,9 +1330,9 @@ function renderTurnUI(data){
     const cfg2=myCfg||{};
     const line=(data.signs||[]).map(g=>g==='doku'?('☠️毒('+cfg2.dokuValue+'点)'):('✨粋(+'+cfg2.ikiValue+'点)')).join(' と ');
     $('turnTitle').textContent='あなただけがこっそり確認';
-    setAction('<div class="mask"><div style="font-size:16px">いま取った印は <b>'+line+'</b> でした</div>'
+    setAction('<div class="mask"><div style="font-size:16px">いま取った印は <b>'+line+'</b> でした'+(data.placerName?'（仕込んだのは <b>'+data.placerName+'</b>）':'')+'</div>'
       +(data.deduce?'<div class="hint" style="margin-top:6px">'+data.deduce+'</div>':'')
-      +'<div class="hint" style="margin-top:8px">これまでの自分の印: '+((data.parts||[]).join(' ・ ')||'―')+'（☠️×'+data.cumD+'・✨×'+data.cumI+'／印込みの参考得点: '+data.trueTotal+'点）<br>ほかの人には拝見まで秘密です(自分の懐紙には中身つきで表示され続けます)</div>'
+      +'<div class="hint" style="margin-top:8px">これまでの自分の印(カッコ内は仕込んだ人): '+((data.parts||[]).join(' ・ ')||'―')+'（☠️×'+data.cumD+'・✨×'+data.cumI+'／印込みの参考得点: '+data.trueTotal+'点）<br>ほかの人には拝見まで秘密です(自分の懐紙には中身つきで表示され続けます)</div>'
       +'<button id="markSeenBtn" style="margin-top:10px">🤫 見た（ここだけの話）</button></div>');
     $('markSeenBtn').onclick=()=>sendAct({type:'sawMark'});
     return;
@@ -1340,9 +1340,9 @@ function renderTurnUI(data){
 }
 /* 自分の取った印の一行(手番UI内)。プレイヤー欄にも常時出るが、手番中に視線移動なしで確認できるように添える */
 function myMarksLineHtml(){
-  const parts=marksPartsOf(curPriv&&curPriv.marks);
+  const parts=marksPartsOf(curPriv&&curPriv.marks,snapNames());
   if(!parts.length)return '';
-  return '<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます): '+parts.join(' ・ ')+' ― ほかの人には❓のまま</div>';
+  return '<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます・カッコ内は仕込んだ人): '+parts.join(' ・ ')+' ― ほかの人には❓のまま</div>';
 }
 
 /* ---------- ホスト ---------- */
@@ -1446,7 +1446,7 @@ function buildSnap(){
     })
   };
 }
-function privOf(seat){ const p=S.players[seat]; return {marks:(p.marks||[]).map(m=>({type:m.type,sign:m.sign}))}; }
+function privOf(seat){ const p=S.players[seat]; return {marks:(p.marks||[]).map(m=>({type:m.type,sign:m.sign,by:(m.by==null?null:m.by)}))}; }
 function sync(){
   const snap=buildSnap();
   const lines=hostLog.slice(sentLog); sentLog=hostLog.length;
@@ -1581,7 +1581,8 @@ function buildPeekData(idx,pile){
   }
   const sc=Engine.scoreOf(p,S.cfg);
   return { sub:'peek', signs:(pile.markSigns||[]).slice(), deduce,
-    parts:marksPartsOf(p.marks), cumD:sc.markDoku, cumI:sc.markIki, trueTotal:sc.total };
+    placerName:placer?placer.name:null,
+    parts:marksPartsOf(p.marks,S.players.map(x=>x.name)), cumD:sc.markDoku, cumI:sc.markIki, trueTotal:sc.total };
 }
 function startPeek(idx,pile,cont){
   Flow={phase:'peek',waiting:idx,cont};

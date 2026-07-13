@@ -165,6 +165,12 @@
       nHuman>=2(パス&プレイ)では欄は全員❓のまま、本人の手番UI(切るUI・選ぶUI。手渡しマスクの内側)に
       「🤫自分の取った印」の一行(myMarksLineHtml)でだけ見せる。🤫確認画面・懐紙見返しにも種類×符号の
       内訳を追加。すべて表示だけの変更でEngine・CPU評価・ログ・拝見までの他者秘匿は不変。
+  39. 【v0.7追記・印の出どころ表示(kaiyo指示・2026-07-12)】applyPickでmarksに by=仕込んだ亭主の座席
+      (S.sitting.markPlacerIdx)を記録する。「どの亭主の印がどの山に入っていたか」自体は全員が見ている
+      公開情報なので、byの記録は新たな秘匿を破らない。ただし「符号×出どころ」の組は取った本人しか
+      知らないため、表示は本人の私的画面(パネル注記・🤫確認・myMarksLine・懐紙見返し)に限る。
+      CPUの評価はseenMarks(既存)を使っており、byは表示専用。ローカル版・オンライン版のEngineに
+      同一差分を適用(バイト一致維持)。
 -->
 <style>
   :root{
@@ -195,7 +201,7 @@
   button.small{padding:5px 11px;font-size:13px}
   button:disabled{opacity:.4;cursor:not-allowed}
   .hint{font-size:12px;color:var(--sub)}
-  .players{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .players{display:grid;grid-template-columns:1fr;gap:10px} /* 1人1行=取ったカードの幅を盆と同じに(kaiyo指示 2026-07-12) */
   .pl{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
   .pl.dealer{background:#fef6e6;border-color:var(--accent)}
   .pl .name{font-weight:700;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
@@ -345,6 +351,14 @@
 
   <div id="game" class="hidden">
     <div id="banner" class="banner"></div>
+    <div class="card-panel" id="actionPanel">
+      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
+      <div class="rowcards" id="rowArea"></div>
+      <div class="piles hidden" id="pileArea"></div>
+      <h2 id="turnTitle" style="margin-top:14px"></h2>
+      <div id="actionBody"></div>
+    </div>
+    <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
     <div class="card-panel">
       <h2>点数表
         <button class="ghost small" id="refBtn">開く</button>
@@ -353,19 +367,7 @@
       </h2>
       <div id="refPanel" class="hidden"></div>
     </div>
-    <div class="card-panel">
-      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
-      <div class="rowcards" id="rowArea"></div>
-      <div class="piles hidden" id="pileArea"></div>
-    </div>
-    <div class="flex-split">
-      <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
-      <div class="card-panel"><h2>ログ(種類は記録しません)</h2><div class="log" id="log"></div></div>
-    </div>
-    <div class="card-panel" id="actionPanel">
-      <h2 id="turnTitle"></h2>
-      <div id="actionBody"></div>
-    </div>
+    <div class="card-panel"><h2>ログ(種類は記録しません)</h2><div class="log" id="log"></div></div>
     <div class="row">
       <button class="ghost small" id="backSetup">← 設定に戻す</button>
       <button class="ghost small" id="restartSame">同じ設定で最初から</button>
@@ -1135,7 +1137,7 @@ const Engine = {
         // v0.7試作・第3案(仮置き解釈33): 真の符号をmarksに積む(得点への反映はscoreOf)。
         // 印の位置は公開、符号は「取った本人だけが取った瞬間に確認できる」(kaiyo指示)。UI側は
         // 本人だけの確認画面で見せ、公開画面には出さない。
-        (player.marks=player.marks||[]).push(...pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type})));
+        (player.marks=player.marks||[]).push(...pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type,by:S.sitting.markPlacerIdx}))); // by=仕込んだ亭主(公開情報の座席。符号との組み合わせだけが本人private・仮置き解釈39)
         // 推理の種(バッグモデル): 見た符号を置き手ごとに数えて記録。未見の印は
         // 「毒markEach・粋markEachの全体から見た分を引いた残り」からの一様抽選として評価される
         if((pile.markSigns||[]).length && S.sitting.markPlacerIdx!=null){
@@ -1397,11 +1399,13 @@ function selfMarkVisible(idx){
   return !!(S && S.cfg.dokuStyle==='iki' && S.cfg.dokuOn && S.cfg.nHuman===1 && !S.players[idx].isCPU);
 }
 function myMarkParts(idx){
+  // 仮置き解釈39: カッコ内は仕込んだ亭主。出どころ自体は公開情報だが「符号×出どころ」の組は本人だけが知る
   const g={};
-  (S.players[idx].marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
+  (S.players[idx].marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign+'|'+(m.by==null?'':m.by); g[k]=(g[k]||0)+1; });
   return Object.entries(g).map(([k,n])=>{
-    const [ty,sign]=k.split('|');
-    return `${TYPE_META[ty].emoji}${sign==='doku'?'☠️':'✨'}${n>1?'×'+n:''}`;
+    const [ty,sign,by]=k.split('|');
+    const who=(by==='')?'':`(${S.players[+by].name})`;
+    return `${TYPE_META[ty].emoji}${sign==='doku'?'☠️':'✨'}${who}${n>1?'×'+n:''}`;
   });
 }
 function myMarksLineHtml(idx){
@@ -1409,7 +1413,7 @@ function myMarksLineHtml(idx){
   if(S.cfg.nHuman<2) return ''; // nHuman=1はプレイヤー欄で常時見えている(重複表示を避ける)
   const parts=myMarkParts(idx);
   if(!parts.length) return '';
-  return `<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます): ${parts.join(' ・ ')} ― ほかの人には❓のまま</div>`;
+  return `<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます・カッコ内は仕込んだ人): ${parts.join(' ・ ')} ― ほかの人には❓のまま</div>`;
 }
 
 function beginSitting(){
@@ -1485,7 +1489,7 @@ function renderAll(){
             .map(([ty,n])=>`<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}❓×${n}</div></div>`)
             .join('');
       const selfMarkNote = (selfMarkView && nMarks>0)
-        ? `<div class="mini2" style="margin-top:2px">🤫 印の中身はあなたにだけ表示(ほかの人には❓のまま)</div>` : '';
+        ? `<div class="mini2" style="margin-top:2px">🤫 ${myMarkParts(i).join(' ・ ')} ― 印の中身はあなたにだけ表示(カッコ内は仕込んだ人・ほかの人には❓のまま)</div>` : '';
       // 表示得点は公開情報のみ(印つきカードの種類・±は拝見までノーカウント。符号漏洩防止)
       const dispScore = Engine.publicVisibleScore(p,S.cfg);
       const totalCards=Engine.allTypesOf(p).length+(p.dokuCount||0)+nMarks;
@@ -1739,9 +1743,9 @@ function showMarkPeek(idx,signs,cont){
     }
     $('turnTitle').textContent=`${p.name} だけがこっそり確認`;
     $('actionBody').innerHTML=`<div class="mask">
-      <div style="font-size:16px">いま取った印は <b>${line}</b> でした</div>
+      <div style="font-size:16px">いま取った印は <b>${line}</b> でした${placer?`（仕込んだのは <b>${placer.name}</b>）`:''}</div>
       ${deduce?`<div class="hint" style="margin-top:6px">${deduce}</div>`:''}
-      <div class="hint" style="margin-top:8px">これまでの自分の印: ${myMarkParts(idx).join(' ・ ')||'―'}（☠️×${sc.markDoku}・✨×${sc.markIki}／印込みの参考得点: ${sc.total}点）<br>ほかの人には拝見まで秘密です</div>
+      <div class="hint" style="margin-top:8px">これまでの自分の印(カッコ内は仕込んだ人): ${myMarkParts(idx).join(' ・ ')||'―'}（☠️×${sc.markDoku}・✨×${sc.markIki}／印込みの参考得点: ${sc.total}点）<br>ほかの人には拝見まで秘密です</div>
       <button id="markSeenBtn" style="margin-top:10px">🤫 見た（ここだけの話）</button></div>`;
     $('markSeenBtn').onclick=cont;
   };
