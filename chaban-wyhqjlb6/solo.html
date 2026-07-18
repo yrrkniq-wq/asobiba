@@ -8,6 +8,13 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='none' stroke='%232A1C0E' stroke-width='10'/%3E%3Cline x1='58' y1='62' x2='84' y2='92' stroke='%23E5962D' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
 <!-- ※シークレットページ: OGPメタは意図的に付けない(リンクプレビューで内容が漏れないように) -->
 <!--
+  【v0.9.3 変更点】劇毒モードを追加。印は毒(-2)・劇毒(-3)・粋(+1)を各1個とし、印は累進でなく額面の合計で清算する（OFFでv0.9.2互換）。
+  【v0.9.3a 検証時修正(Claude)】v0.9.1aの非v9ガード2行（申告スナップショット/申告読み）と履歴コメントが保持リスト明記にもかかわらずChatGPT全文再生成で欠落（5回目）→再適用。v9系の挙動には影響なし。
+  【v0.9.2a 検証時修正(Claude)】v0.9.1aの非v9ガード2行がChatGPT出力で欠落し非v9パリティFAIL→同じガードを再適用（2箇所・UI更新版にも再適用）。v9系の挙動には影響なし。
+  【v0.9.2 UI更新2】獲得時の全員確認画面を廃止。分けた山には獲得者の種類別カード状況を小さく併記する。
+  【v0.9.2 UI更新】ゲーム中はデスクトップで一画面の卓ビューに再配置。プレイヤーの取得菓子を種類アイコン＋枚数の一覧に圧縮し、スクロール往復を減らす。
+  【v0.9.2 変更点】四季ボーナスを追加。拝見時に4種を各2枚以上で+2点（v9のみ・設定でOFF可）。CPU評価と表示にも反映。
+  【v0.9.1 変更点】少食復活バグを修正し、v0.9の共通梯子・テーマ閾値・三印既定値を固定。テーマ追従CPU、テーマ公開モード、初座終了時の申告スナップショット評価を追加。
   ルール_ちゃばん_v0.6 のHTML再現。ゲームID: chaban（v0.5からの改修版）
   スキル04準拠: Engine/UI分離・DOM最小セット・単一ファイル・パス&プレイ+CPU混在
   v0.6の核: 記憶の霧を捨て「全公開×格×標的毒」に刷新(2026-07-11 kaiyo判断)。
@@ -185,7 +192,7 @@
          display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   header h1{font-size:19px;margin:0}
   header .tag{font-size:12px;color:var(--sub);background:#f0ead9;padding:2px 9px;border-radius:20px}
-  .wrap{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  .wrap{max-width:1440px;margin:0 auto;padding:18px 20px 60px}
   .card-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
               padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
   h2{font-size:16px;margin:0 0 12px}
@@ -225,10 +232,10 @@
   table.res td,table.res th{border:1px solid var(--line);padding:5px 8px;text-align:left}
   .foot{font-size:11px;color:var(--sub);margin-top:8px}
   .mask{padding:30px;text-align:center}
-  .rowcards{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:8px 0}
-  .gcard{width:58px;height:76px;border-radius:10px;background:#fff;border:2px solid var(--line);
-         display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;box-shadow:var(--shadow)}
-  .gcard.mini{width:36px;height:46px;font-size:10px}
+  .rowcards{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;margin:8px 0;overflow-x:auto;padding:4px 3px 8px}
+  .gcard{width:108px;height:108px;border-radius:12px;background:#FBF3E3;border:1.5px solid #2A1C0E;
+         padding:6px 5px 4px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;font-weight:800;box-shadow:0 3px 10px rgba(60,40,10,.14)}
+  .gcard.mini{width:48px;height:48px;font-size:10px;padding:2px;border-radius:7px}
   .gcard .em{font-size:20px}
   .gcard.mini .em{font-size:14px}
   .gcard.t-sakura{background:#fde8ee}
@@ -236,6 +243,17 @@
   .gcard.t-kuri{background:#f7ecd9}
   .gcard.t-tsubaki{background:#f3e6f5}
   .gcard.t-wild{background:#eafaf0}
+  .gcard .card-art{width:84px;height:74px;display:flex;align-items:center;justify-content:center;flex:1}
+  .gcard .card-art svg{width:100%;height:100%;display:block}
+  .gcard.mini .card-art{width:38px;height:38px;flex:none}
+  .gcard .card-foot{width:100%;border-top:1px dashed #cabf9e;padding-top:2px}
+  .gcard .card-name{font-size:10px;text-align:center;color:#2A1C0E;line-height:1.1;font-weight:700}
+  .gcard .nums{font-size:7px;text-align:center;color:#2A1C0E;letter-spacing:-.02em;line-height:1.1;white-space:nowrap}
+  .gcard.mini .card-foot{display:none}
+  .card-token{position:absolute;right:-9px;top:-9px;width:32px;height:32px;z-index:2}
+  .card-token .token-mini{width:32px;height:32px;margin:0}
+  .token-mini{display:inline-flex;width:22px;height:22px;vertical-align:middle;filter:drop-shadow(0 1px 2px rgba(60,40,10,.16));margin-right:2px}
+  .token-mini svg{width:100%;height:100%}
   .gapbtn{padding:3px 7px;font-size:11px;background:#fff;color:var(--ink);border:1px solid var(--line);
           box-shadow:none;border-radius:8px}
   .gapbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -243,19 +261,133 @@
   .pilebox{border:2px solid var(--line);border-radius:12px;padding:8px;background:#fff;min-width:120px;transition:transform .1s}
   .pilebox.avail{cursor:pointer}
   .pilebox.avail:hover{transform:translateY(-3px)}
-  .pilebox.taken{opacity:.5}
   .pilebox.sel{outline:3px solid var(--accent)}
   .pilebox .sum{font-weight:800;color:var(--accent);font-size:14px;margin-bottom:4px}
   .pilebox .tag{font-size:11px;color:var(--sub)}
   .pilebox .cards{display:flex;gap:3px;flex-wrap:wrap}
+  .pilebox .cards{max-width:100%;overflow-x:auto;padding-bottom:3px}
+  .pilebox .gcard{width:96px;height:96px;flex:0 0 auto}
+  .owned-groups{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:6px}
+  .owned-group{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .owned-group .gcard{width:108px;height:108px}
+  .owned-group .gcard .card-art{width:84px;height:74px}
+  .owned-hand{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;overflow:visible;padding-right:4px}
+  .normal-column{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .normal-column-title{font-size:13px;font-weight:800;color:var(--sub)}
+  .theme-progress,.shiki-progress{margin-top:6px;padding:6px 9px;border-radius:8px;background:#fff7df;border:1px solid #ead6a6;font-size:13px}
+  .shiki-progress{background:#eef8ee;border-color:#b9d9bd}
+  .common-ladder{margin-top:7px;padding:6px 9px;border-radius:8px;background:#f4efe4;border:1px solid var(--line);font-size:13px;color:var(--sub)}
+  .normal-groups{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+  .card-stack{position:relative;width:108px;flex:0 0 auto}
+  .card-stack .gcard{position:absolute;left:0;top:0}
+  .marked-column{display:flex;flex-direction:column;gap:5px;padding-left:10px;border-left:1px solid var(--line)}
+  .marked-column-title{font-size:13px;font-weight:800;color:var(--bad);white-space:nowrap}
+  .owned-count{font-size:14px;font-weight:700;color:var(--ink)}
+  .owned-group .card-name{font-size:12px}
+  .owned-group .nums{font-size:9px}
+  #game .hint{font-size:15px}
+  #game .mini2{font-size:14px}
+  #game #turnTitle{font-size:21px;line-height:1.35}
+  #game .pilebox .sum{font-size:18px}
+  #game .pilebox .tag{font-size:14px}
+  #game .step{font-size:13px}
+  .v8-kicker{font-size:11px;color:var(--sub);letter-spacing:.08em;text-transform:uppercase}
+  .v8-status{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 2px}
+  .v8-pill{font-size:11px;padding:3px 9px;border-radius:999px;background:#f0ead9;color:var(--ink)}
+  .v8-pill.good{background:#e8f3ea;color:#3f7a4e}
+  .v8-pill.bad{background:#fde8e8;color:#a94d4d}
+  .v8-phase{font-size:12px;color:var(--sub);font-weight:600}
+  .pilebox.avail{transition:transform .16s, box-shadow .16s, border-color .16s}
+  .pilebox.avail:hover{box-shadow:0 8px 18px rgba(120,100,60,.16);border-color:var(--accent)}
+  .pilebox.sel{animation:v8Pulse .8s ease-in-out infinite alternate}
+  @keyframes v8Pulse{from{box-shadow:0 0 0 rgba(232,163,61,0)}to{box-shadow:0 0 0 5px rgba(232,163,61,.14)}}
+  .mark-report{display:inline-flex;gap:4px;align-items:center;font-size:11px;padding:2px 8px;border-radius:999px;background:#f7f1e5}
+  .mark-report .poison{color:#a94d4d}.mark-report .geki{color:#7d1f1f;font-weight:800}.mark-report .iki{color:#3f7a4e}
+  .midbreak{background:linear-gradient(135deg,#fff8e8,#f2fbf4);border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center}
+  .ladder-legend{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 7px;font-size:11px;color:var(--sub)}
+  .ladder-legend span{padding:3px 7px;border:1px solid var(--line);border-radius:8px;background:#f8f4ea}
+  .ladder-legend b{color:var(--ink)}
+  .ladder-legend{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 7px;font-size:11px;color:var(--sub)}
+  .ladder-legend span{padding:3px 7px;border:1px solid var(--line);border-radius:8px;background:#f8f4ea}
+  .ladder-legend b{color:var(--ink)}
+  .private-modal{position:fixed;z-index:30;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(45,38,25,.42)}
+  .private-modal.hidden{display:none}
+  .private-modal-card{width:min(520px,100%);padding:22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:0 18px 48px rgba(30,20,10,.3);text-align:center}
+  /* 卓ビュー: 中央の盆を囲むようにプレイヤーを配置し、ゲーム中のページスクロールをなくす。 */
+  @media (min-width:1100px){
+    .wrap{padding:10px 16px}
+    #game:not(.hidden){
+      height:calc(100vh - 65px);overflow:hidden;
+      display:grid;grid-template-columns:1fr;grid-template-areas:"banner" "status" "table" "toolbar";
+      grid-template-rows:auto auto minmax(0,1fr) auto;gap:8px;align-content:stretch;
+    }
+    #game:not(.hidden)>.card-panel{margin:0;min-width:0}
+    #banner{grid-area:banner;margin:0;padding:7px 12px}
+    #tableState{grid-area:status;margin:0}
+    #tabletop{grid-area:table;min-height:0;padding:10px;display:grid;gap:10px;align-items:stretch;grid-template-columns:minmax(210px,.72fr) minmax(440px,1.5fr) minmax(210px,.72fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top top" "left center right" "bottom bottom bottom";border:1px solid var(--line);border-radius:20px;background:radial-gradient(ellipse at center,#fffdf7 0,#f7f0df 68%,#eee3cc 100%);box-shadow:inset 0 0 0 9px rgba(255,255,255,.35)}
+    #actionPanel{grid-area:center;position:static;z-index:auto;margin:0;min-height:0;overflow:visible;padding:12px}
+    #actionPanel .v8-kicker{display:none}
+    #actionPanel h2{margin-bottom:5px}
+    #actionPanel .ladder-legend{gap:4px;margin-bottom:5px;font-size:10px}
+    #actionPanel .ladder-legend span{padding:2px 5px}
+    #actionPanel .ladder-legend{gap:4px;margin-bottom:5px;font-size:10px}
+    #actionPanel .ladder-legend span{padding:2px 5px}
+    #actionPanel .rowcards{margin:3px 0 5px;padding-bottom:4px;gap:6px}
+    #actionPanel .rowcards>.gcard{width:76px;height:76px;padding:3px;border-radius:9px}
+    #actionPanel .rowcards>.gcard .card-art{width:60px;height:60px}
+    #actionPanel .rowcards>div>.gcard{width:76px;height:76px;padding:3px;border-radius:9px}
+    #actionPanel .rowcards>div>.gcard .card-art{width:60px;height:60px}
+    #actionPanel .gcard .card-foot{display:none}
+    #actionPanel .piles{justify-content:center;gap:7px;margin-top:5px}
+    #actionPanel .pilebox{min-width:98px;padding:5px;border-radius:9px}
+    #actionPanel .pilebox .gcard{width:70px;height:70px;padding:3px;border-radius:8px}
+    #actionPanel .pilebox .gcard .card-art{width:56px;height:56px}
+    #actionPanel .pilebox .sum{font-size:13px}
+    #playersPanel{display:contents}
+    #playersPanel>h2{display:none}
+    #playersPanel .players{display:contents}
+    #playersPanel .pl{position:static;min-width:0;max-height:none;overflow:visible;padding:9px 11px;box-shadow:0 3px 10px rgba(90,70,35,.12);background:rgba(255,253,247,.98)}
+    /* 上下は横長、左右は縦長の席。CSS Gridで領域を分け、互いに重ならない。 */
+    #playersPanel .pl:nth-child(1){grid-area:top}
+    #playersPanel .pl:nth-child(2){grid-area:right}
+    #playersPanel .pl:nth-child(3){grid-area:bottom}
+    #playersPanel .pl:nth-child(4){grid-area:left}
+    #playersPanel .mini2{margin-top:2px;font-size:12px}
+    #playersPanel .theme-progress,#playersPanel .shiki-progress,#playersPanel .normal-column-title,#playersPanel .marked-column-title{display:none}
+    #playersPanel .owned-hand{gap:7px;margin-top:3px!important}
+    #playersPanel .normal-groups{gap:5px}
+    #playersPanel .normal-column{gap:0}
+    #playersPanel .owned-group{flex-direction:row;gap:3px}
+    #playersPanel .owned-count{font-size:11px;white-space:nowrap}
+    #playersPanel .marked-column{padding-left:0;border-left:0;gap:3px}
+    #playersPanel .marked-column-title,#playersPanel .normal-column-title{font-size:11px}
+    #playersPanel .common-ladder{display:none}
+    #playersPanel .theme-progress,#playersPanel .shiki-progress{margin-top:4px;padding:3px 6px;font-size:11px}
+    #playersPanel .gcard{width:48px;height:48px;padding:2px;border-radius:7px}
+    #playersPanel .gcard .card-art{width:38px;height:38px;flex:none}
+    #playersPanel .gcard .card-foot{display:none}
+    #playersPanel .card-token{width:22px;height:22px;right:-6px;top:-6px}
+    #playersPanel .card-token .token-mini{width:22px;height:22px}
+    #tableToolbar{grid-area:toolbar;display:flex;align-items:center;gap:8px;min-width:0}
+    #scorePanel{position:relative;margin:0;padding:5px 9px;background:rgba(255,253,247,.96)}
+    #logPanel{position:relative;flex:1;min-width:150px;margin:0;padding:5px 8px;background:rgba(255,253,247,.96)}
+    #gameActions{margin-left:auto;white-space:nowrap}
+    #game #scorePanel h2,#game #logPanel h2{font-size:13px;margin:0}
+    #game #scorePanel .hint{font-size:11px}
+    #scoreToggleWrap,#scoreAlwaysHint{display:none}
+    #refPanel:not(.hidden){position:absolute;z-index:8;left:0;bottom:calc(100% + 7px);width:min(720px,68vw);max-height:65vh;overflow:auto;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 10px 28px rgba(60,40,10,.2)}
+    #logPanel summary{cursor:pointer;font-size:13px;font-weight:700}
+    #logPanel .log{position:absolute;z-index:8;left:0;bottom:calc(100% + 7px);width:min(520px,60vw);height:180px;padding:8px;font-size:11px;background:var(--panel);box-shadow:0 10px 28px rgba(60,40,10,.2)}
+    #logPanel:not([open]) .log{display:none}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>🍵 ちゃばん</h1>
-  <span class="tag">開発プロトタイプ v0.6</span>
+  <h1>ちゃばん</h1>
+  <span class="tag">開発プロトタイプ v0.8</span>
   <span class="tag">ゲームID: chaban</span>
-  <span class="tag">全公開×格×標的毒 検証用</span>
+  <span class="tag">申告＋毒梯子＋二幕構成</span>
 </header>
 
 <div class="wrap">
@@ -269,7 +401,7 @@
     </div>
     <h3>調整レバー</h3>
     <div class="grid">
-      <label>四季(ワイルド)の枚数 <input id="shikiCount" class="num" type="number" min="0" max="6" value="4"></label>
+      <label>四季(ワイルド)の枚数 <input id="shikiCount" class="num" type="number" min="0" max="6" value="0"></label>
       <label>1席の枚数(固定) <input id="seatSize" class="num" type="number" min="6" max="8" value="7"></label>
       <label>亭主の巡数 <input id="hostRounds" class="num" type="number" min="1" max="3" value="2"></label>
       <label>CPU思考(ms) <input id="cpuThink" class="num" type="number" value="700"></label>
@@ -277,10 +409,11 @@
     <div class="row" style="margin-top:10px">
       <label>公開モード
         <select id="openMode">
-          <option value="full" selected>全公開(既定・v0.6)</option>
+          <option value="full" selected>全公開(既定・v0.8)</option>
           <option value="memory">記憶(v0.5相当・比較用)</option>
         </select>
       </label>
+      <label>テーマ公開 <input id="themeOpen" type="checkbox"> 全員のテーマを表示し、CPUも予測に利用</label>
       <label>半端の減点(1枚だけの種類)
         <select id="hanpaPenalty">
           <option value="0" selected>0(なし=既定・v0.4で廃止)</option>
@@ -309,7 +442,7 @@
       <label>到達宣言のしきい値 <input id="reachThreshold" class="num" type="number" min="0" max="20" value="10"> 点(達したら宣言=記憶の目印。税は既定0・cfgで復元可。0=宣言なし)</label>
     </div>
     <div class="row" style="margin-top:10px">
-      <label>☠️毒
+      <label>毒
         <select id="dokuMode">
           <option value="open" selected>公開(既定): 毒の位置は全員に見える</option>
           <option value="secret">非公開: 位置は秘密。「盛った」ことだけ公開され、席の終わりに誰が口にしたか開示</option>
@@ -317,19 +450,20 @@
         </select> 毒は−2点</label>
       <label>毒の型
         <select id="dokuStyle">
-          <option value="plain" selected>毒のみ(v0.6既定)</option>
-          <option value="iki">毒か粋か(v0.7試作): 亭主は手持ちの毒1・粋1から毎番1つを必ず伏せて置く(中身は取った本人だけ確認)</option>
+          <option value="plain">毒のみ(比較用)</option>
+          <option value="iki" selected>毒か粋か(v0.8既定): 毎番2個を必ず伏せて置く(中身は取った本人だけ確認)</option>
         </select></label>
-      <label class="hidden" id="ikiValRow">☠️毒 <input id="dokuValueIn" class="num" type="number" min="-6" max="0" value="-2"> 点 ／ ✨粋 <input id="ikiValueIn" class="num" type="number" min="0" max="4" value="1"> 点 ／ 持ち数
+      <label>劇毒モード <input id="gekiMarks" type="checkbox" checked> 毒・劇毒・粋を各1個、額面で清算</label>
+      <label id="ikiValRow">毒 <input id="dokuValueIn" class="num" type="number" min="-6" max="0" value="-2"> 点 ／ 劇毒 <input id="gekiValueIn" class="num" type="number" min="-8" max="0" value="-3"> 点 ／ 粋 <input id="ikiValueIn" class="num" type="number" min="0" max="4" value="1"> 点 ／ 持ち数
         <select id="markEach">
           <option value="2" selected>各2(第4案・既定): 亭主番ごとに2個(毒毒/毒粋/粋粋の択)</option>
           <option value="1">各1(第3案・比較用): 亭主番ごとに1個</option>
         </select> <span class="hint">(位置は常に公開・毎番必置)</span></label>
       <label>譲り合いの正客 <input id="yuzuriai" type="checkbox"> (v0.5で廃止・既定OFF。ON=v0.4比較用)</label>
-      <label>少食ボーナス <input id="shoshokuBonus" class="num" type="number" min="0" max="8" value="0"> 点(拝見時、枚数最少の人へ。毒のみ=0が既定。毒か粋か型は+4推奨=枚数どり抑制の補助。型を切り替えると自動で連動)</label>
+      <label>少食ボーナス <input id="shoshokuBonus" class="num" type="number" min="0" max="8" value="5"> 点(拝見時、枚数最少の人へ)</label>
       <label>枚数の公開 <input id="countPublic" type="checkbox" checked> 合計枚数を常時表示(既定=ON。記憶モード時のみ意味を持つ)</label>
     </div>
-    <div class="foot">既定＝v0.6(全公開×格×標的毒)。検証したい問い: ①切りの旨みの回復(毒配置込み最善vs毒なし均等≧1点/席) ②countmaxの抑制(毒単独でx1.0以下)+毒の照準分布(厚い山狙い一辺倒でないか) ③格の均衡(各菓子特化CPUがx0.9〜1.1)。</div>
+    <div class="foot">v0.8既定＝申告＋毒梯子(1毒−2/2毒−4/3毒−7)＋初座→中立ち→後座。印の中身は本人だけ、毒・粋の累計枚数は全員に公開します。</div>
 
     <h3>ルール要約</h3>
     <table class="rules">
@@ -338,42 +472,51 @@
       <tr><td>3. 選ぶ</td><td>正客(亭主の左隣)から時計回りに、客が1山ずつ取る</td></tr>
       <tr><td>4. 並べる(全公開)</td><td>取った菓子は自分の前に<b>表向き</b>で並べる。懐紙に隠さず、拝見前でも全員の得点は常時わかる</td></tr>
       <tr><td>5. 亭主の取り分</td><td>残った1山を亭主が受け取り、同じく表向きで並べる。亭主は時計回りに交代</td></tr>
-      <tr><td>終了</td><td>全員が亭主を規定回数(既定2回)務めたら「拝見」。梯子(菓子ごとの枚数・傾斜)＋四季の自動最適配分 −毒(1つ−2点)</td></tr>
+      <tr><td>終了</td><td>初座(1巡目)→中立ち→後座(2巡目・逆回り)の二幕。最後に「拝見」し、菓子の梯子＋粋(+1/個)−毒(1毒−2/2毒−4/3毒−7)＋少食+5</td></tr>
       <tr><td>記憶モード(比較用)</td><td>「公開モード」を「記憶」に切り替えるとv0.5相当(懐紙は非公開・余韻ゾーン経由・記憶精度・到達宣言あり)で比較できる</td></tr>
-      <tr><td>毒か粋か(v0.7試作)</td><td>「毒の型」を「毒か粋か」にすると、各プレイヤーは<b>毒(−2)×2と粋(+1)×2の印</b>を持ち、自分が亭主の番ごとに<b>2個を選んで盆の別々のカードに必ず伏せて置く</b>(毒毒/毒粋/粋粋から選ぶ。2回の番で4個を使い切る)。位置は全員に見えるが、中身は<b>取った本人だけ</b>がその場で確認できる(自分が取った印は以後も自分の画面にだけ中身が表示され続ける。ほかの人には❓のまま)。見た印の分だけ、その亭主の残りの印を絞り込める(持ち数「各1」にすると第3案=1個ずつ・残りが確定型の推理になる)</td></tr>
+      <tr><td>毒か粋か(v0.8既定)</td><td>各自が<b>毒(−2)×2と粋(+1)×2</b>を持ち、亭主番ごとに2個を別々のカードへ必置。印の位置は公開、中身は取った本人だけ確認。各自が食べた毒・粋の<b>累計枚数は申告され、全員に見える</b>が、どの種類に乗ったかは拝見まで秘密。</td></tr>
     </table>
 
     <div class="row" style="margin-top:16px">
-      <button id="startBtn">▶ ゲーム開始</button>
+      <button id="startBtn">ゲーム開始</button>
       <button class="ghost small" id="resetDefaults">既定値に戻す</button>
     </div>
   </div>
 
   <div id="game" class="hidden">
     <div id="banner" class="banner"></div>
-    <div class="card-panel" id="actionPanel">
-      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
-      <div class="rowcards" id="rowArea"></div>
-      <div class="piles hidden" id="pileArea"></div>
-      <h2 id="turnTitle" style="margin-top:14px"></h2>
-      <div id="actionBody"></div>
+    <div id="tableState" class="v8-status" aria-live="polite"></div>
+    <div id="tabletop">
+      <div class="card-panel" id="actionPanel">
+        <div class="v8-kicker">茶席のいま</div>
+        <h2>盆 <span class="hint" id="drawInfo"></span></h2>
+        <div class="ladder-legend"><span><b>共通梯子</b>　2枚=1　4枚=4　6枚=8　8枚=12</span><span><b>テーマ梯子</b>　桜・水：4枚で+2／5枚で+5　栗：3枚で+2／5枚で+5　椿：3枚で+2／4枚で+5</span><span><b>印</b>　毒-2・劇毒-3・粋+1（額面の合計）</span></div>
+        <div class="ladder-legend"><span><b>共通梯子</b>　2枚=1　4枚=4　6枚=8　8枚=12</span><span><b>テーマ梯子</b>　桜・水：4枚で+2／5枚で+5　栗：3枚で+2／5枚で+5　椿：3枚で+2／4枚で+5</span></div>
+        <div class="rowcards" id="rowArea"></div>
+        <div class="piles hidden" id="pileArea"></div>
+        <h2 id="turnTitle" style="margin-top:14px"></h2>
+        <div id="actionBody"></div>
+      </div>
+      <div class="card-panel" id="playersPanel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
     </div>
-    <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
-    <div class="card-panel">
-      <h2>点数表
-        <button class="ghost small" id="refBtn">開く</button>
-        <label id="scoreToggleWrap" style="font-size:12px;font-weight:400;margin-left:14px">💯 現在の自分の得点を表示 <input id="scoreToggle" type="checkbox"> <span class="hint" id="scoreToggleHint">(自分の手番の画面にだけ出ます)</span></label>
-        <span class="hint" id="scoreAlwaysHint" style="margin-left:14px">全員の現在得点はプレイヤー欄に常時表示されています</span>
-      </h2>
-      <div id="refPanel" class="hidden"></div>
-    </div>
-    <div class="card-panel"><h2>ログ(種類は記録しません)</h2><div class="log" id="log"></div></div>
-    <div class="row">
-      <button class="ghost small" id="backSetup">← 設定に戻す</button>
-      <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+    <div id="tableToolbar">
+      <div class="card-panel" id="scorePanel">
+        <h2>点数表
+          <button class="ghost small" id="refBtn">開く</button>
+          <label id="scoreToggleWrap" style="font-size:12px;font-weight:400;margin-left:14px">現在の自分の得点を表示 <input id="scoreToggle" type="checkbox"> <span class="hint" id="scoreToggleHint">(自分の手番の画面にだけ出ます)</span></label>
+          <span class="hint" id="scoreAlwaysHint" style="margin-left:14px">全員の現在得点はプレイヤー欄に常時表示されています</span>
+        </h2>
+        <div id="refPanel" class="hidden"></div>
+      </div>
+      <details class="card-panel" id="logPanel"><summary>ログ（種類は記録しません）</summary><div class="log" id="log"></div></details>
+      <div class="row" id="gameActions">
+        <button class="ghost small" id="backSetup">設定に戻す</button>
+        <button class="ghost small" id="restartSame">同じ設定で最初から</button>
+      </div>
     </div>
   </div>
 
+  <div id="privateModal" class="private-modal hidden" role="dialog" aria-modal="true"><div id="privateModalCard" class="private-modal-card"></div></div>
   <div id="result" class="hidden card-panel"></div>
 
 </div>
@@ -399,6 +542,28 @@ const TYPE_META={
   wild:{emoji:'🍃',label:'四季'}
 };
 const TYPES4=['sakura','mizu','kuri','tsubaki'];
+const CARD_INFO={
+  sakura:'総15枚 ／ 2:1　4:4　6:8　8:13　10:19',
+  mizu:'総15枚 ／ 2:1　4:4　6:8　8:13　10:19',
+  kuri:'総14枚 ／ 2:2　3:4　4:6　5:8',
+  tsubaki:'総12枚 ／ 2:2　3:4　4:6　5:9',
+  wild:''
+};
+// 提供素材(cards_square.html)の意匠を、プロトタイプ内で軽量なインラインSVGとして再現
+const CARD_ART={
+  sakura:`<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="#2A1C0E" stroke="#2A1C0E" stroke-width="2.3" stroke-linejoin="round">${[0,72,144,216,288].map(r=>`<path transform="translate(50,58) rotate(${r})" d="M 0,-8 C -13,-20 -15,-34 -6,-42 L 0,-37 L 6,-42 C 15,-34 13,-20 0,-8 Z"/>`).join('')}</g><circle cx="50" cy="58" r="4" fill="#2A1C0E"/></svg>`,
+  mizu:`<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="55" r="9" fill="none" stroke="#2A1C0E" stroke-width="3.3"/><circle cx="50" cy="55" r="18" fill="none" stroke="#2A1C0E" stroke-width="2.3"/><circle cx="50" cy="55" r="27" fill="none" stroke="#2A1C0E" stroke-width="2.3"/><circle cx="50" cy="55" r="2.5" fill="#2A1C0E"/></svg>`,
+  kuri:`<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 27L54 36L62 30L62 40L72 38L67 47L77 49L69 55L77 61L67 63L72 72L62 70L62 80L54 74L50 83L46 74L38 80L38 70L28 72L33 63L23 61L31 55L23 49L33 47L28 38L38 40L38 30L46 36Z" fill="#2A1C0E"/><circle cx="50" cy="55" r="10" fill="#2A1C0E"/></svg>`,
+  tsubaki:`<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#2A1C0E" stroke-width="2.7">${[0,72,144,216,288].map(r=>`<ellipse transform="translate(50,55) rotate(${r})" cx="0" cy="-16" rx="14" ry="17"/>`).join('')}</g><circle cx="50" cy="55" r="5" fill="none" stroke="#2A1C0E" stroke-width="2.7"/></svg>`,
+  wild:`<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 72C25 43 42 25 78 22C75 58 58 75 22 78Z" fill="none" stroke="#2A1C0E" stroke-width="3"/><path d="M27 70L72 28" stroke="#2A1C0E" stroke-width="2"/></svg>`
+};
+const TOKEN_ART=[
+  `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="52" r="46" fill="#FBF3E3" stroke="#2A1C0E" stroke-width="2"/><g fill="none" stroke="#2A1C0E" stroke-width="1.6">${[0,72,144,216,288].map(r=>`<ellipse transform="translate(50,52) rotate(${r})" cx="0" cy="-20" rx="8.5" ry="11"/>`).join('')}<circle cx="50" cy="52" r="4"/></g></svg>`,
+  `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="52" r="46" fill="#FBF3E3" stroke="#2A1C0E" stroke-width="2"/><g fill="none" stroke="#2A1C0E" stroke-width="1.5">${Array.from({length:12},(_,i)=>`<path d="M50 52L${50+28*Math.cos(i*Math.PI/6)} ${52+28*Math.sin(i*Math.PI/6)}"/>`).join('')}<circle cx="50" cy="52" r="9"/></g></svg>`,
+  `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="52" r="46" fill="#FBF3E3" stroke="#2A1C0E" stroke-width="2"/><path d="M50 25L73 65L27 65Z M73 39L50 79L27 39Z" fill="none" stroke="#2A1C0E" stroke-width="1.7"/><circle cx="50" cy="52" r="9" fill="none" stroke="#2A1C0E" stroke-width="1.4"/></svg>`,
+  `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="52" r="46" fill="#FBF3E3" stroke="#2A1C0E" stroke-width="2"/><g fill="none" stroke="#2A1C0E" stroke-width="1.6">${[[50,37],[65,52],[50,67],[35,52],[50,52]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="15.75"/>`).join('')}</g></svg>`
+];
+function tokenHtml(by,mini=true){ return `<span class="token-mini" title="${by==null?'亭主':(S&&S.players[by]?S.players[by].name:'亭主')}">${TOKEN_ART[(by==null?0:by)%TOKEN_ART.length]}</span>`; }
 
 /* CPU方策の定数(ノイズ・重み)。argmax一択にしないためsoftmax抽選で選ぶ。
    CUT_TEMPは低め(亭主の切りをシミュ計測で見極められる程度にはっきりさせる)、
@@ -416,6 +581,7 @@ const DENY_WEIGHT=0.25, FOCUS_WEIGHT=1.4, PILE_TEMP=1.2, CUT_TEMP=0.35, VOLUME_W
    0にすると旧v0.5相当(自分の残り物EV最大化のみ)に戻る。値はsim_balance_ちゃばん.jsの
    caseDokuTarget(照準分布)で「厚い山狙い一辺倒でないか」を見ながら調整する。 */
 const DOKU_TARGET_WEIGHT=0.6;
+let predicting=false;
 
 /* ===== Engine（純ロジック。DOMを触らない。シミュ・テストから直接呼ぶ） ===== */
 const Engine = {
@@ -424,12 +590,12 @@ const Engine = {
     // 強すぎ・桜(緩)が弱すぎになりシミュでFAIL(桜x0.58〜0.71/椿x1.19〜1.29)。桜の上段を強化・椿の上段を
     // 弱化する形でv0.6用に再調整し、格の均衡(x0.9〜1.1)を確認済み(N=3500でx0.96/0.96/0.98/1.10)。
     ladders:{
-      sakura:[[2,1],[4,4],[6,8],[8,12],[10,17]],
-      mizu:[[2,1],[4,4],[6,8],[8,12]],
-      kuri:[[2,2],[3,4],[5,9],[7,13]],
-      tsubaki:[[2,3],[3,5],[4,8],[5,12]]
+      sakura:[[2,1],[4,4],[6,8],[8,13],[10,19]],
+      mizu:[[2,1],[4,4],[6,8],[8,13],[10,19]],
+      kuri:[[2,2],[3,4],[4,6],[5,8]],
+      tsubaki:[[2,2],[3,4],[4,6],[5,9]]
     },
-    counts:{sakura:16,mizu:14,kuri:12,tsubaki:10},
+    counts:{sakura:15,mizu:15,kuri:14,tsubaki:12},
     // v0.7試作・第2案(仮置き解釈35): 毒か粋か(必置ペア)用の梯子補正。印カード(2枚/席)が種類に
     // 数えられないぶん長い梯子が届きにくくなるため、桜の上段を強化・椿の上段を弱化する。
     ikiLadders:{
@@ -452,7 +618,7 @@ const Engine = {
       kuri:[[2,2],[3,4],[5,9],[7,12]],
       tsubaki:[[2,3],[3,5],[4,8],[5,11]]
     },
-    shikiCount:4,
+    shikiCount:0,
     seatSize:7,
     yoinSeats:1,
     hanpaPenalty:0 // v0.4で廃止(レバーとして残置・比較用)
@@ -467,7 +633,7 @@ const Engine = {
     c.yoinSeats = (c.yoinSeats===undefined)?Engine.DEFAULTS.yoinSeats:c.yoinSeats;
     c.hanpaPenalty = (c.hanpaPenalty===undefined)?Engine.DEFAULTS.hanpaPenalty:c.hanpaPenalty;
     c.yuzuriai = (c.yuzuriai===undefined)?false:!!c.yuzuriai;            // v0.5: 廃止(既定OFF・比較用レバー)
-    c.shoshokuBonus = (c.shoshokuBonus===undefined)?0:c.shoshokuBonus;   // v0.6: 既定0で実質削除(仮置き解釈31。レバーとして残置)
+    c.shoshokuBonus = (c.shoshokuBonus===undefined)?5:c.shoshokuBonus;
     c.countPublic = (c.countPublic===undefined)?true:!!c.countPublic;    // v0.4: 枚数の公開
     c.seikyakuValue = (c.seikyakuValue===undefined)?1.2:c.seikyakuValue; // v0.4: CPUが見積もる正客権の価値(点相当)
     c.reachThreshold = (c.reachThreshold===undefined)?10:c.reachThreshold; // v0.4: 到達税のしきい値(0=なし)
@@ -479,7 +645,7 @@ const Engine = {
     // v0.7試作(仮置き解釈33): 毒の型。'plain'=毒のみ(v0.6既定) / 'iki'=毒か粋か(kaiyo発案:
     // 亭主は毒か粋のどちらかを伏せて置く。印の位置は公開・符号は拝見まで全員に非公開)。
     // ikiでは位置は常に公開(秘密なのは符号だけ)なのでdokuMode='secret'は'open'に読み替える。
-    c.dokuStyle = (c.dokuStyle===undefined)?'plain':c.dokuStyle;
+    c.dokuStyle = (c.dokuStyle===undefined)?'iki':c.dokuStyle;
     if(c.dokuStyle==='iki' && c.dokuMode==='secret') c.dokuMode='open';
     // 毒1つの点。iki型もplain型も既定-2: kaiyo提案は毒-3だったが、±配分スイープで-2/+1が全出口条件を
     // 満たし(-3/+1はcountmaxがx1.1に浮く)、v0.6の毒-2との連続性もあるため-2を既定に採用(±変更は承認済み)
@@ -513,7 +679,27 @@ const Engine = {
     // だった順番差(3人戦の最初の正客x1.2)が解消する(毎席2個の印がv0.6の毎席毒と同じく初手の
     // 正客有利への税として働く)。トレードオフは拝見のブレ微増と、推理が確定型→部分情報型になること。
     c.markEach = (c.markEach===undefined)?2:c.markEach;
-    if(c.dokuStyle==='iki' && !cfg.ladders){
+    // v0.9: 通常カードは共通の点数梯子を使う。
+    if(c.v9){
+      const common=[[2,1],[4,4],[6,8],[8,12]];
+      const v9Ladders={sakura:common,mizu:common,kuri:[[2,1],[3,4],[5,8],[7,12]],tsubaki:[[2,1],[3,4],[5,8],[6,12]]};
+      c.ladders=Object.assign({},v9Ladders,cfg.ladders||{});
+      c.themeThresholds=Object.assign({sakura:[4,5],mizu:[4,5],kuri:[3,5],tsubaki:[3,4]},cfg.themeThresholds||{});
+      c.themeBonus=[2,3];
+      c.shoshokuBonus=(cfg.shoshokuBonus===undefined)?0:c.shoshokuBonus;
+      c.shikiBonus=(cfg.shikiBonus===undefined)?2:cfg.shikiBonus;
+      c.shikiNeed=(cfg.shikiNeed===undefined)?2:cfg.shikiNeed;
+      c.gekiMarks=(cfg.gekiMarks===undefined)?true:!!cfg.gekiMarks;
+      c.gekiValue=(cfg.gekiValue===undefined)?-3:cfg.gekiValue;
+      c.threeMarks=(cfg.threeMarks===false)?false:true;
+    } else {
+      c.shikiBonus=(cfg.shikiBonus===undefined)?0:cfg.shikiBonus;
+      c.shikiNeed=(cfg.shikiNeed===undefined)?2:cfg.shikiNeed;
+      c.gekiMarks=false;
+      c.gekiValue=(cfg.gekiValue===undefined)?-3:cfg.gekiValue;
+    }
+    c.dokuLadder = (c.dokuLadder===undefined)?[0,-2,-4,-7]:c.dokuLadder;
+    if(false && c.dokuStyle==='iki' && !cfg.ladders){
       // 梯子補正は「種類から消えるカードの量」で選ぶ(仮置き解釈35):
       //   markCountsType=true(全部数える)=消えない→標準梯子 / 'ikiOnly'=毒ぶんだけ消える(markEach×4席
       //   ≒8枚)→ikiLadders / false(両方消える)=markEach2なら16枚→ikiLadders2、markEach1ならikiLadders
@@ -526,9 +712,10 @@ const Engine = {
     // v0.7試作(kaiyo指示 2026-07-12): 少食ボーナスの再検討。iki型では+2を既定にする。
     // 根拠: markCountsType='ikiOnly'(粋のカードは生きる)では枚数どりへの税が軽くなるため、
     // 少食+4+volumeWeight0.4でcountmax x0.97/countmin x0.58まで抑える(半端減点は逆効果で不採用)。
-    if(c.dokuStyle==='iki' && cfg.shoshokuBonus===undefined) c.shoshokuBonus=4;
+    if(!c.v9 && c.dokuStyle==='iki' && cfg.shoshokuBonus===undefined) c.shoshokuBonus=5;
     c.dokuTargetWeight = (c.dokuTargetWeight===undefined)?DOKU_TARGET_WEIGHT:c.dokuTargetWeight; // シミュ実験用(既定は定数)
     c.openMode = (c.openMode===undefined)?'full':c.openMode; // v0.6: 'full'(全公開・既定)/'memory'(v0.5相当・比較用)
+    c.themeOpen = (c.themeOpen===undefined)?false:!!c.themeOpen;
     return c;
   },
 
@@ -542,17 +729,25 @@ const Engine = {
 
   newGame(cfg,specs){
     const c=Engine.applyDefaults(cfg);
+    const themeDeck=shuffle(TYPES4.slice());
     const players=specs.map((s,i)=>({
       id:i, name:s.name, isCPU:!!s.isCPU,
       memoryModel:s.memoryModel||'decay', focusType:s.focusType||null,
       policy:s.policy||'smart',
+      theme:c.v9?themeDeck[i%themeDeck.length]:null,
       kaishi:[], yoinZone:[], dokuCount:0,
       marks:[], // v0.7試作(iki型): 受け取った印の符号('doku'|'iki')の列。取った本人だけが知る(他は拝見まで非公開)
       // 第3案/第4案: 手持ちの印(毒markEach個+粋markEach個)。亭主番ごとにmarkEach個を選んで必置
-      markStock:Array(c.markEach).fill('doku').concat(Array(c.markEach).fill('iki')),
+      // v0.8.1: 印は1人3個（毒2・粋1）。亭主番ごとに1〜2個を選んで置く。
+      markStock:c.gekiMarks? ['doku','geki','iki'] // v0.9.3: 粋1毒1劇毒1(額面制)
+        : c.threeMarks===true
+        ? Array(2).fill('doku').concat(['iki'])
+        : Array(c.markEach).fill('doku').concat(Array(c.markEach).fill('iki')),
       // 推理の種(バッグモデル): 他プレイヤーの印のうち自分が実際に見た符号の数(placerIdx→{doku,iki})。
       // 未見の印は「全体(毒/粋 各markEach)から見た分を引いた残り」からの一様抽選として期待値評価する
-      seenMarks:{}
+      seenMarks:{},
+      // v0.8: 毒/粋の累計枚数は申告情報として全員に公開する(対象カードは非公開)
+      reportedMarks:{doku:0,geki:0,iki:0}
     }));
     const n=players.length;
     // 初期亭主はランダム(仮置き解釈17): hostIdx=0固定だと「席番号ごとに正客になるsitting番号が
@@ -573,6 +768,8 @@ const Engine = {
       hostIdx:hostSeq[0], firstHostIdx:hostSeq[0], hostSeq,
       sittingIndex:0, totalSittings:n*c.hostRounds,
       sitting:null, revealLog:[],
+      // 初座終了時に一度だけ公開する印の内訳。その後に取った印は「?」でまとめる。
+      markDisclosure:null, markDisclosureClosed:false,
       seikyakuIdx:null, lastSeikyaku:null, // v0.4: 譲り合いで授与された次席の正客(null=亭主の左隣)
       reachLog:[] // v0.4: 到達税(仮置き解釈24)。10点に達した順のプレイヤーid
     };
@@ -826,6 +1023,9 @@ const Engine = {
     const volumeBonus=(pile.cards?pile.cards.length:0)*(S.cfg.volumeWeight!==undefined?S.cfg.volumeWeight:VOLUME_WEIGHT);
     // v0.4: 正客権の見込み(点相当)を加点
     const seikyakuBonus=Engine.seikyakuChanceBonus(S,idx,pile);
+    const themeBonus=(!predicting || S.cfg.themeOpen)?Engine.themeGain(S,idx,pile):0;
+    // 四季の進捗は取った菓子の公開情報だけで決まるため、切りの予測中にも同じ評価を使う。
+    const shikiBonus=(S.cfg.v9 && S.cfg.shikiBonus>0)?Engine.shikiGain(S,idx,pile):0;
     // v0.5: 毒コスト。公開=真値。非公開=客は位置を知らないので「盛られた」情報から山の枚数比で期待値評価
     // (亭主本人は自分で置いたので真値を知っている)
     // v0.7試作(iki型・仮置き解釈33/37): 印の位置は公開・符号は非公開(取った本人と置いた亭主のみ真値)。
@@ -839,7 +1039,7 @@ const Engine = {
         const knows = S.sitting && idx===S.sitting.hostIdx;
         const policy=S.cfg.markCountsType;
         if(knows){
-          dokuCost = signs.reduce((s,g)=>s+(g==='doku'?dv:iv),0);
+          dokuCost = signs.reduce((s,g)=>s+(g==='doku'?dv:(g==='geki'?(S.cfg.gekiValue||0):iv)),0);
           if(policy==='ikiOnly'){
             // 亭主は符号を知っている: 粋つきカードの種類価値も込みで評価
             const ikiTypes=(pile.cards||[]).filter(cd=>cd.doku&&cd.markSign==='iki').map(cd=>cd.type);
@@ -854,7 +1054,8 @@ const Engine = {
             // (過小評価すると客が印の山を譲りすぎ、countmaxが漁夫の利を得てx2.0まで暴れることをシミュで確認)
             const markedTypes=(pile.cards||[]).filter(cd=>cd.doku).map(cd=>cd.type);
             if(markedTypes.length){
-              const pIki=(iv===dv)?0.5:Math.min(1,Math.max(0,(ev-dv)/(iv-dv)));
+              let pIki=(iv===dv)?0.5:Math.min(1,Math.max(0,(ev-dv)/(iv-dv)));
+              if(S.cfg.gekiMarks && placer!=null){ const seen=(S.players[idx].seenMarks||{})[placer]||{}; const rD=Math.max(0,1-(seen.doku||0)),rG=Math.max(0,1-(seen.geki||0)),rI=Math.max(0,1-(seen.iki||0)); pIki=(rD+rG+rI>0)?rI/(rD+rG+rI):1/3; }
               const typeGain=Engine.cpuEvaluatePile(S,idx,pile,markedTypes)-Engine.cpuEvaluatePile(S,idx,pile);
               dokuCost += pIki*typeGain;
             }
@@ -877,7 +1078,7 @@ const Engine = {
         reachDelta=Engine.reachTaxForRank(S,S.reachLog.length);
       }
     }
-    return self + DENY_WEIGHT*deny + focusBonus + volumeBonus + seikyakuBonus + reachDelta + dokuCost;
+    return self + DENY_WEIGHT*deny + focusBonus + volumeBonus + seikyakuBonus + reachDelta + dokuCost + themeBonus + shikiBonus;
   },
   softmaxPick(list,temp){
     if(list.length===0) return null;
@@ -924,22 +1125,25 @@ const Engine = {
      predictLeftoverは残り物のindexだけを返す後方互換ラッパー。predictAssignmentは各客が取ると
      予測される山のindexまで返す(v0.6の毒標的型化・仮置き解釈29で使用)。 */
   predictAssignment(S,piles,custOrder,hostIdx){
-    const remaining=piles.map((_,k)=>k);
-    const chosen=new Set();
-    const assign={};
-    custOrder.forEach((j,pos)=>{
-      const avail=remaining.filter(k=>!chosen.has(k));
-      const after=custOrder.slice(pos+1).concat([hostIdx]);
-      let bestK=avail[0],bestScore=-Infinity;
-      avail.forEach(k=>{
-        const sc=Engine.cpuChoosePileScore(S,j,piles[k],after);
-        if(sc>bestScore){bestScore=sc;bestK=k;}
+    const wasPredicting=predicting; predicting=true;
+    try{
+      const remaining=piles.map((_,k)=>k);
+      const chosen=new Set();
+      const assign={};
+      custOrder.forEach((j,pos)=>{
+        const avail=remaining.filter(k=>!chosen.has(k));
+        const after=custOrder.slice(pos+1).concat([hostIdx]);
+        let bestK=avail[0],bestScore=-Infinity;
+        avail.forEach(k=>{
+          const sc=Engine.cpuChoosePileScore(S,j,piles[k],after);
+          if(sc>bestScore){bestScore=sc;bestK=k;}
+        });
+        chosen.add(bestK);
+        assign[j]=bestK;
       });
-      chosen.add(bestK);
-      assign[j]=bestK;
-    });
-    const leftoverIdx=piles.map((_,k)=>k).find(k=>!chosen.has(k));
-    return {assign,leftoverIdx};
+      const leftoverIdx=piles.map((_,k)=>k).find(k=>!chosen.has(k));
+      return {assign,leftoverIdx};
+    } finally { predicting=wasPredicting; }
   },
   predictLeftover(S,piles,custOrder,hostIdx){
     return Engine.predictAssignment(S,piles,custOrder,hostIdx).leftoverIdx;
@@ -984,13 +1188,15 @@ const Engine = {
     if(styleIki){
       const stock=S.players[hostIdx].markStock||[];
       if(!stock.length) return null; // 在庫切れ(hostRounds>2の席など)は置かない
-      const need=Math.min(S.cfg.markEach, stock.length);
+      // v0.8.1: CPUも亭主番ごとに1〜2個を選ぶ（在庫1個なら1個固定）。
+      const need=stock.length<=1 ? stock.length : (Math.random()<0.5 ? 1 : 2);
       ikiPlacement=Math.round((S.cfg.markEach*2-stock.length)/S.cfg.markEach)+1;
-      const nD=stock.filter(s=>s==='doku').length, nI=stock.filter(s=>s==='iki').length;
+      const nD=stock.filter(s=>s==='doku').length, nG=stock.filter(s=>s==='geki').length, nI=stock.filter(s=>s==='iki').length;
       if(need===1){
         for(let p=0;p<row.length;p++){
           if(nD) options.push({marks:[{pos:p,sign:'doku'}]});
           if(nI) options.push({marks:[{pos:p,sign:'iki'}]});
+          if(nG) options.push({marks:[{pos:p,sign:'geki'}]});
         }
       } else {
         for(let a=0;a<row.length;a++)for(let b=a+1;b<row.length;b++){
@@ -999,6 +1205,15 @@ const Engine = {
           if(nD>=1&&nI>=1){
             options.push({marks:[{pos:a,sign:'doku'},{pos:b,sign:'iki'}]});
             options.push({marks:[{pos:a,sign:'iki'},{pos:b,sign:'doku'}]});
+          }
+          if(nG>=2) options.push({marks:[{pos:a,sign:'geki'},{pos:b,sign:'geki'}]});
+          if(nD>=1&&nG>=1){
+            options.push({marks:[{pos:a,sign:'doku'},{pos:b,sign:'geki'}]});
+            options.push({marks:[{pos:a,sign:'geki'},{pos:b,sign:'doku'}]});
+          }
+          if(nI>=1&&nG>=1){
+            options.push({marks:[{pos:a,sign:'iki'},{pos:b,sign:'geki'}]});
+            options.push({marks:[{pos:a,sign:'geki'},{pos:b,sign:'iki'}]});
           }
         }
       }
@@ -1048,8 +1263,9 @@ const Engine = {
         // 粋(+)を渡すのは損、毒(−)を渡すのは妨害、が符号・位置ごとの評価に自然に織り込まれる。
         // plain型は従来の挙動を変えない(客の回避行動はpredictAssignment側で既に反映されている)。
         if(styleIki){
-          gain += (evalPiles[pileIdx].markSigns||[]).reduce((s,g)=>s+(g==='doku'?dv:iv),0);
+          gain += (evalPiles[pileIdx].markSigns||[]).reduce((s,g)=>s+(g==='doku'?dv:(g==='geki'?(S.cfg.gekiValue||0):iv)),0);
         }
+        if(S.cfg.themeOpen) gain += Engine.themeGain(S,j,evalPiles[pileIdx]);
         denyScore += gain*leadWeight(j);
       });
       const score=selfScore - W*denyScore;
@@ -1078,11 +1294,13 @@ const Engine = {
     if(S.cfg.dokuStyle==='iki' && S.cfg.dokuOn){
       const host=S.players[S.sitting.hostIdx];
       const stock=(host.markStock||[]).slice();
-      const need=Math.min(S.cfg.markEach, stock.length);
       // 引数を marks配列 に正規化({pos,sign}単体はmarkEach=1の後方互換)
       let marks=null;
       if(doku && typeof doku==='object') marks = Array.isArray(doku.marks) ? doku.marks : (doku.pos!=null ? [doku] : null);
+      const need=marks ? marks.length : 0;
+      if(stock.length && need===0) throw new Error('iki型では印を1〜2個置く');
       if(need>0){
+        if(need<1 || need>2 || need>stock.length) throw new Error('iki型の印は1〜2個、在庫の範囲内で置く');
         if(!marks || marks.length!==need) throw new Error(`iki型では亭主は手持ちの印から${need}個を必ず置く({marks:[{pos,sign}×${need}]})`);
         const positions=marks.map(m=>m.pos);
         if(new Set(positions).size!==positions.length || positions.some(p=>p==null)) throw new Error('印は別々のカードに置く');
@@ -1092,7 +1310,7 @@ const Engine = {
           if(k<0) throw new Error('在庫にない印は置けない(sign∈markStockの複集合)');
           rest.splice(k,1);
         });
-        markPlacement = Math.round((S.cfg.markEach*2 - stock.length)/S.cfg.markEach) + 1; // 1=その亭主の1番目の番, 2=2番目
+        markPlacement = stock.length===3 ? 1 : 2; // 3個在庫からの1番目/2番目の亭主番
         host.markStock = rest;
         S.sitting.dokuIdx=marks[0].pos; // 互換フィールド(「印が置かれた」判定・ログはこれを見る)
         S.sitting.dokuSign=marks[0].sign;
@@ -1137,7 +1355,9 @@ const Engine = {
         // v0.7試作・第3案(仮置き解釈33): 真の符号をmarksに積む(得点への反映はscoreOf)。
         // 印の位置は公開、符号は「取った本人だけが取った瞬間に確認できる」(kaiyo指示)。UI側は
         // 本人だけの確認画面で見せ、公開画面には出さない。
-        (player.marks=player.marks||[]).push(...pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type,by:S.sitting.markPlacerIdx}))); // by=仕込んだ亭主(公開情報の座席。符号との組み合わせだけが本人private・仮置き解釈39)
+        const takenMarks=pile.cards.filter(cd=>cd.doku).map(cd=>({sign:cd.markSign,type:cd.type,by:S.sitting.markPlacerIdx}));
+        (player.marks=player.marks||[]).push(...takenMarks);
+        takenMarks.forEach(m=>{ player.reportedMarks[m.sign]=(player.reportedMarks[m.sign]||0)+1; });
         // 推理の種(バッグモデル): 見た符号を置き手ごとに数えて記録。未見の印は
         // 「毒markEach・粋markEachの全体から見た分を引いた残り」からの一様抽選として評価される
         if((pile.markSigns||[]).length && S.sitting.markPlacerIdx!=null){
@@ -1195,11 +1415,23 @@ const Engine = {
       S.seikyakuIdx=null;
     }
     S.sittingIndex++;
+    if(S.cfg.v9 && S.sittingIndex===S.players.length){ // v0.9.1a: 申告スナップショットはv9限定(非v9挙動を不変に保つガード)
+      S.players.forEach(p=>{
+        const r=p.reportedMarks||{doku:0,iki:0,geki:0};
+        p.reportedMarksSnapshot={doku:r.doku||0,iki:r.iki||0,geki:r.geki||0};
+      });
+    }
     // v0.7試作(仮置き解釈36): 次の亭主はhostSeqから(forwardなら従来の時計回りと同一の並び)
     S.hostIdx = (S.hostSeq && S.hostSeq[S.sittingIndex]!==undefined) ? S.hostSeq[S.sittingIndex] : (S.hostIdx+1)%S.players.length;
   },
   isOver(S){ return S.sittingIndex>=S.totalSittings; },
 
+  dokuPenalty(count,cfg){
+    const n=Math.max(0,count||0), ladder=cfg.dokuLadder||[0,-2,-4,-7];
+    if(n<ladder.length) return ladder[n];
+    const slope=ladder.length>1 ? ladder[ladder.length-1]-ladder[ladder.length-2] : -3;
+    return ladder[ladder.length-1]+(n-ladder.length+1)*slope;
+  },
   scoreOf(player,cfg){
     const t=Engine.tallyTypes(Engine.selfTypesOf(player,cfg));
     const base={sakura:t.sakura,mizu:t.mizu,kuri:t.kuri,tsubaki:t.tsubaki};
@@ -1211,19 +1443,54 @@ const Engine = {
     });
     const hanpaPenaltyTotal = hanpaTypes.length*(cfg.hanpaPenalty||0);
     // v0.5 毒: 口にした毒1つにつきdokuValue(既定-2)。毒は公開情報なので現在得点表示にも含める
-    const dokuCount=player.dokuCount||0;
-    const dokuTotal=dokuCount*(cfg.dokuValue||0);
+    const dokuCount=(player.dokuCount||0)+(player.marks||[]).filter(m=>(m.sign||m)==='doku').length;
+    const dokuTotal=cfg.gekiMarks?Engine.dokuPenalty(player.dokuCount||0,cfg):Engine.dokuPenalty(dokuCount,cfg);
     // v0.7試作(iki型・仮置き解釈33): 印の真値。totalは真の得点(最終集計用)なのでmark分も含めるが、
     // 符号は拝見まで非公開のため、途中経過の表示やAIの他者評価にはmarkTotalを除いた値+markEVを使うこと
     // (renderAll・hostChooseDokuのleadWeight参照。ここで隠すとfinalScoresが壊れるのでtotalは真値のまま)。
     const marks=player.marks||[];
-    const markDoku=marks.filter(m=>(m.sign||m)==='doku').length, markIki=marks.length-markDoku;
-    const markTotal=markDoku*(cfg.dokuValue||0)+markIki*(cfg.ikiValue||0);
-    return {total:best.total+dokuTotal+markTotal,alloc:best.alloc,base,wild:t.wild,finalCounts,hanpaTypes,hanpaPenaltyTotal,dokuCount,dokuTotal,markCount:marks.length,markDoku,markIki,markTotal};
+    const markGeki=cfg.gekiMarks?marks.filter(m=>(m.sign||m)==='geki').length:0;
+    const markDoku=marks.filter(m=>(m.sign||m)==='doku').length, markIki=marks.length-markDoku-markGeki;
+    // v0.8: 毒は個数累進でまとめて課税。粋だけは1個+1の線形。
+    const markTotal=markIki*(cfg.ikiValue||0)+(cfg.gekiMarks?(markGeki*(cfg.gekiValue||0)+markDoku*(cfg.dokuValue||0)):0);
+    return {total:best.total+dokuTotal+markTotal,alloc:best.alloc,base,wild:t.wild,finalCounts,hanpaTypes,hanpaPenaltyTotal,dokuCount,dokuTotal,markCount:marks.length,markDoku,markGeki,markIki,markTotal};
+  },
+  themeScore(player,cfg){
+    if(!cfg.v9 || !player.theme) return {bonus:0,stage:0,count:0,thresholds:null};
+    const t=Engine.tallyTypes(Engine.selfTypesOf(player,cfg));
+    const thresholds=(cfg.themeThresholds&&cfg.themeThresholds[player.theme])||[0,0];
+    const count=t[player.theme]||0;
+    const stage=count>=thresholds[1]?2:(count>=thresholds[0]?1:0);
+    const bonus=stage===2?(cfg.themeBonus||[2,3]).reduce((a,b)=>a+b,0):stage===1?(cfg.themeBonus||[2,3])[0]:0;
+    return {bonus,stage,count,thresholds};
+  },
+  themeGain(S,idx,pile){
+    if(!S.cfg.v9 || !S.players[idx].theme) return 0;
+    const theme=S.players[idx].theme;
+    const thresholds=(S.cfg.themeThresholds&&S.cfg.themeThresholds[theme])||[0,0];
+    const bonus=S.cfg.themeBonus||[2,3];
+    const phi=count=>{
+      const t1=thresholds[0], t2=thresholds[1];
+      if(count>=t2) return bonus[0]+bonus[1];
+      if(count>=t1) return bonus[0]+(count-t1)*(bonus[1]/(t2-t1));
+      return count*(bonus[0]/t1);
+    };
+    const current=Engine.tallyTypes(Engine.selfTypesOf(S.players[idx],S.cfg))[theme]||0;
+    return phi(current+(pile.typeCounts[theme]||0))-phi(current);
+  },
+  shikiGain(S,idx,pile){
+    if(!S.cfg.v9 || !(S.cfg.shikiBonus>0)) return 0;
+    const need=S.cfg.shikiNeed;
+    const phi=counts=>TYPES4.reduce((sum,ty)=>sum+Math.min(counts[ty]||0,need),0)/(4*need)*S.cfg.shikiBonus;
+    const current=Engine.tallyTypes(Engine.selfTypesOf(S.players[idx],S.cfg));
+    const after=Object.assign({},current);
+    TYPES4.forEach(ty=>{ after[ty]=(after[ty]||0)+((pile.typeCounts||{})[ty]||0); });
+    return phi(after)-phi(current);
   },
   /* v0.7試作(仮置き解釈33): 符号を知らない者から見た印1つの期待値。事前確率は50:50の素朴モデル
      (実際の亭主は戦略的に選ぶので厳密には50:50ではないが、客CPUのレベル0の読みとして仮置き)。 */
   markEV(cfg){
+    if(cfg.gekiMarks) return ((cfg.dokuValue||0)+(cfg.gekiValue||0)+(cfg.ikiValue||0))/3;
     const p=(cfg.markPrior===undefined)?0.5:cfg.markPrior;
     return p*(cfg.dokuValue||0)+(1-p)*(cfg.ikiValue||0);
   },
@@ -1234,6 +1501,11 @@ const Engine = {
   markBagEV(S,observerIdx,placerIdx){
     const each=S.cfg.markEach||1;
     const seen=(S.players[observerIdx].seenMarks||{})[placerIdx]||{doku:0,iki:0};
+    if(S.cfg.gekiMarks){
+      const remD=Math.max(0,1-(seen.doku||0)), remG=Math.max(0,1-(seen.geki||0)), remI=Math.max(0,1-(seen.iki||0));
+      if(remD+remG+remI<=0) return Engine.markEV(S.cfg);
+      return (remD*(S.cfg.dokuValue||0)+remG*(S.cfg.gekiValue||0)+remI*(S.cfg.ikiValue||0))/(remD+remG+remI);
+    }
     const remD=Math.max(0,each-(seen.doku||0)), remI=Math.max(0,each-(seen.iki||0));
     if(remD+remI<=0) return Engine.markEV(S.cfg); // 全部見たはずの印が残っている矛盾ケースは素朴事前へ
     return (remD*(S.cfg.dokuValue||0)+remI*(S.cfg.ikiValue||0))/(remD+remI);
@@ -1241,13 +1513,30 @@ const Engine = {
   /* v0.7試作: 「公開情報だけで見た得点」。iki型の未開示の印は真値でなくmarkEVで数える。
      表示(renderAll)とAIの他者評価(hostChooseDokuのleadWeight)はこちらを使う。 */
   publicScoreOf(player,cfg){
-    return Engine.publicVisibleScore(player,cfg) + ((player.marks||[]).length)*Engine.markEV(cfg);
+    const snap=cfg.v9?player.reportedMarksSnapshot:null; // v0.9.1a: 申告読みはv9限定(非v9挙動を不変に保つガード)
+    if(!snap) return Engine.publicVisibleScore(player,cfg) + ((player.marks||[]).length)*Engine.markEV(cfg);
+    const current=(player.marks||[]).length;
+    const disclosed=(snap.doku||0)+(snap.geki||0)+(snap.iki||0);
+    return Engine.publicVisibleScore(player,cfg)
+      + (cfg.gekiMarks ? ((snap.doku||0)*(cfg.dokuValue||0)+(snap.geki||0)*(cfg.gekiValue||0)) : Engine.dokuPenalty(snap.doku||0,cfg))
+      + (snap.iki||0)*(cfg.ikiValue||0)
+      + (current-disclosed)*Engine.markEV(cfg);
   },
   finalScores(S){
     // v0.4 少食ボーナス(仮置き解釈20): 懐紙+余韻の合計枚数が最少の人に加点。同数最少は全員が受け取る。
     const arr=S.players.map(p=>Object.assign(
-      {id:p.id,name:p.name,cardCount:Engine.allTypesOf(p).length+(p.dokuCount||0)+((p.marks||[]).length)}, // 毒・印カードも物理枚数として数える(markCountsTypeなら印カードは懐紙に種類として入っているので重複加算しない)
+      {id:p.id,name:p.name,theme:p.theme,cardCount:Engine.allTypesOf(p).length+(p.dokuCount||0)+((p.marks||[]).length)}, // 毒・印カードも物理枚数として数える
       Engine.scoreOf(p,S.cfg)));
+    if(S.cfg.v9){
+      arr.forEach(s=>{ const ts=Engine.themeScore(S.players[s.id],S.cfg); s.themeStage=ts.stage; s.themeCount=ts.count; s.themeBonus=ts.bonus; s.total+=ts.bonus; });
+    }
+    if(S.cfg.v9 && S.cfg.shikiBonus>0){
+      const need=S.cfg.shikiNeed;
+      arr.forEach(s=>{
+        s.shiki=TYPES4.every(ty=>(s.finalCounts[ty]||0)>=need);
+        if(s.shiki) s.total+=S.cfg.shikiBonus;
+      });
+    }
     const bonus=S.cfg.shoshokuBonus||0;
     if(bonus>0 && arr.length>0){
       const minC=Math.min(...arr.map(s=>s.cardCount));
@@ -1294,18 +1583,36 @@ const Engine = {
 /* ===== UI（Engineを呼ぶだけ。数値は必ず +$(id).value で読む） ===== */
 let S=null, cutSel=new Set(), pickSel=null;
 
+function showPrivateModal(html,onClose){
+  $('privateModalCard').innerHTML=html;
+  $('privateModal').classList.remove('hidden');
+  $('markSeenBtn').onclick=()=>{ $('privateModal').classList.add('hidden'); onClose(); };
+}
+
 function memLabel(m){ return m==='perfect'?'完全':m==='none'?'無記憶':'減衰'; }
-function cardHtml(type,mini,doku){
+function cardHtml(type,mini,doku,markOwner){
   const m=TYPE_META[type];
   // v0.7試作(iki型): 符号は非公開なので、印はどちらか分からない「❓」で描く(☠️を出すと符号が漏れる)
   const iki = S && S.cfg && S.cfg.dokuStyle==='iki';
-  const mark=doku?`<div style="position:absolute;top:-6px;right:-6px;font-size:15px">${iki?'❓':'☠️'}</div>`:'';
-  return `<div class="gcard t-${type}${mini?' mini':''}" style="position:relative${doku?';border-color:var(--bad)':''}">${mark}<div class="em">${m.emoji}</div>${mini?'':`<div style="font-size:10px">${m.label}</div>`}</div>`;
+  const mark=doku
+    ? (iki ? `<span class="card-token">${tokenHtml(markOwner)}</span>` : `<div style="position:absolute;top:-6px;right:-6px;font-size:12px;color:var(--bad)">毒</div>`)
+    : '';
+  return `<div class="gcard t-${type}${mini?' mini':''}" aria-label="${m.label}" style="position:relative${doku?';border-color:var(--bad)':''}">${mark}<div class="card-art">${CARD_ART[type]||CARD_ART.wild}</div>${mini?'':`<div class="card-foot"><div class="card-name">${m.label}</div></div>`}</div>`;
+}
+function stackedCardsHtml(type,count){
+  const n=Math.max(0,count||0);
+  if(!n) return '';
+  const offset=12;
+  const cards=Array.from({length:n},(_,i)=>`<div style="position:absolute;left:0;top:${i*offset}px;z-index:${i+1}">${cardHtml(type,false,false,null)}</div>`).join('');
+  return `<div class="card-stack" style="height:${108+(n-1)*offset}px">${cards}</div>`;
 }
 function readCfg(){
   const c={};
   ['nHuman','nCpu','shikiCount','seatSize','hostRounds','cpuThink','shoshokuBonus','reachThreshold'].forEach(i=>c[i]=+$(i).value);
   c.selfKaishiView=$('selfKaishiView').checked;
+  c.v9=true;
+  c.themeOpen=$('themeOpen').checked;
+  c.shoshokuBonus=0;
   c.cpuMemory=$('cpuMemory').value||'decay';
   c.yoinSeats=+$('yoinSeats').value;
   c.hanpaPenalty=+$('hanpaPenalty').value;
@@ -1313,8 +1620,11 @@ function readCfg(){
   c.countPublic=$('countPublic').checked;
   c.dokuMode=$('dokuMode').value||'open';
   c.dokuStyle=$('dokuStyle').value||'plain';
+  c.gekiMarks=$('gekiMarks').checked;
+  // v0.8.1: UIのiki型は1人3個（毒2・粋1）で運用する。
+  c.threeMarks=(c.dokuStyle==='iki');
   // v0.7試作: 毒か粋か型のときだけ±入力を読む(plain型は従来どおりEngine既定-2)
-  if(c.dokuStyle==='iki'){ c.dokuValue=+$('dokuValueIn').value; c.ikiValue=+$('ikiValueIn').value; c.markEach=(+$('markEach').value)||2; }
+  if(c.dokuStyle==='iki'){ c.dokuValue=+$('dokuValueIn').value; c.gekiValue=+$('gekiValueIn').value; c.ikiValue=+$('ikiValueIn').value; c.markEach=(+$('markEach').value)||2; }
   c.openMode=$('openMode').value||'full';
   // v0.6(仮置き解釈31): 全公開モードでは宣言・懐紙見返しは意味を失うため無効化する
   // (Engine.applyDefaults自体は変えない。直接Engineを叩くテスト・シミュはopenModeに関わらず個別指定が生きる)
@@ -1336,7 +1646,7 @@ function startGame(){
   shuffle(specs);
   S=Engine.newGame(cfg,specs);
   $('log').innerHTML='';
-  log(`ゲーム開始（${total}人 / 公開モード:${cfg.openMode==='full'?'全公開':'記憶('+memLabel(cfg.cpuMemory)+')'} / 1席${cfg.seatSize}枚 / ワイルド${cfg.shikiCount}枚 / 亭主${cfg.hostRounds}巡 / 余韻${cfg.yoinSeats}席 / 半端減点${cfg.hanpaPenalty} / 毒${S.cfg.dokuOn?(S.cfg.dokuStyle==='iki'?`か粋か(${S.cfg.dokuValue}／+${S.cfg.ikiValue})`:'ON'):'OFF'} / 少食+${cfg.shoshokuBonus} / 枚数公開${cfg.countPublic?'ON':'OFF'} / 宣言しきい値${cfg.reachThreshold}点 / 譲り合い${cfg.yuzuriai?'ON':'OFF'}）`);
+  log(`ゲーム開始（${total}人 / 公開モード:${cfg.openMode==='full'?'全公開':'記憶('+memLabel(cfg.cpuMemory)+')'} / 1席${cfg.seatSize}枚 / ワイルド${cfg.shikiCount}枚 / 亭主${cfg.hostRounds}巡 / 余韻${cfg.yoinSeats}席 / 半端減点${cfg.hanpaPenalty} / 毒${S.cfg.dokuOn?(S.cfg.dokuStyle==='iki'?(S.cfg.gekiMarks?`・劇毒・粋(${S.cfg.dokuValue}／${S.cfg.gekiValue}／+${S.cfg.ikiValue})`:`か粋か(${S.cfg.dokuValue}／+${S.cfg.ikiValue})`):'ON'):'OFF'} / 少食+${cfg.shoshokuBonus} / 枚数公開${cfg.countPublic?'ON':'OFF'} / 宣言しきい値${cfg.reachThreshold}点 / 譲り合い${cfg.yuzuriai?'ON':'OFF'}）`);
   // v0.4: 点数傾斜表を今回のcfgで生成。得点トグルは毎ゲームOFFに戻し、見返し不可なら無効化(仮置き解釈23)
   $('refPanel').innerHTML=buildRefTable(S.cfg);
   $('refPanel').classList.add('hidden'); $('refBtn').textContent='開く';
@@ -1360,14 +1670,20 @@ function buildRefTable(cfg){
   html+='<tr><td><b>菓子</b></td><td><b>枚数</b></td><td><b>得点(その枚数に達したら)</b></td></tr>';
   TYPES4.forEach(ty=>{
     const ladder=cfg.ladders[ty].map(([th,sc])=>`${th}枚=${sc}点`).join(' / ');
-    html+=`<tr><td>${TYPE_META[ty].emoji}${TYPE_META[ty].label}</td><td>${cfg.counts[ty]}枚</td><td>${ladder}</td></tr>`;
+    html+=`<tr><td>${TYPE_META[ty].label}</td><td>${cfg.counts[ty]}枚</td><td>${ladder}</td></tr>`;
   });
-  html+=`<tr><td>${TYPE_META.wild.emoji}四季</td><td>${cfg.shikiCount}枚</td><td>好きな菓子1枚分として数える(拝見時に自動で一番得する割り振り)</td></tr>`;
+  html+=`<tr><td>四季</td><td>${cfg.shikiCount}枚</td><td>好きな菓子1枚分として数える(拝見時に自動で一番得する割り振り)</td></tr>`;
   if(cfg.hanpaPenalty) html+=`<tr><td>半端</td><td>―</td><td>1枚だけの種類は ${cfg.hanpaPenalty}点/種(四季で2枚にすれば救済可)</td></tr>`;
   if(cfg.dokuOn && cfg.dokuStyle==='iki'){
-    html+=`<tr><td>❓毒か粋か</td><td>―</td><td>各自が<b>毒(${cfg.dokuValue}点)×${cfg.markEach}・粋(+${cfg.ikiValue}点)×${cfg.markEach}の印</b>を持つ。自分が亭主の番ごとに<b>${cfg.markEach}個を選んで盆の別々のカードに必ず伏せて置く</b>。位置は全員に見えるが、中身は取った本人だけが確認できる(取った印は以後も自分の画面にだけ表示され続ける。ほかの人には拝見で開示)。見た印の分だけ、その亭主の残りの印を絞り込める。${cfg.markCountsType===true?'印のカードもふつうに種類に数える(±が上に乗るだけ)':cfg.markCountsType==='ikiOnly'?'カードはコマが乗るだけで卓に残る。✨粋が乗った菓子はそのまま種類に数え、☠️毒が乗った菓子は腐って数えない(どちらだったかは拝見で判明)':'印のカードは種類に数えない'}</td></tr>`;
+    if(cfg.gekiMarks){
+      html+=`<tr><td>劇毒</td><td>―</td><td>各自が<b>毒(${cfg.dokuValue}点)×1・劇毒(${cfg.gekiValue}点)×1・粋(+${cfg.ikiValue}点)×1の印</b>を持つ。亭主番ごとに1〜2個を別々のカードへ必置。位置は全員に見え、中身は取った本人だけが確認でき、拝見では額面を合計する（累進なし）。</td></tr>`;
+    } else {
+    const dokuN=cfg.dokuStyle==='iki' && cfg.markEach===2 ? 2 : cfg.markEach;
+    const ikiN=cfg.dokuStyle==='iki' && cfg.markEach===2 ? 1 : cfg.markEach;
+    html+=`<tr><td>毒か粋か</td><td>―</td><td>各自が<b>毒(${cfg.dokuValue}点)×${dokuN}・粋(+${cfg.ikiValue}点)×${ikiN}の印</b>を持つ。亭主番ごとに1〜2個を別々のカードへ必置。位置は全員に見え、中身は取った本人だけが確認できる。</td></tr>`;
+    }
   } else if(cfg.dokuOn){
-    html+=`<tr><td>☠️毒</td><td>―</td><td>亭主が切るとき盆の1枚に置ける(任意)。毒を口にすると拝見で${cfg.dokuValue}点(そのカードは種類に数えない)。${cfg.dokuMode==='secret'?'非公開: 位置は秘密、席の終わりに誰が口にしたか開示':'公開: 置いた場所は全員に見える'}</td></tr>`;
+    html+=`<tr><td>毒</td><td>―</td><td>亭主が切るとき盆の1枚に置ける(任意)。毒を口にすると拝見で${cfg.dokuValue}点(そのカードは種類に数えない)。${cfg.dokuMode==='secret'?'非公開: 位置は秘密、席の終わりに誰が口にしたか開示':'公開: 置いた場所は全員に見える'}</td></tr>`;
   }
   if(cfg.reachThreshold){
     const taxed = (cfg.reachTaxFirst||cfg.reachTaxMid);
@@ -1375,6 +1691,7 @@ function buildRefTable(cfg){
       ? `<tr><td>到達税</td><td>―</td><td>${cfg.reachThreshold}点に最初に達した人は拝見で${cfg.reachTaxFirst}点、2番目以降は${cfg.reachTaxMid}点(最後の人と未到達は0)。達したら宣言する</td></tr>`
       : `<tr><td>宣言</td><td>―</td><td>自分の得点が${cfg.reachThreshold}点に達したら宣言する(記憶の目印。減点はなし)</td></tr>`;
   }
+  if(cfg.v9 && cfg.shikiBonus>0) html+=`<tr><td>四季</td><td>―</td><td>拝見のとき4種すべてを${cfg.shikiNeed}枚以上集めていれば +${cfg.shikiBonus}点</td></tr>`;
   html+=`<tr><td>少食</td><td>―</td><td>拝見のとき合計枚数が最少の人に +${cfg.shoshokuBonus}点(同数最少は全員)</td></tr>`;
   if(cfg.yuzuriai) html+=`<tr><td>譲り合い</td><td>―</td><td>最も小さい山を取った客が、次の席の正客(最初に選ぶ人)になる</td></tr>`;
   html+='</table>';
@@ -1387,8 +1704,8 @@ function scoreLineHtml(idx){
   if(!$('scoreToggle') || !$('scoreToggle').checked) return '';
   const sc=Engine.scoreOf(S.players[idx],S.cfg);
   // iki型(第2案): 印の中身は取った本人が知っている(kaiyo指示)。本人の手番UI内なので真値で表示してよい
-  const markNote=sc.markCount?`（うち印 ☠️×${sc.markDoku}・✨×${sc.markIki}=${sc.markTotal>0?'+':''}${sc.markTotal}点。ほかの人には秘密）`:'';
-  return `<div class="hint" id="scoreLine">💯 ${S.players[idx].name} の現在得点(参考): <b>${sc.total}</b>点${markNote} ― 四季最適配分ずみ／到達税・少食ボーナスは終了時判定のため含みません</div>`;
+  const markNote=sc.markCount?`（うち印 毒×${sc.markDoku}${S.cfg.gekiMarks?`・劇毒×${sc.markGeki}`:''}・粋×${sc.markIki}=${sc.markTotal>0?'+':''}${sc.markTotal}点。ほかの人には秘密）`:'';
+  return `<div class="hint" id="scoreLine">${S.players[idx].name} の現在得点(参考): <b>${sc.total}</b>点${markNote} ― 四季最適配分ずみ／到達税・少食ボーナスは終了時判定のため含みません</div>`;
 }
 
 /* v0.7追記(kaiyo指示・2026-07-12/仮置き解釈38): 自分が取った印の中身(☠️/✨)を本人にだけ見せる。
@@ -1405,7 +1722,7 @@ function myMarkParts(idx){
   return Object.entries(g).map(([k,n])=>{
     const [ty,sign,by]=k.split('|');
     const who=(by==='')?'':`(${S.players[+by].name})`;
-    return `${TYPE_META[ty].emoji}${sign==='doku'?'☠️':'✨'}${who}${n>1?'×'+n:''}`;
+    return `${tokenHtml(by===''?null:+by)}${TYPE_META[ty].label}・${sign==='doku'?'毒':sign==='geki'?'劇毒':'粋'}${who}${n>1?'×'+n:''}`;
   });
 }
 function myMarksLineHtml(idx){
@@ -1413,14 +1730,19 @@ function myMarksLineHtml(idx){
   if(S.cfg.nHuman<2) return ''; // nHuman=1はプレイヤー欄で常時見えている(重複表示を避ける)
   const parts=myMarkParts(idx);
   if(!parts.length) return '';
-  return `<div class="hint" id="myMarksLine">🤫 自分の取った印(あなただけに見えます・カッコ内は仕込んだ人): ${parts.join(' ・ ')} ― ほかの人には❓のまま</div>`;
+  return `<div class="hint" id="myMarksLine">自分の取った印（本人だけに表示・カッコ内は仕込んだ人）: ${parts.join(' ・ ')} ― ほかの人には非公開</div>`;
 }
 
 function beginSitting(){
+  // 中立ちで公開した内訳を、後座開始後は再び伏せる。
+  if(S.sittingIndex>=S.players.length) S.markDisclosureClosed=true;
   Engine.startSitting(S);
   const host=S.players[S.sitting.hostIdx];
   const seikyaku=S.players[S.sitting.order[0]];
-  $('banner').textContent=`席 ${S.sittingIndex+1}/${S.totalSittings} ― 亭主: ${host.name} ／ 正客: ${seikyaku.name}`;
+  const phase=S.sittingIndex<S.players.length?'初座':'後座';
+  const phaseNote=S.sittingIndex<S.players.length?'一巡目・時計回り':'二巡目・逆回り';
+  $('banner').innerHTML=`<span class="v8-phase">${phase}</span>　席 ${S.sittingIndex+1}/${S.totalSittings}　<small>${phaseNote}</small>`;
+  $('tableState').innerHTML=`<span class="v8-pill good">亭主　${host.name}</span><span class="v8-pill">正客　${seikyaku.name}</span><span class="v8-pill">${S.sittingIndex<S.players.length?'印の申告は公開':'印の数は非公開'}</span><span class="v8-pill">残り山札 ${S.deck.length}枚</span>`;
   $('drawInfo').textContent=` ― 山札残${S.deck.length}枚`;
   $('pileArea').classList.add('hidden');
   renderRowStatic();
@@ -1429,7 +1751,7 @@ function beginSitting(){
 }
 function dokuVisible(c){ return c.doku && S.cfg.dokuMode==='open'; }
 function renderRowStatic(){
-  $('rowArea').innerHTML = S.sitting.row.map(c=>cardHtml(c.type,false,dokuVisible(c))).join('');
+  $('rowArea').innerHTML = S.sitting.row.map(c=>cardHtml(c.type,false,dokuVisible(c),S.sitting.markPlacerIdx)).join('');
 }
 function renderPiles(clickable){
   const area=$('pileArea');
@@ -1438,19 +1760,23 @@ function renderPiles(clickable){
   let html='';
   S.sitting.piles.forEach((pl,k)=>{
     const taken=pl.takenBy!==null;
-    const cls='pilebox'+(taken?' taken':(clickable?' avail':''));
-    const cardsHtml=pl.cards.map(c=>cardHtml(c.type,true,dokuVisible(c))).join('');
+    if(taken) return; // 取られた山は盆から片付け、未取得の山だけを残す。
+    const cls='pilebox'+(clickable?' avail':'');
+    const cardsHtml=pl.cards.map(c=>cardHtml(c.type,false,dokuVisible(c),c.doku?S.sitting.markPlacerIdx:null)).join('');
     const dokuTag = (pl.dokuCount && S.cfg.dokuMode==='open')
-      ? (S.cfg.dokuStyle==='iki'?` <span style="color:var(--bad)">❓印×${pl.dokuCount}</span>`:` <span style="color:var(--bad)">☠️毒入り</span>`)
+      ? (S.cfg.dokuStyle==='iki'?` <span style="color:var(--bad)">印×${pl.dokuCount}</span>`:` <span style="color:var(--bad)">毒入り</span>`)
       : '';
-    const tag = taken ? `${S.players[pl.takenBy].name} が獲得` : (clickable?'クリックで選択':'');
-    html+=`<div class="${cls}" id="pilechoice${k}"><div class="sum">${pl.cards.length}枚${dokuTag}</div><div class="cards">${cardsHtml}</div><div class="tag">${tag}</div></div>`;
+    const tag = clickable?'クリックで選択':'';
+    html+=`<div class="${cls}" id="pilechoice${k}" role="button" aria-label="山${k+1} ${pl.cards.length}枚"><div class="sum">山${k+1}　${pl.cards.length}枚${dokuTag}</div><div class="cards">${cardsHtml}</div><div class="tag">${tag}</div></div>`;
   });
   area.innerHTML=html;
 }
 function renderAll(){
   let html='';
   const openFull = S.cfg.openMode==='full';
+  const firstHalf = S.sittingIndex<S.players.length;
+  const midbreak = S.sittingIndex===S.players.length && !S.markDisclosureClosed;
+  const secondHalf = S.sittingIndex>=S.players.length && S.markDisclosureClosed;
   S.players.forEach((p,i)=>{
     const isHost=S.sitting && S.sitting.hostIdx===i;
     const isSeikyaku=S.sitting && S.sitting.order[0]===i;
@@ -1458,12 +1784,29 @@ function renderAll(){
     const memTag=(p.isCPU && !openFull)?`<span class="badge">${memLabel(p.memoryModel)}</span>`:'';
     const yoinN=p.yoinZone.reduce((s,e)=>s+e.types.length,0);
     const yoinCards=p.yoinZone.flatMap(e=>e.types).map(ty=>cardHtml(ty,true)).join('');
-    const dokuBadge = (p.dokuCount||0)>0 ? `<span class="badge" style="background:var(--bad);color:#fff">☠️×${p.dokuCount}</span>` : '';
+      const dokuBadge = (p.dokuCount||0)>0 ? `<span class="badge" style="background:var(--bad);color:#fff">毒×${p.dokuCount}</span>` : '';
     // v0.7試作(iki型): 印は「持っていること」だけ公開。符号(毒か粋か)は拝見まで出さない
     const nMarks=(p.marks||[]).length;
-    const markBadge = nMarks>0 ? `<span class="badge" style="background:#8a8272;color:#fff">❓印×${nMarks}</span>` : '';
+    const themeVisible=(S.cfg.v9 && p.theme && (S.cfg.themeOpen || (S.cfg.nHuman===1 && !p.isCPU)));
+    const themeTag=themeVisible
+      ? `<span class="badge" style="background:#f5e8bd;color:#7a5a20">テーマ：${TYPE_META[p.theme].label}</span>` : '';
+    const themeInfo=(themeVisible && !S.cfg.themeOpen)
+      ? (()=>{const ts=Engine.themeScore(p,S.cfg), th=ts.thresholds; return `<div class="theme-progress"><b>テーマ達成状況</b>　${TYPE_META[p.theme].label} ${ts.count}枚 / ${th[0]}枚・${th[1]}枚　${ts.stage>=1?'第1達成':'第1未達'}　${ts.stage>=2?'第2達成':'第2未達'}</div>`;})() : '';
+    const shikiInfo=(S.cfg.v9 && S.cfg.shikiBonus>0 && !p.isCPU)
+      ? (()=>{const fc=Engine.scoreOf(p,S.cfg).finalCounts, need=S.cfg.shikiNeed; const done=TYPES4.every(ty=>(fc[ty]||0)>=need); return `<div class="shiki-progress"><b>四季</b>　桜${fc.sakura||0}・水${fc.mizu||0}・栗${fc.kuri||0}・椿${fc.tsubaki||0}　${done?`<b>達成！ +${S.cfg.shikiBonus}点</b>`:`（各${need}枚で+${S.cfg.shikiBonus}）`}</div>`;})() : '';
+    const rep=p.reportedMarks||{doku:0,geki:0,iki:0};
+    const disclosed=(S.markDisclosure&&S.markDisclosure[i])||{doku:0,geki:0,iki:0};
+    const disclosedTotal=(disclosed.doku||0)+(disclosed.geki||0)+(disclosed.iki||0);
+    const unknown=Math.max(0,nMarks-disclosedTotal);
+    const markBadge = S.cfg.dokuStyle==='iki' && firstHalf && nMarks>0
+      ? `<span class="badge" style="background:#8a8272;color:#fff">印×${nMarks}</span>`
+      : S.cfg.dokuStyle==='iki' && midbreak && disclosedTotal>0
+        ? `<span class="mark-report"><span class="poison">毒×${disclosed.doku||0}</span>${S.cfg.gekiMarks?`<span class="geki">劇毒×${disclosed.geki||0}</span>`:''}<span class="iki">粋×${disclosed.iki||0}</span></span>`
+      : S.cfg.dokuStyle==='iki' && secondHalf && disclosedTotal+unknown>0
+          ? `<span class="mark-report"><span class="poison">毒×${disclosed.doku||0}</span>${S.cfg.gekiMarks?`<span class="geki">劇毒×${disclosed.geki||0}</span>`:''}<span class="iki">粋×${disclosed.iki||0}</span>${unknown?`<span>？×${unknown}</span>`:''}</span>`
+          : (nMarks>0 ? `<span class="badge" style="background:#8a8272;color:#fff">印×${nMarks}</span>` : '');
     // 第3案: 手持ちの印の残数は公開情報(何を置いたかは秘密でも「何回置いたか」は数えられる)
-    const stockBadge = (S.cfg.dokuStyle==='iki' && S.cfg.dokuOn) ? `<span class="badge">🎴印のこり×${(p.markStock||[]).length}</span>` : '';
+    const stockBadge = (S.cfg.dokuStyle==='iki' && S.cfg.dokuOn && firstHalf) ? `<span class="badge">印のこり×${(p.markStock||[]).length}</span>` : '';
     let kaishiSection;
     if(openFull){
       // v0.6(d): 全公開モードでは懐紙も表向きで、現在得点を全員ぶん常時表示する。
@@ -1471,33 +1814,29 @@ function renderAll(){
       // 得点は毒・粋(未開示の印の±)をのぞいた値を出す。全公開では余韻も廃止(=懐紙に直行)。
       const allT=Engine.tallyTypes(Engine.allTypesOf(p));
       const chips=TYPES4.concat(['wild']).filter(ty=>(ty==='wild'?allT.wild:allT[ty])>0)
-        .map(ty=>`<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}×${ty==='wild'?allT.wild:allT[ty]}</div></div>`)
-        .join('');
+        .map(ty=>{ const count=ty==='wild'?allT.wild:allT[ty];
+          return `<div class="owned-group">${cardHtml(ty,true,false,null)}<div class="owned-count">${TYPE_META[ty].label}×${count}</div></div>`;
+        }).join('');
       // 印つきカード: カード自体は卓に残り種類は公開(コマが乗っているだけ)。符号だけが秘密→❓を添えて別チップ
       // v0.7追記(kaiyo指示・2026-07-12/仮置き解釈38): 卓の人間が自分ひとり(nHuman=1)なら、この画面の観客は
       // 本人だけなので、自分の印チップは真の符号(☠️/✨)で描く。CPU・パス&プレイの他人には引き続き❓のまま。
       const selfMarkView = selfMarkVisible(i);
-      const markChips = selfMarkView
-        ? (()=>{ const g={};
-            (p.marks||[]).forEach(m=>{ const k=m.type+'|'+m.sign; g[k]=(g[k]||0)+1; });
-            return Object.entries(g)
-              .map(([k,n])=>{ const [ty,sign]=k.split('|'); const em=sign==='doku'?'☠️':'✨';
-                return `<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed;border-color:${sign==='doku'?'var(--bad)':'var(--good)'}"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}${em}×${n}</div></div>`; })
-              .join('');
-          })()
-        : Object.entries((()=>{ const g={}; (p.marks||[]).forEach(m=>{ g[m.type]=(g[m.type]||0)+1; }); return g; })())
-            .map(([ty,n])=>`<div class="gcard t-${ty} mini" style="width:auto;min-width:34px;padding:0 6px;border-style:dashed"><div class="em" style="font-size:14px">${TYPE_META[ty].emoji}❓×${n}</div></div>`)
-            .join('');
+      const markChips=(p.marks||[]).map(m=>`<div class="owned-group marked-card">${cardHtml(m.type,true,true,m.by)}<div class="owned-count">${selfMarkView?(m.sign==='doku'?'毒':'粋'):'印'}・${TYPE_META[m.type].label}</div></div>`).join('');
+      const normalSection=chips
+        ? `<div class="normal-column"><div class="normal-column-title">通常カード（種類別）</div><div class="normal-groups">${chips}</div></div>` : '';
+      const markedSection=markChips
+        ? `<div class="marked-column"><div class="marked-column-title">印つき（別集計）</div><div style="display:flex;gap:8px;flex-wrap:wrap">${markChips}</div></div>` : '';
+      const commonLadder=`<div class="common-ladder"><b>共通梯子</b>　2枚=1点　4枚=4点　6枚=8点　8枚=12点</div>`;
       const selfMarkNote = (selfMarkView && nMarks>0)
-        ? `<div class="mini2" style="margin-top:2px">🤫 ${myMarkParts(i).join(' ・ ')} ― 印の中身はあなたにだけ表示(カッコ内は仕込んだ人・ほかの人には❓のまま)</div>` : '';
+        ? `<div class="mini2" style="margin-top:2px">${myMarkParts(i).join(' ・ ')} ― 印の中身は本人だけに表示</div>` : '';
       // 表示得点は公開情報のみ(印つきカードの種類・±は拝見までノーカウント。符号漏洩防止)
       const dispScore = Engine.publicVisibleScore(p,S.cfg);
       const totalCards=Engine.allTypesOf(p).length+(p.dokuCount||0)+nMarks;
       kaishiSection=`
       <div class="mini2">取った菓子(公開) ${totalCards}枚</div>
-      <div class="rowcards" style="margin:4px 0 0">${(chips+markChips) || '<span class="hint">―</span>'}</div>
+      ${themeInfo}${shikiInfo}${commonLadder}<div class="rowcards owned-hand" style="margin:4px 0 0">${(normalSection+markedSection) || '<span class="hint">―</span>'}</div>
       ${selfMarkNote}
-      <div class="mini2" style="margin-top:4px">💯 現在得点(${nMarks>0?'❓印ぶんをのぞく・':''}参考・少食等は拝見時に確定): <b>${dispScore}</b></div>`;
+      <div class="mini2" style="margin-top:4px">現在得点(${nMarks>0?'印ぶんをのぞく・':''}参考・少食等は拝見時に確定): <b>${dispScore}</b></div>`;
     } else {
       // v0.4 枚数の公開(仮置き解釈21): ONなら懐紙の枚数と合計を表示、OFF(v0.3相当)なら懐紙は?枚
       const nMarksPhys = nMarks; // 印つきカードはmarksが持つ(懐紙とは別勘定)
@@ -1510,7 +1849,7 @@ function renderAll(){
       <div class="mini2">余韻(表向き・公開) ${yoinN}枚</div>
       <div class="rowcards" style="margin:4px 0 0">${yoinCards || '<span class="hint">―</span>'}</div>`;
     html+=`<div class="pl${isHost?' dealer':''}">
-      <div class="name"><span>${p.name}</span>${p.isCPU?'<span class="badge bot">BOT</span>':''}${memTag}${isHost?'<span class="badge dealer-badge">亭主</span>':''}${isSeikyaku?'<span class="badge" style="background:var(--accent2);color:#fff">正客</span>':''}${(S.cfg.reachThreshold&&S.reachLog.includes(i))?`<span class="badge" style="background:#8a8272;color:#fff">${S.cfg.reachThreshold}点済(${S.reachLog.indexOf(i)+1}番)</span>`:''}${dokuBadge}${markBadge}${stockBadge}</div>
+      <div class="name"><span style="display:inline-flex;align-items:center;gap:5px">${tokenHtml(i)}${p.name}</span>${p.isCPU?'<span class="badge bot">BOT</span>':''}${themeTag}${memTag}${isHost?'<span class="badge dealer-badge">亭主</span>':''}${isSeikyaku?'<span class="badge" style="background:var(--accent2);color:#fff">正客</span>':''}${(S.cfg.reachThreshold&&S.reachLog.includes(i))?`<span class="badge" style="background:#8a8272;color:#fff">${S.cfg.reachThreshold}点済(${S.reachLog.indexOf(i)+1}番)</span>`:''}${dokuBadge}${markBadge}${stockBadge}</div>
       ${kaishiSection}${yoinSection}
     </div>`;
   });
@@ -1522,7 +1861,7 @@ function cutPhase(){
   const hostIdx=S.sitting.hostIdx, host=S.players[hostIdx];
   if(host.isCPU){
     $('turnTitle').textContent=`${host.name}（亭主）が切っています…`;
-    $('actionBody').innerHTML='<div class="mask">🤔 切り方を考え中…</div>';
+    $('actionBody').innerHTML='<div class="mask">切り方を考えています…</div>';
     setTimeout(()=>{
       const cuts=Engine.hostChooseCut(S);
       const doku=Engine.hostChooseDoku(S,cuts);
@@ -1546,10 +1885,10 @@ function cutDokuLogTag(){
   if(S.cfg.dokuStyle==='iki'){
     if(S.sitting.dokuIdx==null) return '';
     const n=S.sitting.markList?S.sitting.markList.length:1;
-    return `（❓印を${n}つ仕込みました[${S.sitting.markPlacement}番目の亭主番]…中身は取った人だけが知る）`;
+    return `（印を${n}つ仕込みました［${S.sitting.markPlacement}番目の亭主番］…中身は取った人だけが知る）`;
   }
   if(S.sitting.dokuIdx==null) return '';
-  return S.cfg.dokuMode==='secret'?'（☠️どこかに毒を盛りました）':'（☠️毒を盛りました）';
+  return S.cfg.dokuMode==='secret'?'（どこかに毒を盛りました）':'（毒を盛りました）';
 }
 let dokuSel=null, markSel={};
 function renderCutUI(hostIdx){
@@ -1559,33 +1898,34 @@ function renderCutUI(hostIdx){
   $('turnTitle').textContent=`${S.players[hostIdx].name}（亭主）― 並び順を変えずに${S.players.length}つの山に切る`;
   const styleIki=S.cfg.dokuStyle==='iki';
   const hostStock=styleIki?(S.players[hostIdx].markStock||[]):[];
-  const markNeed=styleIki?Math.min(S.cfg.markEach,hostStock.length):0;
-  const stockLabel=hostStock.map(s=>s==='doku'?`☠️毒(${S.cfg.dokuValue})`:`✨粋(+${S.cfg.ikiValue})`).join('と');
+  const markNeed=styleIki?Math.min(2,hostStock.length):0;
+  const stockLabel=hostStock.map(s=>s==='doku'?`毒(${S.cfg.dokuValue})`:s==='geki'?`劇毒(${S.cfg.gekiValue})`:`粋(+${S.cfg.ikiValue})`).join('と');
   const dokuHint = !S.cfg.dokuOn ? ''
     : styleIki ? (hostStock.length
-        ? `手持ちの印は ${stockLabel}。カードの下のボタンで<b>${markNeed}個選んで必ず</b>伏せて置きます（どれを今使うかはあなた次第。残りは次の亭主番で）。位置は全員に公開されますが、中身は取った本人しか分かりません。`
+        ? `手持ちの印は ${stockLabel}。カードの下のボタンで<b>1〜${markNeed}個</b>を伏せて置きます（残りは次の亭主番へ）。位置は全員に公開されますが、中身は取った本人しか分かりません。`
         : '印は使い切りました（この席は置けません）。')
-    : (S.cfg.dokuMode==='secret'?'カードの下の「☠️」で毒を1枚置けます（任意・位置は秘密、「盛った」ことだけ公開）。':'カードの下の「☠️」で毒を1枚置けます（任意・全員に公開されます）。');
-  let html=`<div class="hint">カードの間の「切る」ボタンを${need}か所選んでください（選ぶと確定できます）。${dokuHint}</div><div class="rowcards">`;
+    : (S.cfg.dokuMode==='secret'?'カードの下のボタンで毒を1枚置けます（任意・位置は秘密、「盛った」ことだけ公開）。':'カードの下のボタンで毒を1枚置けます（任意・全員に公開されます）。');
+  let trayHtml='';
   const showMarkBtns=S.cfg.dokuOn && (!styleIki || hostStock.length>0);
   row.forEach((c,i)=>{
-    html+=`<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${cardHtml(c.type,false)}${showMarkBtns?`<button class="gapbtn" id="dokuToggle${i}">${styleIki?'印':'☠️'}</button>`:''}</div>`;
-    if(i<row.length-1) html+=`<button class="gapbtn" id="cutToggle${i}">切る</button>`;
+    trayHtml+=`<div style="display:flex;flex-direction:column;align-items:center;gap:2px">${cardHtml(c.type,false)}${showMarkBtns?`<button class="gapbtn" id="dokuToggle${i}">${styleIki?'印':'毒'}</button>`:''}</div>`;
+    if(i<row.length-1) trayHtml+=`<button class="gapbtn" id="cutToggle${i}">切る</button>`;
   });
-  html+=`</div><div class="row" style="margin-top:10px"><button id="cutConfirmBtn" disabled>この切り方に決めた</button>`;
-  if(S.cfg.selfKaishiView) html+=`<button class="ghost small" id="viewKaishiBtn">👀 自分の懐紙を見る</button>`;
+  $('rowArea').innerHTML=trayHtml;
+  let html=`<div class="hint">盆のカードの間にある「切る」を${need}か所選んでください。${dokuHint}</div><div class="row" style="margin-top:8px"><button id="cutConfirmBtn" disabled>この切り方に決めた</button>`;
+  if(S.cfg.selfKaishiView) html+=`<button class="ghost small" id="viewKaishiBtn">自分の懐紙を見る</button>`;
   html+=`</div>`;
   html+=scoreLineHtml(hostIdx); // v0.4: 現在得点トグル(本人の手番UI内のみ)
   html+=myMarksLineHtml(hostIdx); // v0.7追記(仮置き解釈38): パス&プレイでは手番UI内でだけ自分の印の中身を見せる
   $('actionBody').innerHTML=html;
-  // 確定可否: 切りがneedか所、かつiki型で在庫があれば印がmarkNeed個・在庫の範囲内で置かれていること(必置)
+  // 確定可否: 切りがneedか所、かつiki型で在庫があれば印を1〜2個・在庫の範囲内で置く(必置)
   const updateConfirm=()=>{
     let ok = cutSel.size===need;
     if(ok && S.cfg.dokuOn && styleIki && hostStock.length){
       const vals=Object.values(markSel).filter(v=>v!=null);
-      const nD=vals.filter(v=>v==='doku').length, nI=vals.filter(v=>v==='iki').length;
-      const sD=hostStock.filter(s=>s==='doku').length, sI=hostStock.filter(s=>s==='iki').length;
-      ok = vals.length===markNeed && nD<=sD && nI<=sI;
+      const nD=vals.filter(v=>v==='doku').length, nG=vals.filter(v=>v==='geki').length, nI=vals.filter(v=>v==='iki').length;
+      const sD=hostStock.filter(s=>s==='doku').length, sG=hostStock.filter(s=>s==='geki').length, sI=hostStock.filter(s=>s==='iki').length;
+      ok = vals.length>=1 && vals.length<=markNeed && nD<=sD && nG<=sG && nI<=sI;
     }
     $('cutConfirmBtn').disabled=!ok;
   };
@@ -1600,18 +1940,14 @@ function renderCutUI(hostIdx){
     for(let i=0;i<row.length;i++){
       $('dokuToggle'+i).onclick=()=>{
         if(styleIki){
-          // 手持ちの印の種類を 印なし→(☠️)→(✨)→印なし でサイクル。markNeed個そろい在庫内なら確定できる
+          // 手持ちの印の種類を 印なし→毒→劇毒→粋→印なし でサイクル。1〜2個なら確定できる
           const kinds=[...new Set(hostStock)];
           const cycle=[null].concat(kinds);
           const cur=markSel[i]===undefined?null:markSel[i];
           const next=cycle[(cycle.indexOf(cur)+1)%cycle.length];
-          if(markNeed===1 && next!==null){
-            // 1個モード(第3案)では他のカードの選択をクリアして付け替えを楽にする
-            Object.keys(markSel).forEach(k=>{ delete markSel[k]; const b2=$('dokuToggle'+k); if(b2){ b2.textContent='印'; b2.classList.remove('on'); } });
-          }
           if(next===null) delete markSel[i]; else markSel[i]=next;
           const b=$('dokuToggle'+i);
-          b.textContent = next===null?'印':(next==='doku'?'☠️':'✨');
+          b.textContent = next===null?'印':(next==='doku'?'毒':next==='geki'?'劇毒':'粋');
           b.classList.toggle('on', next!==null);
         } else {
           dokuSel = (dokuSel===i)? null : i;
@@ -1645,7 +1981,7 @@ function pickingPhase(i){
   const idx=order[i], p=S.players[idx];
   if(p.isCPU){
     $('turnTitle').textContent=`${p.name} が選んでいます…`;
-    $('actionBody').innerHTML='<div class="mask">🤔…</div>';
+    $('actionBody').innerHTML='<div class="mask">選んでいます…</div>';
     setTimeout(()=>{
       const k=Engine.cpuPickForIdx(S,idx);
       revealThenApply(idx,k,()=>pickingPhase(i+1));
@@ -1665,8 +2001,8 @@ function renderPickUI(idx,i){
   const p=S.players[idx];
   $('turnTitle').textContent=`${p.name} ― 欲しい山をひとつ選ぶ`;
   renderPiles(true);
-  let extra = S.cfg.selfKaishiView ? `<button class="ghost small" id="viewKaishiBtn">👀 自分の懐紙を見る</button>` : '';
-  $('actionBody').innerHTML=`<div class="hint">上の山から選んでクリックしてください。</div>
+  let extra = S.cfg.selfKaishiView ? `<button class="ghost small" id="viewKaishiBtn">自分の懐紙を見る</button>` : '';
+  $('actionBody').innerHTML=`<div class="hint">上の山をひとつ選びます。印の中身は、取った本人だけが確認できます。</div>
     <div class="row" style="margin-top:8px"><button id="pickConfirmBtn" disabled>この山に決めた</button>${extra}</div>
     ${scoreLineHtml(idx)}${myMarksLineHtml(idx)}`;
   S.sitting.piles.forEach((pl,k)=>{
@@ -1688,15 +2024,14 @@ function renderPickUI(idx,i){
   };
 }
 
-/* ---------- 一時公開→「見た」→懐紙へ（記憶ゲー最重要部）---------- */
+/* ---------- 獲得を即時反映（印だけは取った本人に確認画面を出す）---------- */
 function revealThenApply(idx,pileIdx,afterFn){
   const pile=S.sitting.piles[pileIdx];
-  const cardsHtml=pile.cards.map(c=>cardHtml(c.type,false,dokuVisible(c))).join('');
   const doApply=()=>{
     const reach=Engine.applyPick(S,idx,pileIdx);
     logTaken(S.players[idx].name,pile.cards.length);
-    if(pile.dokuCount && S.cfg.dokuStyle==='iki') log(`<span class="step">❓印</span>${S.players[idx].name} が印付きの菓子(×${pile.dokuCount})を受け取りました（中身は本人だけ確認・ほかの人には拝見で開示）`);
-    else if(pile.dokuCount && S.cfg.dokuMode==='open') log(`<span class="step bad">☠️毒</span>${S.players[idx].name} が毒を口にしました（拝見で${S.cfg.dokuValue}点）`);
+    if(pile.dokuCount && S.cfg.dokuStyle==='iki') log(`<span class="step">印</span>${S.players[idx].name} が印付きの菓子(×${pile.dokuCount})を受け取りました（中身は本人だけ確認・ほかの人には拝見で開示）`);
+    else if(pile.dokuCount && S.cfg.dokuMode==='open') log(`<span class="step bad">毒</span>${S.players[idx].name} が毒を口にしました（拝見で${S.cfg.dokuValue}点）`);
     if(reach) log(`<span class="step bad">宣言</span>${S.players[idx].name} が ${S.cfg.reachThreshold}点に到達しました（${reach.rank}番目）`);
     renderPiles(false);
     renderAll();
@@ -1707,20 +2042,7 @@ function revealThenApply(idx,pileIdx,afterFn){
       afterFn();
     }
   };
-  if(S.cfg.nHuman>0){
-    const noteTxt = S.cfg.openMode==='full'
-      ? '全員で確認したら押してください（このあとも懐紙に表向きで並び、見え続けます）'
-      : '全員で確認したら押してください（このあとは種類が記録に残りません）';
-    $('turnTitle').textContent=`${S.players[idx].name} が受け取った山（今だけ全員に公開）`;
-    $('actionBody').innerHTML=`<div class="mask"><div class="row" style="justify-content:center">${cardsHtml}</div>
-      <div class="hint" style="margin-top:8px">${noteTxt}</div>
-      <button id="sawBtn" style="margin-top:10px">👀 見た</button></div>`;
-    $('sawBtn').onclick=doApply;
-  } else {
-    $('turnTitle').textContent=`${S.players[idx].name} が受け取った山`;
-    $('actionBody').innerHTML=`<div class="mask">${cardsHtml}</div>`;
-    setTimeout(doApply, Math.max(120,S.cfg.cpuThink*0.4));
-  }
+  doApply();
 }
 
 /* v0.7試作: 取った印の中身を本人だけに見せる画面(パス&プレイは手渡しマスク経由)。
@@ -1731,23 +2053,27 @@ function showMarkPeek(idx,signs,cont){
   const placer=S.sitting.markPlacerIdx!=null?S.players[S.sitting.markPlacerIdx]:null;
   const doShow=()=>{
     const sc=Engine.scoreOf(p,S.cfg);
-    const line=signs.map(g=>g==='doku'?`☠️毒(${S.cfg.dokuValue}点)`:`✨粋(+${S.cfg.ikiValue}点)`).join(' と ');
+    const line=signs.map(g=>g==='doku'?`毒(${S.cfg.dokuValue}点)`:g==='geki'?`劇毒(${S.cfg.gekiValue}点)`:`粋(+${S.cfg.ikiValue}点)`).join(' と ');
     let deduce='';
     if(placer && placer.id!==idx){
-      const seen=(p.seenMarks||{})[placer.id]||{doku:0,iki:0};
-      const remD=Math.max(0,S.cfg.markEach-(seen.doku||0)), remI=Math.max(0,S.cfg.markEach-(seen.iki||0));
-      if(remD+remI===0) deduce=`${placer.name} の印はこれで全部見ました`;
-      else if(remD===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>✨粋×${remI}で確定</b>`;
-      else if(remI===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>☠️毒×${remD}で確定</b>`;
-      else deduce=`${placer.name} のまだ見ていない印の内訳: ☠️×${remD}・✨×${remI}（どれがどれかは不明）`;
+      const seen=(p.seenMarks||{})[placer.id]||{doku:0,geki:0,iki:0};
+      if(S.cfg.gekiMarks){
+        const remD=Math.max(0,1-(seen.doku||0)), remG=Math.max(0,1-(seen.geki||0)), remI=Math.max(0,1-(seen.iki||0));
+        if(remD+remG+remI===0) deduce=`${placer.name} の印はこれで全部見ました`;
+        else deduce=`${placer.name} のまだ見ていない印の内訳: 毒×${remD}・劇毒×${remG}・粋×${remI}（どれがどれかは不明）`;
+      } else {
+        const remD=Math.max(0,S.cfg.markEach-(seen.doku||0)), remI=Math.max(0,S.cfg.markEach-(seen.iki||0));
+        if(remD+remI===0) deduce=`${placer.name} の印はこれで全部見ました`;
+        else if(remD===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>粋×${remI}で確定</b>`;
+        else if(remI===0) deduce=`つまり ${placer.name} のまだ見ていない印は <b>毒×${remD}で確定</b>`;
+        else deduce=`${placer.name} のまだ見ていない印の内訳: 毒×${remD}・粋×${remI}（どれがどれかは不明）`;
+      }
     }
-    $('turnTitle').textContent=`${p.name} だけがこっそり確認`;
-    $('actionBody').innerHTML=`<div class="mask">
+    showPrivateModal(`<h2>${p.name} だけがこっそり確認</h2>
       <div style="font-size:16px">いま取った印は <b>${line}</b> でした${placer?`（仕込んだのは <b>${placer.name}</b>）`:''}</div>
       ${deduce?`<div class="hint" style="margin-top:6px">${deduce}</div>`:''}
-      <div class="hint" style="margin-top:8px">これまでの自分の印(カッコ内は仕込んだ人): ${myMarkParts(idx).join(' ・ ')||'―'}（☠️×${sc.markDoku}・✨×${sc.markIki}／印込みの参考得点: ${sc.total}点）<br>ほかの人には拝見まで秘密です</div>
-      <button id="markSeenBtn" style="margin-top:10px">🤫 見た（ここだけの話）</button></div>`;
-    $('markSeenBtn').onclick=cont;
+      <div class="hint" style="margin-top:8px">これまでの自分の印（カッコ内は仕込んだ人）: ${myMarkParts(idx).join(' ・ ')||'―'}（毒×${sc.markDoku}${S.cfg.gekiMarks?`・劇毒×${sc.markGeki}`:''}・粋×${sc.markIki}／印込みの参考得点: ${sc.total}点）<br>ほかの人には拝見まで秘密です</div>
+      <button id="markSeenBtn" style="margin-top:14px">確認した</button>`,cont);
   };
   if(S.cfg.nHuman>=2){
     $('turnTitle').textContent='';
@@ -1771,9 +2097,18 @@ function afterAllPicks(){
 function afterSitting(){
   // v0.5 非公開毒の開示(毎席・kaiyo指示)
   if(S.cfg.dokuMode==='secret' && S.lastDokuReveal){
-    log(`<span class="step bad">☠️開示</span>この席の毒は ${S.players[S.lastDokuReveal.idx].name} が口にしていました（拝見で${S.cfg.dokuValue}点）`);
+    log(`<span class="step bad">開示</span>この席の毒は ${S.players[S.lastDokuReveal.idx].name} が口にしていました（拝見で${S.cfg.dokuValue}点）`);
   } else if(S.cfg.dokuMode==='secret' && S.sitting && S.sitting.dokuIdx==null){
-    log(`<span class="step">☠️開示</span>この席に毒はありませんでした`);
+    log(`<span class="step">開示</span>この席に毒はありませんでした`);
+  }
+  // 初座終了時（中立ち）に、その時点までに判明した毒/劇毒/粋の数だけ公開する。
+  // 後座開始後はこのスナップショットを固定し、新たに取った印を「?」で表示する。
+  if(S.sittingIndex===S.players.length && !S.markDisclosure){
+    S.markDisclosure=S.players.map(p=>({
+      doku:(p.reportedMarks&&p.reportedMarks.doku)||0,
+      geki:(p.reportedMarks&&p.reportedMarks.geki)||0,
+      iki:(p.reportedMarks&&p.reportedMarks.iki)||0
+    }));
   }
   renderAll();
   // v0.4 譲り合いの正客: 次席の正客をログと画面に出す(枚数のみ・種類は出さない)
@@ -1791,9 +2126,16 @@ function afterSitting(){
     setTimeout(finish,500);
     return;
   }
+  if(S.sittingIndex===S.players.length){
+    $('turnTitle').innerHTML='<span class="v8-phase">中立ち</span>　小休止';
+    $('actionBody').innerHTML=`<div class="midbreak"><div style="font-size:18px">ひと息つきましょう</div><div class="hint" style="margin-top:6px">初座が終わりました。ここから後座は亭主の順番が折り返します。</div><button id="nextSittingBtn" style="margin-top:12px">後座へ進む</button></div>`;
+    $('tableState').innerHTML='<span class="v8-pill good">中立ち</span><span class="v8-pill">後座は逆回り</span><span class="v8-pill">ここで盤面を確認できます</span>';
+    $('nextSittingBtn').onclick=beginSitting;
+    return;
+  }
   $('turnTitle').textContent=`席 ${S.sittingIndex}/${S.totalSittings} が終わりました`;
   if(S.cfg.nHuman>0){
-    $('actionBody').innerHTML='<div class="mask"><button id="nextSittingBtn">次の席へ ▶</button></div>';
+    $('actionBody').innerHTML='<div class="mask"><button id="nextSittingBtn">次の席へ</button></div>';
     $('nextSittingBtn').onclick=beginSitting;
   } else {
     $('actionBody').innerHTML='<div class="mask">（観戦モード）自動で進みます…</div>';
@@ -1812,10 +2154,10 @@ function showKaishiOverlay(idx,returnFn){
     let html='<div class="mask"><table class="rules" style="margin:0 auto;max-width:320px">';
     TYPES4.forEach(ty=>{
       const hanpa = sc.hanpaTypes.includes(ty) ? `<span style="color:var(--bad)">（半端${S.cfg.hanpaPenalty}）</span>` : '';
-      html+=`<tr><td>${TYPE_META[ty].emoji}${TYPE_META[ty].label}</td><td>${t[ty]}枚${hanpa}</td></tr>`;
+    html+=`<tr><td>${TYPE_META[ty].label}</td><td>${t[ty]}枚${hanpa}</td></tr>`;
     });
-    html+=`<tr><td>${TYPE_META.wild.emoji}四季</td><td>${t.wild}枚（拝見時に半端減点も込みで一番得する菓子に自動で割り振ります）</td></tr>`;
-    html+=`</table><div class="hint" style="margin-top:8px">今の内容だけで見た参考得点（懐紙＋余韻ゾーン・拝見時のワイルド最適配分＆半端減点込み）: ${sc.total}点${sc.markCount?`（うち印 ${myMarkParts(idx).join(' ・ ')}=☠️×${sc.markDoku}・✨×${sc.markIki}で${sc.markTotal>0?'+':''}${sc.markTotal}点。取った本人だけが知る情報です）`:''}</div>
+    html+=`<tr><td>四季</td><td>${t.wild}枚（拝見時に半端減点も込みで一番得する菓子に自動で割り振ります）</td></tr>`;
+    html+=`</table><div class="hint" style="margin-top:8px">今の内容だけで見た参考得点（懐紙＋余韻ゾーン・拝見時のワイルド最適配分＆半端減点込み）: ${sc.total}点${sc.markCount?`（うち印 ${myMarkParts(idx).join(' ・ ')}=毒×${sc.markDoku}${S.cfg.gekiMarks?`・劇毒×${sc.markGeki}`:''}・粋×${sc.markIki}で${sc.markTotal>0?'+':''}${sc.markTotal}点。取った本人だけが知る情報です）`:''}</div>
       <div class="row" style="margin-top:10px;justify-content:center"><button id="closeKaishiBtn">閉じる</button></div></div>`;
     $('actionBody').innerHTML=html;
     $('closeKaishiBtn').onclick=returnFn;
@@ -1835,13 +2177,16 @@ function finish(){
   const scores=Engine.finalScores(S);
   const ranked=scores.slice().sort((a,b)=>b.total-a.total);
   const winnerId=Engine.winnerIdx(S); // 1位タイはランダムに1人だけ王冠(表示上の演出。同点は同点表示のまま)
-  let html='<h2>🍵 拝見 ― 結果</h2>';
+  let html='<h2>拝見 ― 結果</h2>';
   // v0.7試作(iki型): 拝見で初めて印の符号を開示する
   if(S.cfg.dokuStyle==='iki'){
-    const revealLines=scores.filter(s=>s.markCount).map(s=>`${s.name}: ☠️毒×${s.markDoku}・✨粋×${s.markIki}(計${s.markTotal>0?'+':''}${s.markTotal}点)`);
-    html+=`<div class="hint" style="margin-bottom:8px">❓印の開示 ― ${revealLines.length?revealLines.join(' ／ '):'誰も印を取りませんでした'}</div>`;
+    const revealLines=scores.filter(s=>s.markCount).map(s=>S.cfg.gekiMarks
+      ? `${s.name}: 毒×${s.markDoku}(${s.markDoku*(S.cfg.dokuValue||0)}点)・劇毒×${s.markGeki}(${s.markGeki*(S.cfg.gekiValue||0)}点)・粋×${s.markIki}(+${s.markIki*(S.cfg.ikiValue||0)}点)`
+      : `${s.name}: 毒×${s.markDoku}(${s.dokuTotal}点)・粋×${s.markIki}(+${s.markIki*(S.cfg.ikiValue||0)}点)`);
+    html+=`<div class="hint" style="margin-bottom:8px">印の開示 ― ${revealLines.length?revealLines.join(' ／ '):'誰も印を取りませんでした'}</div>`;
   }
-  html+=`<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>🌸</th><th>💧</th><th>🌰</th><th>🌺</th><th>🍃</th><th>${S.cfg.dokuStyle==='iki'?'❓印':'☠️毒'}</th><th>枚数</th><th>少食</th><th>得点</th></tr>`;
+  const shikiEnabled=S.cfg.v9 && S.cfg.shikiBonus>0;
+  html+=`<table class="res"><tr><th>順位</th><th>プレイヤー</th><th>桜餅</th><th>水羊羹</th><th>栗きんとん</th><th>椿餅</th><th>四季</th><th>${S.cfg.dokuStyle==='iki'?'印':'毒'}</th><th>枚数</th><th>テーマ</th>${shikiEnabled?'<th>四季ボーナス</th>':''}<th>得点</th></tr>`;
   const cell=(s,ty)=>{
     const allocTxt = s.alloc[ty] ? ('+'+s.alloc[ty]) : '';
     const hanpaTxt = s.hanpaTypes.includes(ty) ? `<br><span style="color:var(--bad);font-size:10px">半端${S.cfg.hanpaPenalty}</span>` : '';
@@ -1851,14 +2196,18 @@ function finish(){
     html+=`<tr><td>${i+1}</td><td>${s.name}${s.id===winnerId?' 👑':''}</td>
       ${cell(s,'sakura')}${cell(s,'mizu')}${cell(s,'kuri')}${cell(s,'tsubaki')}
       <td>${s.wild}</td>
-      <td>${s.dokuCount?`<b style="color:var(--bad)">${s.dokuTotal}</b>(×${s.dokuCount})`:''}${s.markCount?`${s.markDoku?`<b style="color:var(--bad)">☠️×${s.markDoku}(${s.markDoku*(S.cfg.dokuValue||0)})</b>`:''}${s.markIki?` <b style="color:var(--good)">✨×${s.markIki}(+${s.markIki*(S.cfg.ikiValue||0)})</b>`:''}`:''}${s.reachTax?`<br><span style="font-size:10px">到達税${s.reachTax}</span>`:''}</td>
+      <td>${s.markCount?`${s.markDoku?`<b style="color:var(--bad)">毒×${s.markDoku}(${S.cfg.gekiMarks?s.markDoku*(S.cfg.dokuValue||0):s.dokuTotal})</b>`:''}${S.cfg.gekiMarks&&s.markGeki?` <b style="color:#7d1f1f">劇毒×${s.markGeki}(${s.markGeki*(S.cfg.gekiValue||0)})</b>`:''}${s.markIki?` <b style="color:var(--good)">粋×${s.markIki}(+${s.markIki*(S.cfg.ikiValue||0)})</b>`:''}`:''}${s.reachTax?`<br><span style="font-size:10px">到達税${s.reachTax}</span>`:''}</td>
       <td>${s.cardCount}</td>
-      <td>${s.shoshoku?`<b style="color:var(--good)">+${S.cfg.shoshokuBonus}</b>`:''}</td>
+      <td>${s.theme?`${TYPE_META[s.theme].label} ${s.themeCount}枚<br><b>+${s.themeBonus||0}</b>`:'―'}</td>
+      ${shikiEnabled?`<td>${s.shiki?`<b style="color:var(--good)">+${S.cfg.shikiBonus}</b>`:'―'}</td>`:''}
       <td><b>${s.total}</b></td></tr>`;
   });
   html+='</table>';
   const diff=ranked.length>1?(ranked[0].total-ranked[1].total):0;
-  html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度） ／ 席数：<b>${S.sittingIndex}</b>/${S.totalSittings} ／ 山札残：${S.deck.length}枚 ／ ${S.cfg.dokuStyle==='iki'?`毒${S.cfg.dokuValue}点・粋+${S.cfg.ikiValue}点(伏せ置き)`:`毒は1つ${S.cfg.dokuValue}点`} ／ 少食ボーナスは合計枚数最少の人に+${S.cfg.shoshokuBonus}点(同数最少は全員)${S.cfg.hanpaPenalty?` ／ 半端減点${S.cfg.hanpaPenalty}点/種`:''}${(S.cfg.reachTaxFirst||S.cfg.reachTaxMid)?` ／ 到達税 最初${S.cfg.reachTaxFirst}・あいだ${S.cfg.reachTaxMid}`:''}</div>`;
+  const markRule=S.cfg.gekiMarks
+    ? `印は毒${S.cfg.dokuValue||0}・劇毒${S.cfg.gekiValue||0}・粋+${S.cfg.ikiValue||0}の額面合計`
+    : `毒は1毒−2・2毒−4・3毒−7(4毒以降は同傾き)・粋+${S.cfg.ikiValue||0}`;
+  html+=`<div class="foot">1位と2位の差：<b>${diff}</b>点（接戦度） ／ 席数：<b>${S.sittingIndex}</b>/${S.totalSittings} ／ 山札残：${S.deck.length}枚 ／ ${markRule} ／ 少食ボーナスは合計枚数最少の人に+${S.cfg.shoshokuBonus}点(同数最少は全員)${S.cfg.hanpaPenalty?` ／ 半端減点${S.cfg.hanpaPenalty}点/種`:''}${(S.cfg.reachTaxFirst||S.cfg.reachTaxMid)?` ／ 到達税 最初${S.cfg.reachTaxFirst}・あいだ${S.cfg.reachTaxMid}`:''}</div>`;
   html+=`<div class="row" style="margin-top:14px"><button id="againBtn">同じ設定でもう1戦</button><button class="ghost" id="setupBtn2">設定を変える</button></div>`;
   const r=$('result'); r.innerHTML=html; r.classList.remove('hidden');
   $('againBtn').onclick=startGame;
@@ -1885,10 +2234,10 @@ $('openMode').onchange=()=>{
 $('dokuStyle').onchange=()=>{
   const iki = $('dokuStyle').value==='iki';
   $('ikiValRow').classList.toggle('hidden', !iki);
-  if(iki && +$('shoshokuBonus').value===0) $('shoshokuBonus').value=4;
-  if(!iki && +$('shoshokuBonus').value===4) $('shoshokuBonus').value=0;
+  if(iki && +$('shoshokuBonus').value===0) $('shoshokuBonus').value=5;
+  if(!iki && +$('shoshokuBonus').value===5) $('shoshokuBonus').value=0;
 };
-const DEF={nHuman:1,nCpu:3,shikiCount:4,seatSize:7,hostRounds:2,cpuThink:700,shoshokuBonus:0,reachThreshold:10};
+const DEF={nHuman:1,nCpu:3,shikiCount:0,seatSize:7,hostRounds:2,cpuThink:700,shoshokuBonus:5,reachThreshold:10};
 $('resetDefaults').onclick=()=>{
   Object.entries(DEF).forEach(([k,v])=>$(k).value=v);
   $('selfKaishiView').checked=true;
@@ -1898,12 +2247,15 @@ $('resetDefaults').onclick=()=>{
   $('yuzuriai').checked=false;
   $('countPublic').checked=true;
   $('dokuMode').value='open';
-  $('dokuStyle').value='plain';
+  $('dokuStyle').value='iki';
+  $('gekiMarks').checked=true;
   $('dokuValueIn').value=-2;
+  $('gekiValueIn').value=-3;
   $('ikiValueIn').value=1;
   $('markEach').value='2';
-  $('ikiValRow').classList.add('hidden');
+  $('ikiValRow').classList.remove('hidden');
   $('openMode').value='full';
+  $('themeOpen').checked=false;
   $('memoryOnlyRow').classList.add('hidden');
 };
 
