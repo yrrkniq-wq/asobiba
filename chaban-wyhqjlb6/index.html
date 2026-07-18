@@ -10,7 +10,7 @@
 <!--
   ちゃばん オンライン対戦版（ゲームID: chaban・v0.9.2確定版準拠・全公開固定）
   【v0.9.3移植】ローカル正本 ちゃばん_プロトタイプ_v0.9.3.html のEngineを完全同期。劇毒（毒1・劇毒1・粋1の額面清算）へ追従。
-  【v0.9.3a 検証時修正(Claude)】v0.9.1aの非v9ガード2行がEngine転写で欠落→再適用（ソロ正本とのbyte一致維持のため。オンラインはv9固定につき挙動影響なし）。
+  【v0.9.3a 検証時修正(Claude)】v0.9.1aの非v9ガード2行が更新のたびに欠落するため再適用（ソロ正本とのbyte一致維持・オンラインはv9固定につき挙動影響なし）。
   【2026-07-16 v0.9.2移植】ローカル正本 ちゃばん_プロトタイプ_v0.9.2.html のEngineをそのまま丸ごと移植
   （教訓「確定核のマージはCPU評価系の移植漏れを疑う」対策として、選択的な差分適用ではなくEngineブロック全体を置き換え）。
   確定ルール: 共通梯子(1/4/8/12・種類別ボーダーB2)＋テーマカード(v9・公開固定=themeOpen:true)＋
@@ -108,6 +108,42 @@
   input.txt2{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:16px;width:230px}
   .err{color:var(--bad);font-size:13px;font-weight:700}
   .badge.ok{background:var(--good);color:#fff}
+  /* ソロ版と同じ卓ビュー: 中央の盆を4方向のプレイヤー席で囲み、ゲーム中の縦スクロールを抑える。 */
+  @media (min-width:1100px){
+    .wrap{max-width:1440px;padding:10px 16px}
+    #game:not(.hidden){height:calc(100vh - 65px);overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:8px}
+    #banner{margin:0;padding:7px 12px}
+    #tabletop{min-height:0;padding:10px;display:grid;gap:10px;align-items:stretch;grid-template-columns:minmax(220px,.72fr) minmax(440px,1.5fr) minmax(220px,.72fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top top" "left center right" "bottom bottom bottom";border:1px solid var(--line);border-radius:20px;background:radial-gradient(ellipse at center,#fffdf7 0,#f7f0df 68%,#eee3cc 100%);box-shadow:inset 0 0 0 9px rgba(255,255,255,.35)}
+    #tabletop .card-panel{margin:0;min-width:0}
+    #actionPanel{grid-area:center;min-height:0;overflow:visible;padding:12px}
+    #actionPanel h2{margin-bottom:5px}
+    #actionPanel .rowcards{margin:3px 0 5px;padding:4px 3px 6px;gap:6px}
+    #actionPanel .rowcards>.gcard,#actionPanel .rowcards>div>.gcard{width:76px;height:76px;border-radius:9px}
+    #actionPanel .piles{justify-content:center;gap:7px;margin-top:5px}
+    #actionPanel .pilebox{min-width:98px;padding:5px;border-radius:9px}
+    #actionPanel .pilebox .gcard{width:70px;height:70px}
+    #actionPanel .pilebox .sum{font-size:13px}
+    #playersPanel{display:contents}
+    #playersPanel>h2{display:none}
+    #playersPanel .players{display:contents}
+    #playersPanel .pl{position:static;min-width:0;max-height:none;overflow:visible;padding:9px 11px;box-shadow:0 3px 10px rgba(90,70,35,.12);background:rgba(255,253,247,.98)}
+    #playersPanel .pl:nth-child(1){grid-area:top}
+    #playersPanel .pl:nth-child(2){grid-area:right}
+    #playersPanel .pl:nth-child(3){grid-area:bottom}
+    #playersPanel .pl:nth-child(4){grid-area:left}
+    #playersPanel .mini2{margin-top:2px;font-size:12px}
+    #playersPanel .rowcards{gap:4px;margin:3px 0;max-height:66px;overflow:hidden}
+    #playersPanel .gcard{width:42px;height:48px}
+    #playersPanel .gcard.mini{width:36px;height:42px}
+    #tableToolbar{display:flex;align-items:center;gap:8px;min-width:0}
+    #scorePanel{position:relative;margin:0;padding:5px 9px;background:rgba(255,253,247,.96)}
+    #logPanel{position:relative;flex:1;min-width:150px;margin:0;padding:5px 8px;background:rgba(255,253,247,.96)}
+    #scorePanel h2,#logPanel summary{font-size:13px;margin:0;cursor:pointer}
+    #scorePanel .hint{font-size:11px}
+    #refPanel:not(.hidden){position:absolute;z-index:8;left:0;bottom:calc(100% + 7px);width:min(720px,68vw);max-height:65vh;overflow:auto;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 10px 28px rgba(60,40,10,.2)}
+    #logPanel .log{position:absolute;z-index:8;left:0;bottom:calc(100% + 7px);width:min(520px,60vw);height:180px;padding:8px;font-size:11px;background:var(--panel);box-shadow:0 10px 28px rgba(60,40,10,.2)}
+    #logPanel:not([open]) .log{display:none}
+  }
 </style>
 </head>
 <body>
@@ -162,22 +198,26 @@
 
   <div id="game" class="hidden">
     <div id="banner" class="banner"></div>
-    <div class="card-panel" id="actionPanel">
-      <h2>盆 <span class="hint" id="drawInfo"></span></h2>
-      <div class="rowcards" id="rowArea"></div>
-      <div class="piles hidden" id="pileArea"></div>
-      <h2 id="turnTitle" style="margin-top:14px"></h2>
-      <div id="actionBody"></div>
+    <div id="tabletop">
+      <div class="card-panel" id="actionPanel">
+        <h2>盆 <span class="hint" id="drawInfo"></span></h2>
+        <div class="rowcards" id="rowArea"></div>
+        <div class="piles hidden" id="pileArea"></div>
+        <h2 id="turnTitle" style="margin-top:14px"></h2>
+        <div id="actionBody"></div>
+      </div>
+      <div class="card-panel" id="playersPanel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
     </div>
-    <div class="card-panel"><h2>プレイヤー</h2><div class="players" id="players"></div></div>
-    <div class="card-panel">
-      <h2>点数表
-        <button class="ghost small" id="refBtn">開く</button>
-        <span class="hint" style="margin-left:14px">全員の現在得点はプレイヤー欄に常時表示されています（❓印ぶんはのぞく）</span>
-      </h2>
-      <div id="refPanel" class="hidden"></div>
+    <div id="tableToolbar">
+      <div class="card-panel" id="scorePanel">
+        <h2>点数表
+          <button class="ghost small" id="refBtn">開く</button>
+          <span class="hint" style="margin-left:14px">現在得点はプレイヤー欄に表示（❓印ぶんを除く）</span>
+        </h2>
+        <div id="refPanel" class="hidden"></div>
+      </div>
+      <details class="card-panel" id="logPanel"><summary>ログ（印の中身は記録しません）</summary><div class="log" id="log"></div></details>
     </div>
-    <div class="card-panel"><h2>ログ(印の中身は記録しません)</h2><div class="log" id="log"></div></div>
   </div>
 
   <div id="result" class="hidden card-panel"></div>
